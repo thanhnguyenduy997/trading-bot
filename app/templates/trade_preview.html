@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Trade Preview</h1>
+            <p class="muted">Preview a two-order setup using placeholder quotes and risk sizing.</p>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form action="/trade-setups/preview" method="post" class="stack preview-form">
+        <label>
+            Trading account
+            <select name="trading_account_id" required>
+                {% for account in accounts %}
+                <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
+                    {{ account.broker_name }} / {{ account.account_number }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Symbol
+            <select name="symbol" required>
+                {% for item in ["XAUUSD", "EURUSD"] %}
+                <option value="{{ item }}" {% if form_data.symbol == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Side
+            <select name="side" required>
+                {% for item in ["buy", "sell"] %}
+                <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Stop loss price
+            <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
+        </label>
+        <label>
+            Risk mode
+            <select name="risk_mode" required>
+                {% for item in ["fixed_money", "balance_percent"] %}
+                <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Risk value
+            <input type="number" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
+        </label>
+        <label>
+            RR order 2
+            <input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
+        </label>
+        <button type="submit">Preview Setup</button>
+    </form>
+</section>
+
+{% if preview %}
+<section class="card results-card">
+    <h2>Preview Result</h2>
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>Symbol</th><td>{{ preview.symbol }}</td></tr>
+            <tr><th>Side</th><td>{{ preview.side|upper }}</td></tr>
+            <tr><th>Estimated entry</th><td>{{ preview.estimated_entry }}</td></tr>
+            <tr><th>Stop loss</th><td>{{ preview.sl_price }}</td></tr>
+            <tr><th>R value</th><td>{{ preview.r_value }}</td></tr>
+            <tr><th>Order 1 TP</th><td>{{ preview.tp1_price }}</td></tr>
+            <tr><th>Order 2 TP</th><td>{{ preview.tp2_price }}</td></tr>
+            <tr><th>Total risk</th><td>{{ preview.total_risk_money }}</td></tr>
+            <tr><th>Risk per order</th><td>{{ preview.risk_per_order }}</td></tr>
+            <tr><th>Order 1 volume</th><td>{{ preview.order1_volume }}</td></tr>
+            <tr><th>Order 2 volume</th><td>{{ preview.order2_volume }}</td></tr>
+            <tr><th>Status</th><td>{{ preview.validation_status }}</td></tr>
+            <tr><th>Warnings</th><td>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</td></tr>
+        </tbody>
+    </table>
+</section>
+{% endif %}
+{% endblock %}
