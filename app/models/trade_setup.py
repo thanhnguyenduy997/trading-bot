@@ -43,4 +43,4 @@ class TradeSetup(Base):
 
     owner = relationship("User", back_populates="trade_setups")
     trading_account = relationship("TradingAccount", back_populates="trade_setups")
-    events = relationship("TradeEvent", back_populates="trade_setup", cascade="all, delete-orphan")
+    events = relationship("TradeEvent", back_populates="setup", cascade="all, delete-orphan")

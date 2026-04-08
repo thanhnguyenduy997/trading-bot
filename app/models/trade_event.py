@@ -11,7 +11,7 @@ class TradeEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    trade_setup_id: Mapped[int] = mapped_column(
+    setup_id: Mapped[int] = mapped_column(
         ForeignKey("trade_setups.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -21,4 +21,4 @@ class TradeEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     owner = relationship("User", back_populates="trade_events")
-    trade_setup = relationship("TradeSetup", back_populates="events")
+    setup = relationship("TradeSetup", back_populates="events")

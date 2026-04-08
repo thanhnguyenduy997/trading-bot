@@ -60,7 +60,7 @@ class TradeEventRead(BaseModel):
 
     id: int
     user_id: int
-    trade_setup_id: int
+    setup_id: int
     event_type: str
     message: str | None
     created_at: datetime

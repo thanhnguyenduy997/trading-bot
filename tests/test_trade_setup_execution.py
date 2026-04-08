@@ -148,7 +148,7 @@ def test_event_creation_on_execution_attempt(client, db_session, created_user, a
     assert response.status_code == 503
     events = (
         db_session.query(TradeEvent)
-        .filter(TradeEvent.trade_setup_id == setup.id)
+        .filter(TradeEvent.setup_id == setup.id)
         .order_by(TradeEvent.id.asc())
         .all()
     )
