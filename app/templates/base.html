@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title or "Trading Web App" }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="brand">Trading Web App</div>
+        {% if user %}
+        <nav class="nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/trading-accounts">Trading Accounts</a>
+            <form action="/api/auth/logout" method="post">
+                <button type="submit" class="link-button">Logout</button>
+            </form>
+        </nav>
+        {% endif %}
+    </header>
+    <main class="page-shell">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

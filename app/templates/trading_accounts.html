@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <h1>Trading Accounts</h1>
+        <a href="/trading-accounts/new" class="button-link">Add Account</a>
+    </div>
+    {% if accounts %}
+    <table class="accounts-table">
+        <thead>
+            <tr>
+                <th>Broker</th>
+                <th>Account Number</th>
+                <th>Server</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in accounts %}
+            <tr>
+                <td>{{ account.broker_name }}</td>
+                <td>{{ account.account_number }}</td>
+                <td>{{ account.server_name }}</td>
+                <td>{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No trading accounts added yet.</p>
+    {% endif %}
+</section>
+{% endblock %}
