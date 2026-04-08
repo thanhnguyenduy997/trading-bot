@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Trading Account {{ account.account_number }}</h1>
+            <p class="muted">MT5 adapter health and quote checks for this account.</p>
+        </div>
+        <a class="button-link" href="/trading-accounts">Back to Accounts</a>
+    </div>
+
+    <div id="account-action-error" class="alert alert-error" {% if not error %}hidden{% endif %}>{{ error or "" }}</div>
+
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>Broker</th><td>{{ account.broker_name }}</td></tr>
+            <tr><th>Platform</th><td>{{ account.platform }}</td></tr>
+            <tr><th>Server</th><td>{{ account.server_name }}</td></tr>
+            <tr><th>Terminal path</th><td>{{ account.terminal_path or "Not set" }}</td></tr>
+            <tr><th>Connection status</th><td>{{ account.connection_status }}</td></tr>
+            <tr><th>Last heartbeat</th><td>{{ account.last_heartbeat_at or "Never" }}</td></tr>
+            <tr><th>Last error</th><td>{{ account.last_error or "None" }}</td></tr>
+        </tbody>
+    </table>
+
+    <div class="action-grid">
+        <form id="test-connection-form" action="/api/trading-accounts/{{ account.id }}/test-connection" method="post" class="stack">
+            <button type="submit">Test Connection</button>
+        </form>
+        <form id="quote-form" action="/api/trading-accounts/{{ account.id }}/quote" method="get" class="stack">
+            <label>
+                Quote symbol
+                <select id="quote-symbol" name="symbol" required>
+                    {% for item in ["XAUUSD", "EURUSD"] %}
+                    <option value="{{ item }}">{{ item }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit">Get Quote</button>
+        </form>
+    </div>
+</section>
+
+<section id="connection-result-card" class="card results-card" {% if not (connection_result and connection_result.success) %}hidden{% endif %}>
+    <h2>Connection Result</h2>
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>Status</th><td id="connection-status">{{ connection_result.connection_status if connection_result else "" }}</td></tr>
+            <tr><th>Last heartbeat</th><td id="connection-heartbeat">{{ connection_result.last_heartbeat_at if connection_result else "" }}</td></tr>
+            <tr><th>Login</th><td id="connection-login">{{ connection_result.account_info.login if connection_result and connection_result.account_info else "" }}</td></tr>
+            <tr><th>Server</th><td id="connection-server">{{ connection_result.account_info.server if connection_result and connection_result.account_info else "" }}</td></tr>
+            <tr><th>Balance</th><td id="connection-balance">{{ connection_result.account_info.balance if connection_result and connection_result.account_info else "" }}</td></tr>
+            <tr><th>Equity</th><td id="connection-equity">{{ connection_result.account_info.equity if connection_result and connection_result.account_info else "" }}</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section id="quote-result-card" class="card results-card" {% if not quote_result %}hidden{% endif %}>
+    <h2>Quote Result</h2>
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>Symbol</th><td id="quote-symbol-value">{{ quote_result.symbol if quote_result else "" }}</td></tr>
+            <tr><th>Bid</th><td id="quote-bid">{{ quote_result.bid if quote_result else "" }}</td></tr>
+            <tr><th>Ask</th><td id="quote-ask">{{ quote_result.ask if quote_result else "" }}</td></tr>
+            <tr><th>Connection status</th><td id="quote-status">{{ quote_result.connection_status if quote_result else "" }}</td></tr>
+            <tr><th>Last heartbeat</th><td id="quote-heartbeat">{{ quote_result.last_heartbeat_at if quote_result else "" }}</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<script>
+    const errorBox = document.getElementById("account-action-error");
+    const connectionCard = document.getElementById("connection-result-card");
+    const quoteCard = document.getElementById("quote-result-card");
+
+    function showError(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+    }
+
+    function clearError() {
+        errorBox.textContent = "";
+        errorBox.hidden = true;
+    }
+
+    document.getElementById("test-connection-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearError();
+
+        const response = await fetch(event.currentTarget.action, {
+            method: "POST",
+            credentials: "same-origin",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showError(data.detail?.message || data.detail?.last_error || "Connection test failed.");
+            return;
+        }
+
+        document.getElementById("connection-status").textContent = data.connection_status ?? "";
+        document.getElementById("connection-heartbeat").textContent = data.last_heartbeat_at ?? "";
+        document.getElementById("connection-login").textContent = data.account_info?.login ?? "";
+        document.getElementById("connection-server").textContent = data.account_info?.server ?? "";
+        document.getElementById("connection-balance").textContent = data.account_info?.balance ?? "";
+        document.getElementById("connection-equity").textContent = data.account_info?.equity ?? "";
+        connectionCard.hidden = false;
+    });
+
+    document.getElementById("quote-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearError();
+
+        const symbol = document.getElementById("quote-symbol").value;
+        const requestUrl = `${event.currentTarget.action}?symbol=${encodeURIComponent(symbol)}`;
+        const response = await fetch(requestUrl, {
+            method: "GET",
+            credentials: "same-origin",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showError(data.detail?.message || data.detail?.last_error || "Quote retrieval failed.");
+            return;
+        }
+
+        document.getElementById("quote-symbol-value").textContent = data.symbol ?? "";
+        document.getElementById("quote-bid").textContent = data.bid ?? "";
+        document.getElementById("quote-ask").textContent = data.ask ?? "";
+        document.getElementById("quote-status").textContent = data.connection_status ?? "";
+        document.getElementById("quote-heartbeat").textContent = data.last_heartbeat_at ?? "";
+        quoteCard.hidden = false;
+    });
+</script>
+{% endblock %}

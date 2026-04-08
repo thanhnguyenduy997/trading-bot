@@ -15,3 +15,5 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     trading_accounts = relationship("TradingAccount", back_populates="owner", cascade="all, delete-orphan")
+    trade_setups = relationship("TradeSetup", back_populates="owner", cascade="all, delete-orphan")
+    trade_events = relationship("TradeEvent", back_populates="owner", cascade="all, delete-orphan")

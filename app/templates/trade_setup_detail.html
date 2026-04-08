@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Trade Setup #{{ setup.id }}</h1>
+            <p class="muted">Saved setup detail for review before future execution features.</p>
+        </div>
+        <a class="button-link" href="/trade-setups">Back to Setups</a>
+    </div>
+
+    {% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>ID</th><td>{{ setup.id }}</td></tr>
+            <tr><th>Trading account</th><td>{{ setup.trading_account_id }}</td></tr>
+            <tr><th>Symbol</th><td>{{ setup.symbol }}</td></tr>
+            <tr><th>Side</th><td>{{ setup.side|upper }}</td></tr>
+            <tr><th>Stop loss</th><td>{{ setup.sl_price }}</td></tr>
+            <tr><th>Risk mode</th><td>{{ setup.risk_mode }}</td></tr>
+            <tr><th>Risk value</th><td>{{ setup.risk_value }}</td></tr>
+            <tr><th>RR order 2</th><td>{{ setup.rr_order2 }}</td></tr>
+            <tr><th>Estimated entry</th><td>{{ setup.estimated_entry }}</td></tr>
+            <tr><th>R value</th><td>{{ setup.r_value }}</td></tr>
+            <tr><th>TP1</th><td>{{ setup.tp1_price }}</td></tr>
+            <tr><th>TP2</th><td>{{ setup.tp2_price }}</td></tr>
+            <tr><th>Total risk</th><td>{{ setup.total_risk_money }}</td></tr>
+            <tr><th>Risk per order</th><td>{{ setup.risk_per_order }}</td></tr>
+            <tr><th>Order 1 volume</th><td>{{ setup.order1_volume }}</td></tr>
+            <tr><th>Order 2 volume</th><td>{{ setup.order2_volume }}</td></tr>
+            <tr><th>Status</th><td>{{ setup.status }}</td></tr>
+            <tr><th>Execution error</th><td>{{ setup.execution_error or "None" }}</td></tr>
+            <tr><th>Executed at</th><td>{{ setup.executed_at or "Not executed" }}</td></tr>
+            <tr><th>Created</th><td>{{ setup.created_at }}</td></tr>
+            <tr><th>Updated</th><td>{{ setup.updated_at }}</td></tr>
+        </tbody>
+    </table>
+
+    <form action="/trade-setups/{{ setup.id }}/execute" method="post" class="save-setup-form">
+        <button type="submit">Execute</button>
+    </form>
+</section>
+
+<section class="card results-card">
+    <h2>Recent Events</h2>
+    {% if events %}
+    <table class="accounts-table">
+        <thead>
+            <tr>
+                <th>Event</th>
+                <th>Message</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for event in events %}
+            <tr>
+                <td>{{ event.event_type }}</td>
+                <td>{{ event.message or "None" }}</td>
+                <td>{{ event.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No events recorded yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

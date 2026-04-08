@@ -3,7 +3,7 @@
 <section class="card">
     <div class="section-header">
         <h1>Trading Accounts</h1>
-        <a href="/trading-accounts/new" class="button-link">Add Account</a>
+        <a href="/trading-accounts/create" class="button-link">Add Account</a>
     </div>
     {% if accounts %}
     <table class="accounts-table">
@@ -11,7 +11,11 @@
             <tr>
                 <th>Broker</th>
                 <th>Account Number</th>
+                <th>Platform</th>
                 <th>Server</th>
+                <th>Status</th>
+                <th>Heartbeat</th>
+                <th>Last Error</th>
                 <th>Created</th>
             </tr>
         </thead>
@@ -19,8 +23,12 @@
             {% for account in accounts %}
             <tr>
                 <td>{{ account.broker_name }}</td>
-                <td>{{ account.account_number }}</td>
+                <td><a href="/trading-accounts/id/{{ account.id }}">{{ account.account_number }}</a></td>
+                <td>{{ account.platform }}</td>
                 <td>{{ account.server_name }}</td>
+                <td>{{ account.connection_status }}</td>
+                <td>{{ account.last_heartbeat_at.strftime("%Y-%m-%d %H:%M") if account.last_heartbeat_at else "Never" }}</td>
+                <td>{{ account.last_error or "None" }}</td>
                 <td>{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
             </tr>
             {% endfor %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Trade Setups</h1>
+            <p class="muted">Saved draft setups for your account.</p>
+        </div>
+        <a class="button-link" href="/trade-setups/preview">New Preview</a>
+    </div>
+
+    {% if setups %}
+    <table class="accounts-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Status</th>
+                <th>Risk</th>
+                <th>Created</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for setup in setups %}
+            <tr>
+                <td><a href="/trade-setups/{{ setup.id }}">{{ setup.id }}</a></td>
+                <td>{{ setup.symbol }}</td>
+                <td>{{ setup.side|upper }}</td>
+                <td>{{ setup.status }}</td>
+                <td>{{ setup.total_risk_money }}</td>
+                <td>{{ setup.created_at }}</td>
+                <td>
+                    <form action="/trade-setups/{{ setup.id }}/execute" method="post">
+                        <button type="submit">Execute</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No trade setups saved yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

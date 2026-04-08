@@ -29,6 +29,8 @@ def create_trading_account(db: Session, user_id: int, payload: TradingAccountCre
         account_number=payload.account_number,
         server_name=payload.server_name,
         password_encrypted=encrypt_value(payload.password),
+        platform=payload.platform,
+        terminal_path=payload.terminal_path,
     )
     db.add(account)
     db.commit()

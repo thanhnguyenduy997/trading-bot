@@ -1,0 +1,73 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class TradeSetupCreate(BaseModel):
+    trading_account_id: int = Field(gt=0)
+    symbol: str = Field(min_length=3, max_length=20)
+    side: Literal["buy", "sell"]
+    sl_price: float = Field(gt=0)
+    risk_mode: Literal["fixed_money", "balance_percent"]
+    risk_value: float = Field(gt=0)
+    rr_order2: float = Field(gt=0)
+    estimated_entry: float = Field(gt=0)
+    r_value: float = Field(gt=0)
+    tp1_price: float = Field(gt=0)
+    tp2_price: float = Field(gt=0)
+    total_risk_money: float = Field(gt=0)
+    risk_per_order: float = Field(gt=0)
+    order1_volume: float = Field(gt=0)
+    order2_volume: float = Field(gt=0)
+    status: Literal["draft", "queued", "executing", "executed", "failed"] = "draft"
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        return value.upper()
+
+
+class TradeSetupRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    trading_account_id: int
+    symbol: str
+    side: Literal["buy", "sell"]
+    sl_price: float
+    risk_mode: Literal["fixed_money", "balance_percent"]
+    risk_value: float
+    rr_order2: float
+    estimated_entry: float
+    r_value: float
+    tp1_price: float
+    tp2_price: float
+    total_risk_money: float
+    risk_per_order: float
+    order1_volume: float
+    order2_volume: float
+    status: Literal["draft", "queued", "executing", "executed", "failed"]
+    execution_error: str | None
+    executed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TradeEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    trade_setup_id: int
+    event_type: str
+    message: str | None
+    created_at: datetime
+
+
+class TradeSetupExecutionRead(BaseModel):
+    success: bool
+    status: Literal["queued", "executing", "executed", "failed"]
+    execution_error: str | None
+    executed_at: datetime | None

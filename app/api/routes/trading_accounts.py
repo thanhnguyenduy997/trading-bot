@@ -6,11 +6,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.execution.base import AdapterError
 from app.schemas.trading_account import (
     TradingAccountCreate,
+    TradingAccountConnectionTestRead,
+    TradingAccountQuoteRead,
     TradingAccountRead,
     TradingAccountUpdate,
 )
+from app.services.execution import TradingAccountExecutionService
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -76,3 +80,45 @@ def delete_trading_account_endpoint(
     deleted = delete_trading_account(db, account_id, current_user.id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+
+@router.post("/{account_id}/test-connection", response_model=TradingAccountConnectionTestRead)
+def test_trading_account_connection(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradingAccountConnectionTestRead:
+    service = TradingAccountExecutionService(db)
+    try:
+        result = service.test_connection(account_id, current_user.id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.error
+            or {
+                "connection_status": result.connection_status,
+                "last_error": result.last_error,
+            },
+        )
+    return result
+
+
+@router.get("/{account_id}/quote", response_model=TradingAccountQuoteRead)
+def get_trading_account_quote(
+    account_id: int,
+    symbol: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradingAccountQuoteRead:
+    service = TradingAccountExecutionService(db)
+    try:
+        return service.fetch_quote(account_id, current_user.id, symbol)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AdapterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.to_dict(),
+        ) from exc

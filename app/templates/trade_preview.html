@@ -83,6 +83,24 @@
             <tr><th>Warnings</th><td>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</td></tr>
         </tbody>
     </table>
+    <form action="/trade-setups/save" method="post" class="save-setup-form">
+        <input type="hidden" name="trading_account_id" value="{{ form_data.trading_account_id }}">
+        <input type="hidden" name="symbol" value="{{ preview.symbol }}">
+        <input type="hidden" name="side" value="{{ preview.side }}">
+        <input type="hidden" name="sl_price" value="{{ preview.sl_price }}">
+        <input type="hidden" name="risk_mode" value="{{ form_data.risk_mode }}">
+        <input type="hidden" name="risk_value" value="{{ form_data.risk_value }}">
+        <input type="hidden" name="rr_order2" value="{{ form_data.rr_order2 }}">
+        <input type="hidden" name="estimated_entry" value="{{ preview.estimated_entry }}">
+        <input type="hidden" name="r_value" value="{{ preview.r_value }}">
+        <input type="hidden" name="tp1_price" value="{{ preview.tp1_price }}">
+        <input type="hidden" name="tp2_price" value="{{ preview.tp2_price }}">
+        <input type="hidden" name="total_risk_money" value="{{ preview.total_risk_money }}">
+        <input type="hidden" name="risk_per_order" value="{{ preview.risk_per_order }}">
+        <input type="hidden" name="order1_volume" value="{{ preview.order1_volume }}">
+        <input type="hidden" name="order2_volume" value="{{ preview.order2_volume }}">
+        <button type="submit">Save Setup</button>
+    </form>
 </section>
 {% endif %}
 {% endblock %}

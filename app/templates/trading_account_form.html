@@ -2,13 +2,15 @@
 {% block content %}
 <section class="card">
     <h1>Add Trading Account</h1>
-    <form action="/trading-accounts/new" method="post" class="stack">
+    <form action="/trading-accounts/create" method="post" class="stack">
         <label>Broker Name</label>
         <input type="text" name="broker_name" required>
         <label>Account Number</label>
         <input type="text" name="account_number" required>
         <label>Server Name</label>
         <input type="text" name="server_name" required>
+        <label>Terminal Path (optional)</label>
+        <input type="text" name="terminal_path" placeholder="C:\\Program Files\\MetaTrader 5\\terminal64.exe">
         <label>Password</label>
         <input type="password" name="password" required>
         <button type="submit">Save Account</button>
