@@ -4,7 +4,7 @@
     <div class="section-header">
         <div>
             <h1>Trade Preview</h1>
-            <p class="muted">Preview a two-order setup using placeholder quotes and risk sizing.</p>
+            <p class="muted">Preview a two-order setup using live MT5 quote and symbol specifications from the selected account.</p>
         </div>
     </div>
 
@@ -70,7 +70,9 @@
         <tbody>
             <tr><th>Symbol</th><td>{{ preview.symbol }}</td></tr>
             <tr><th>Side</th><td>{{ preview.side|upper }}</td></tr>
-            <tr><th>Estimated entry</th><td>{{ preview.estimated_entry }}</td></tr>
+            <tr><th>Live bid</th><td>{{ preview.bid }}</td></tr>
+            <tr><th>Live ask</th><td>{{ preview.ask }}</td></tr>
+            <tr><th>Estimated entry</th><td>{{ preview.estimated_entry }} (live MT5 {{ "ask" if preview.side == "buy" else "bid" }})</td></tr>
             <tr><th>Stop loss</th><td>{{ preview.sl_price }}</td></tr>
             <tr><th>R value</th><td>{{ preview.r_value }}</td></tr>
             <tr><th>Order 1 TP</th><td>{{ preview.tp1_price }}</td></tr>
@@ -79,6 +81,12 @@
             <tr><th>Risk per order</th><td>{{ preview.risk_per_order }}</td></tr>
             <tr><th>Order 1 volume</th><td>{{ preview.order1_volume }}</td></tr>
             <tr><th>Order 2 volume</th><td>{{ preview.order2_volume }}</td></tr>
+            <tr><th>Digits</th><td>{{ preview.digits if preview.digits is not none else "N/A" }}</td></tr>
+            <tr><th>Point</th><td>{{ preview.point if preview.point is not none else "N/A" }}</td></tr>
+            <tr><th>Contract size</th><td>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</td></tr>
+            <tr><th>Volume min</th><td>{{ preview.volume_min if preview.volume_min is not none else "N/A" }}</td></tr>
+            <tr><th>Volume max</th><td>{{ preview.volume_max if preview.volume_max is not none else "N/A" }}</td></tr>
+            <tr><th>Volume step</th><td>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</td></tr>
             <tr><th>Status</th><td>{{ preview.validation_status }}</td></tr>
             <tr><th>Warnings</th><td>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</td></tr>
         </tbody>

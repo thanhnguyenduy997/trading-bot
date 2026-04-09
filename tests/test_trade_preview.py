@@ -1,4 +1,7 @@
+from app.execution.base import AdapterError
+from app.schemas.trade_preview import TradePreviewRequest
 from app.schemas.trading_account import TradingAccountCreate
+from app.services.preview_service import PreviewService
 from app.services.trading_accounts import create_trading_account
 
 
@@ -15,7 +18,67 @@ def _create_account(db_session, created_user):
     )
 
 
-def test_valid_buy_preview(client, db_session, created_user, auth_headers):
+class FakePreviewAdapter:
+    def __init__(self, account):
+        self.account = account
+
+    def connect(self):
+        return None
+
+    def get_account_info(self):
+        return {"balance": 10000.0}
+
+    def get_quote(self, symbol: str):
+        quotes = {
+            "XAUUSD": {"symbol": "XAUUSD", "bid": 2320.0, "ask": 2320.2},
+            "EURUSD": {"symbol": "EURUSD", "bid": 1.0850, "ask": 1.0851},
+        }
+        return quotes[symbol]
+
+    def get_symbol_info(self, symbol: str):
+        symbol_info = {
+            "XAUUSD": {
+                "symbol": "XAUUSD",
+                "point": 0.01,
+                "digits": 2,
+                "trade_contract_size": 100.0,
+                "volume_min": 0.01,
+                "volume_max": 100.0,
+                "volume_step": 0.01,
+            },
+            "EURUSD": {
+                "symbol": "EURUSD",
+                "point": 0.0001,
+                "digits": 4,
+                "trade_contract_size": 100000.0,
+                "volume_min": 0.01,
+                "volume_max": 100.0,
+                "volume_step": 0.01,
+            },
+        }
+        return symbol_info[symbol]
+
+    def execute_setup(self, setup):
+        return {"status": "not_used"}
+
+    def close(self):
+        return None
+
+
+class FailingPreviewAdapter(FakePreviewAdapter):
+    def get_quote(self, symbol: str):
+        raise AdapterError(
+            code="mt5_quote_unavailable",
+            message=f"Quote unavailable for {symbol}.",
+            details=None,
+        )
+
+
+def test_valid_buy_preview(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user)
 
     response = client.post(
@@ -36,6 +99,8 @@ def test_valid_buy_preview(client, db_session, created_user, auth_headers):
     data = response.json()
     assert data["symbol"] == "XAUUSD"
     assert data["side"] == "buy"
+    assert data["bid"] == 2320.0
+    assert data["ask"] == 2320.2
     assert data["estimated_entry"] == 2320.2
     assert data["r_value"] == 1.0
     assert data["tp1_price"] == 2321.2
@@ -43,10 +108,16 @@ def test_valid_buy_preview(client, db_session, created_user, auth_headers):
     assert data["risk_per_order"] == 50.0
     assert data["order1_volume"] == 0.5
     assert data["order2_volume"] == 0.5
+    assert data["digits"] == 2
+    assert data["volume_step"] == 0.01
     assert data["validation_status"] == "valid"
 
 
-def test_valid_sell_preview(client, db_session, created_user, auth_headers):
+def test_valid_sell_preview(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user)
 
     response = client.post(
@@ -73,7 +144,11 @@ def test_valid_sell_preview(client, db_session, created_user, auth_headers):
     assert data["order2_volume"] == 0.5
 
 
-def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers):
+def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user)
 
     response = client.post(
@@ -94,7 +169,11 @@ def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers):
     assert response.json()["detail"] == "For buy setups, sl_price must be below the estimated entry."
 
 
-def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers):
+def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user)
 
     response = client.post(
@@ -115,7 +194,11 @@ def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers):
     assert response.json()["detail"] == "For sell setups, sl_price must be above the estimated entry."
 
 
-def test_volume_below_min_lot(client, db_session, created_user, auth_headers):
+def test_volume_below_min_lot(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user)
 
     response = client.post(
@@ -134,3 +217,59 @@ def test_volume_below_min_lot(client, db_session, created_user, auth_headers):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Computed volume is below minimum lot size"
+
+
+def test_preview_service_uses_live_symbol_info_with_mocked_adapter(db_session, created_user):
+    from app.services.execution import TradingAccountExecutionService
+
+    account = _create_account(db_session, created_user)
+    execution_service = TradingAccountExecutionService(
+        db_session,
+        adapter_factory=lambda adapter_account: FakePreviewAdapter(adapter_account),
+    )
+    preview = PreviewService(db_session, execution_service=execution_service).build_preview(
+        created_user.id,
+        TradePreviewRequest(
+            trading_account_id=account.id,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+        ),
+    )
+
+    assert preview.estimated_entry == 2320.2
+    assert preview.trade_contract_size == 100.0
+    assert preview.volume_min == 0.01
+    assert preview.volume_max == 100.0
+    assert preview.volume_step == 0.01
+
+
+def test_preview_service_handles_live_quote_failure(db_session, created_user):
+    from app.services.execution import TradingAccountExecutionService
+
+    account = _create_account(db_session, created_user)
+    execution_service = TradingAccountExecutionService(
+        db_session,
+        adapter_factory=lambda adapter_account: FailingPreviewAdapter(adapter_account),
+    )
+
+    try:
+        PreviewService(db_session, execution_service=execution_service).build_preview(
+            created_user.id,
+            TradePreviewRequest(
+                trading_account_id=account.id,
+                symbol="XAUUSD",
+                side="buy",
+                sl_price=2319.2,
+                risk_mode="fixed_money",
+                risk_value=100,
+                rr_order2=2,
+            ),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Live MT5 preview unavailable: Quote unavailable for XAUUSD."
+    else:
+        raise AssertionError("Expected preview service to raise ValueError for live quote failure")

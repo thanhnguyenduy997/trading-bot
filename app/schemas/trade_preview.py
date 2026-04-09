@@ -21,6 +21,8 @@ class TradePreviewRequest(BaseModel):
 class TradePreviewResponse(BaseModel):
     symbol: str
     side: Literal["buy", "sell"]
+    bid: float
+    ask: float
     estimated_entry: float
     sl_price: float
     r_value: float
@@ -30,5 +32,11 @@ class TradePreviewResponse(BaseModel):
     risk_per_order: float
     order1_volume: float
     order2_volume: float
+    point: float | None = None
+    digits: int | None = None
+    trade_contract_size: float | None = None
+    volume_min: float | None = None
+    volume_max: float | None = None
+    volume_step: float | None = None
     validation_status: Literal["valid"]
     warnings: list[str] = Field(default_factory=list)

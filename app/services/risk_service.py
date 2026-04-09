@@ -3,18 +3,6 @@ from decimal import ROUND_DOWN, Decimal
 
 class RiskService:
     PLACEHOLDER_BALANCE = Decimal("10000")
-    _symbol_specs = {
-        "XAUUSD": {
-            "contract_size": Decimal("100"),
-            "lot_step": Decimal("0.01"),
-            "min_lot": Decimal("0.01"),
-        },
-        "EURUSD": {
-            "contract_size": Decimal("100000"),
-            "lot_step": Decimal("0.01"),
-            "min_lot": Decimal("0.01"),
-        },
-    }
 
     def calculate_total_risk(self, risk_mode: str, risk_value: Decimal) -> Decimal:
         if risk_mode == "fixed_money":
@@ -25,28 +13,32 @@ class RiskService:
 
     def calculate_volume(
         self,
-        symbol: str,
         entry: Decimal,
         sl_price: Decimal,
         risk_per_order: Decimal,
+        *,
+        trade_contract_size: Decimal,
+        volume_min: Decimal,
+        volume_max: Decimal,
+        volume_step: Decimal,
     ) -> tuple[Decimal, list[str]]:
-        specs = self._symbol_specs.get(symbol.upper())
-        if not specs:
-            raise ValueError("Unsupported symbol")
-
         risk_distance = abs(entry - sl_price)
         if risk_distance <= 0:
             raise ValueError("Stop loss distance must be greater than zero")
 
-        contract_size = specs["contract_size"]
-        lot_step = specs["lot_step"]
-        min_lot = specs["min_lot"]
-        risk_per_lot = risk_distance * contract_size
-        raw_volume = risk_per_order / risk_per_lot
-        stepped_volume = (raw_volume / lot_step).to_integral_value(rounding=ROUND_DOWN) * lot_step
+        if trade_contract_size <= 0:
+            raise ValueError("Live symbol info is missing trade contract size")
+        if volume_min <= 0 or volume_max <= 0 or volume_step <= 0:
+            raise ValueError("Live symbol info is missing valid volume limits")
 
-        if stepped_volume < min_lot:
+        risk_per_lot = risk_distance * trade_contract_size
+        raw_volume = risk_per_order / risk_per_lot
+        stepped_volume = (raw_volume / volume_step).to_integral_value(rounding=ROUND_DOWN) * volume_step
+
+        if stepped_volume < volume_min:
             raise ValueError("Computed volume is below minimum lot size")
+        if stepped_volume > volume_max:
+            raise ValueError("Computed volume is above maximum lot size")
 
         warnings: list[str] = []
         if stepped_volume < raw_volume:

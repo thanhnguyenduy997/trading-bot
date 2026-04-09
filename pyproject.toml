@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trading-web-app"
 version = "0.1.0"
-description = "Trading web app foundation with FastAPI, PostgreSQL, SQLAlchemy, and JWT auth."
+description = "Trading web AE Họ Lãi foundation with FastAPI, PostgreSQL, SQLAlchemy, and JWT auth."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

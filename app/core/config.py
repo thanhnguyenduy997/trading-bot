@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Trading Web App"
+    app_name: str = "Trading Web AE Ho Lai"
     app_env: str = "development"
     debug: bool = False
     secret_key: str = Field(..., alias="SECRET_KEY")
