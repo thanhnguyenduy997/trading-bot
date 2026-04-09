@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 from sqlalchemy.orm import Session
 
@@ -37,14 +38,24 @@ class TradeSetupExecutionService:
             self.db.add(setup)
             self.db.flush()
 
-            order1 = adapter.place_market_order(
-                symbol=setup.symbol,
-                side=setup.side,
-                volume=float(setup.order1_volume),
-                sl=float(setup.sl_price),
-                tp=float(setup.tp1_price),
-                comment=f"setup-{setup.id}-o1",
-            )
+            try:
+                order1 = adapter.place_market_order(
+                    symbol=setup.symbol,
+                    side=setup.side,
+                    volume=float(setup.order1_volume),
+                    sl=float(setup.sl_price),
+                    tp=float(setup.tp1_price),
+                    comment=f"setup-{setup.id}-o1",
+                )
+            except AdapterError as exc:
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "order1_rejected",
+                    self._format_adapter_error(exc),
+                )
+                raise
             setup.order1_ticket = int(order1["ticket"])
             create_trade_event(
                 self.db,
@@ -66,6 +77,13 @@ class TradeSetupExecutionService:
                     comment=f"setup-{setup.id}-o2",
                 )
             except AdapterError as exc:
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "order2_rejected",
+                    self._format_adapter_error(exc),
+                )
                 self._rollback_order1(adapter, setup, user_id)
                 raise exc
 
@@ -89,9 +107,9 @@ class TradeSetupExecutionService:
             )
         except AdapterError as exc:
             setup.status = "failed"
-            setup.execution_error = setup.execution_error or exc.message
+            setup.execution_error = setup.execution_error or self._format_adapter_error(exc)
             setup.executed_at = None
-            create_trade_event(self.db, user_id, setup.id, "execute_failed", exc.message)
+            create_trade_event(self.db, user_id, setup.id, "execute_failed", self._format_adapter_error(exc))
             self.db.add(setup)
             self.db.commit()
             self.db.refresh(setup)
@@ -141,8 +159,13 @@ class TradeSetupExecutionService:
                 user_id,
                 setup.id,
                 "rollback_failed",
-                rollback_exc.message,
+                self._format_adapter_error(rollback_exc),
             )
-            setup.execution_error = f"Rollback failed after partial execution: {rollback_exc.message}"
+            setup.execution_error = f"Rollback failed after partial execution:\n{self._format_adapter_error(rollback_exc)}"
             self.db.add(setup)
             self.db.flush()
+
+    def _format_adapter_error(self, error: AdapterError) -> str:
+        if not error.details:
+            return error.message
+        return f"{error.message}\n{json.dumps(error.details, indent=2, sort_keys=True, default=str)}"

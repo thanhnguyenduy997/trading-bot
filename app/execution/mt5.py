@@ -156,13 +156,32 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             raise AdapterError(
                 code="mt5_order_send_failed",
                 message=f"Order placement failed for {normalized_symbol}.",
-                details=self._error_details(symbol=normalized_symbol, side=side, volume=volume),
+                details=self._order_context_details(
+                    symbol=normalized_symbol,
+                    side=side,
+                    volume=volume,
+                    sl=sl,
+                    tp=tp,
+                    filling_type=filling_type,
+                    request=request,
+                    symbol_info=symbol_info,
+                ),
             )
         if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
             raise AdapterError(
                 code="mt5_order_rejected",
                 message=f"Order placement rejected for {normalized_symbol}.",
-                details=self._result_details(result, request),
+                details=self._result_details(
+                    result,
+                    request,
+                    symbol=normalized_symbol,
+                    side=side,
+                    volume=volume,
+                    sl=sl,
+                    tp=tp,
+                    filling_type=filling_type,
+                    symbol_info=symbol_info,
+                ),
             )
         ticket = int(getattr(result, "order", 0) or getattr(result, "deal", 0))
         if ticket <= 0:
@@ -213,13 +232,32 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             raise AdapterError(
                 code="mt5_rollback_send_failed",
                 message=f"Rollback failed for {normalized_symbol}.",
-                details=self._error_details(symbol=normalized_symbol, side=close_side, volume=volume),
+                details=self._order_context_details(
+                    symbol=normalized_symbol,
+                    side=close_side,
+                    volume=volume,
+                    sl=None,
+                    tp=None,
+                    filling_type=request["type_filling"],
+                    request=request,
+                    symbol_info=symbol_info,
+                ),
             )
         if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
             raise AdapterError(
                 code="mt5_rollback_rejected",
                 message=f"Rollback rejected for {normalized_symbol}.",
-                details=self._result_details(result, request),
+                details=self._result_details(
+                    result,
+                    request,
+                    symbol=normalized_symbol,
+                    side=close_side,
+                    volume=volume,
+                    sl=None,
+                    tp=None,
+                    filling_type=request["type_filling"],
+                    symbol_info=symbol_info,
+                ),
             )
         return {
             "ticket": int(getattr(result, "order", 0) or getattr(result, "deal", 0)),
@@ -286,12 +324,43 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             return filling_mode
         return self._mt5.ORDER_FILLING_IOC
 
-    def _result_details(self, result: Any, request: dict[str, object]) -> dict[str, object]:
+    def _result_details(self, result: Any, request: dict[str, object], **context: Any) -> dict[str, object]:
         return {
-            **self._error_details(),
+            **self._order_context_details(request=request, **context),
             "retcode": getattr(result, "retcode", None),
             "comment": getattr(result, "comment", None),
             "order": getattr(result, "order", None),
             "deal": getattr(result, "deal", None),
+            "volume_result": getattr(result, "volume", None),
+            "price_result": getattr(result, "price", None),
+        }
+
+    def _order_context_details(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        sl: float | None,
+        tp: float | None,
+        filling_type: int,
+        request: dict[str, object],
+        symbol_info: Any,
+    ) -> dict[str, object]:
+        return {
+            **self._error_details(),
+            "symbol": symbol,
+            "side": side,
+            "volume": volume,
+            "sl": sl,
+            "tp": tp,
+            "filling_mode_used": filling_type,
             "request": request,
+            "symbol_info": {
+                "trade_mode": getattr(symbol_info, "trade_mode", None),
+                "filling_mode": getattr(symbol_info, "filling_mode", None),
+                "volume_min": getattr(symbol_info, "volume_min", None),
+                "volume_step": getattr(symbol_info, "volume_step", None),
+                "trade_stops_level": getattr(symbol_info, "trade_stops_level", None),
+            },
         }

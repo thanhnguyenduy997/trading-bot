@@ -165,7 +165,16 @@ def test_graceful_failure_when_execution_unavailable(client, db_session, created
     stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
     assert stored is not None
     assert stored.status == "failed"
-    assert stored.execution_error == "MT5 execution unavailable on this machine."
+    assert "MT5 execution unavailable on this machine." in stored.execution_error
+    events = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id)
+        .order_by(TradeEvent.id.asc())
+        .all()
+    )
+    event_types = [event.event_type for event in events]
+    assert "order1_rejected" in event_types
+    assert "execute_failed" in event_types
 
 
 def test_order1_succeeds_order2_fails_and_rollback_happens(
@@ -202,6 +211,7 @@ def test_order1_succeeds_order2_fails_and_rollback_happens(
     assert "setup_saved" in event_types
     assert "execute_requested" in event_types
     assert "order1_opened" in event_types
+    assert "order2_rejected" in event_types
     assert "rollback_started" in event_types
     assert "rollback_completed" in event_types
     assert "execute_failed" in event_types

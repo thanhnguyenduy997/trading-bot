@@ -147,3 +147,11 @@ button {
     border: 1px solid #bbf7d0;
     color: #166534;
 }
+
+.diagnostic-block {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+}
