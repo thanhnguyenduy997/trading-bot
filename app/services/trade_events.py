@@ -9,12 +9,14 @@ def create_trade_event(
     setup_id: int,
     event_type: str,
     message: str | None = None,
+    details: str | None = None,
 ) -> TradeEvent:
     event = TradeEvent(
         user_id=user_id,
         setup_id=setup_id,
         event_type=event_type,
         message=message,
+        details=details,
     )
     db.add(event)
     db.flush()

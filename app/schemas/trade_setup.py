@@ -52,6 +52,7 @@ class TradeSetupRead(BaseModel):
     order2_ticket: int | None
     status: Literal["draft", "queued", "executing", "executed", "failed"]
     execution_error: str | None
+    execution_details: str | None
     executed_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -65,6 +66,7 @@ class TradeEventRead(BaseModel):
     setup_id: int
     event_type: str
     message: str | None
+    details: str | None
     created_at: datetime
 
 
@@ -74,4 +76,5 @@ class TradeSetupExecutionRead(BaseModel):
     order1_ticket: int | None
     order2_ticket: int | None
     execution_error: str | None
+    execution_details: str | None
     executed_at: datetime | None

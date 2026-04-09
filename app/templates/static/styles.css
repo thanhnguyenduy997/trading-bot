@@ -155,3 +155,7 @@ button {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.9rem;
 }
+
+.diagnostic-details {
+    margin-top: 0.5rem;
+}

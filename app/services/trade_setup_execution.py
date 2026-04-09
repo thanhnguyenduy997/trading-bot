@@ -28,6 +28,7 @@ class TradeSetupExecutionService:
         create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
         setup.status = "queued"
         setup.execution_error = None
+        setup.execution_details = None
         setup.order1_ticket = None
         setup.order2_ticket = None
         self.db.add(setup)
@@ -53,7 +54,8 @@ class TradeSetupExecutionService:
                     user_id,
                     setup.id,
                     "order1_rejected",
-                    self._format_adapter_error(exc),
+                    self._error_summary(exc),
+                    details=self._error_details(exc),
                 )
                 raise
             setup.order1_ticket = int(order1["ticket"])
@@ -82,7 +84,8 @@ class TradeSetupExecutionService:
                     user_id,
                     setup.id,
                     "order2_rejected",
-                    self._format_adapter_error(exc),
+                    self._error_summary(exc),
+                    details=self._error_details(exc),
                 )
                 self._rollback_order1(adapter, setup, user_id)
                 raise exc
@@ -107,9 +110,17 @@ class TradeSetupExecutionService:
             )
         except AdapterError as exc:
             setup.status = "failed"
-            setup.execution_error = setup.execution_error or self._format_adapter_error(exc)
+            setup.execution_error = setup.execution_error or self._error_summary(exc)
+            setup.execution_details = setup.execution_details or self._error_details(exc)
             setup.executed_at = None
-            create_trade_event(self.db, user_id, setup.id, "execute_failed", self._format_adapter_error(exc))
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "execute_failed",
+                self._error_summary(exc),
+                details=self._error_details(exc),
+            )
             self.db.add(setup)
             self.db.commit()
             self.db.refresh(setup)
@@ -159,13 +170,18 @@ class TradeSetupExecutionService:
                 user_id,
                 setup.id,
                 "rollback_failed",
-                self._format_adapter_error(rollback_exc),
+                self._error_summary(rollback_exc),
+                details=self._error_details(rollback_exc),
             )
-            setup.execution_error = f"Rollback failed after partial execution:\n{self._format_adapter_error(rollback_exc)}"
+            setup.execution_error = f"Rollback failed after partial execution: {self._error_summary(rollback_exc)}"
+            setup.execution_details = self._error_details(rollback_exc)
             self.db.add(setup)
             self.db.flush()
 
-    def _format_adapter_error(self, error: AdapterError) -> str:
+    def _error_summary(self, error: AdapterError) -> str:
+        return error.message
+
+    def _error_details(self, error: AdapterError) -> str | None:
         if not error.details:
-            return error.message
-        return f"{error.message}\n{json.dumps(error.details, indent=2, sort_keys=True, default=str)}"
+            return None
+        return json.dumps(error.details, indent=2, sort_keys=True, default=str)

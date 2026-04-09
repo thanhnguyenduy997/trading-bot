@@ -37,7 +37,20 @@
             <tr><th>Order 1 ticket</th><td>{{ setup.order1_ticket or "Not opened" }}</td></tr>
             <tr><th>Order 2 ticket</th><td>{{ setup.order2_ticket or "Not opened" }}</td></tr>
             <tr><th>Status</th><td>{{ setup.status }}</td></tr>
-            <tr><th>Execution error</th><td>{% if setup.execution_error %}<pre class="diagnostic-block">{{ setup.execution_error }}</pre>{% else %}None{% endif %}</td></tr>
+            <tr>
+                <th>Execution error</th>
+                <td>
+                    {% if setup.execution_error %}
+                    <div>{{ setup.execution_error }}</div>
+                    {% if setup.execution_details %}
+                    <details class="diagnostic-details">
+                        <summary>Full MT5 diagnostic details</summary>
+                        <pre class="diagnostic-block">{{ setup.execution_details }}</pre>
+                    </details>
+                    {% endif %}
+                    {% else %}None{% endif %}
+                </td>
+            </tr>
             <tr><th>Executed at</th><td>{{ setup.executed_at or "Not executed" }}</td></tr>
             <tr><th>Created</th><td>{{ setup.created_at }}</td></tr>
             <tr><th>Updated</th><td>{{ setup.updated_at }}</td></tr>
@@ -64,7 +77,17 @@
             {% for event in events %}
             <tr>
                 <td>{{ event.event_type }}</td>
-                <td>{% if event.message %}<pre class="diagnostic-block">{{ event.message }}</pre>{% else %}None{% endif %}</td>
+                <td>
+                    {% if event.message %}
+                    <div>{{ event.message }}</div>
+                    {% if event.details %}
+                    <details class="diagnostic-details">
+                        <summary>Full details</summary>
+                        <pre class="diagnostic-block">{{ event.details }}</pre>
+                    </details>
+                    {% endif %}
+                    {% else %}None{% endif %}
+                </td>
                 <td>{{ event.created_at }}</td>
             </tr>
             {% endfor %}
