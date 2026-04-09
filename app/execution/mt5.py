@@ -136,8 +136,7 @@ class MT5ExecutionAdapter(ExecutionAdapter):
         quote = self.get_quote(normalized_symbol)
         order_type = self._mt5.ORDER_TYPE_BUY if side == "buy" else self._mt5.ORDER_TYPE_SELL
         price = quote["ask"] if side == "buy" else quote["bid"]
-        filling_type = self._resolve_filling_type(symbol_info)
-        request = {
+        request_base = {
             "action": self._mt5.TRADE_ACTION_DEAL,
             "symbol": normalized_symbol,
             "volume": float(volume),
@@ -149,46 +148,36 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "magic": 20260409,
             "comment": comment[:31],
             "type_time": self._mt5.ORDER_TIME_GTC,
-            "type_filling": filling_type,
         }
-        result = self._mt5.order_send(request)
-        if result is None:
-            raise AdapterError(
-                code="mt5_order_send_failed",
-                message=f"Order placement failed for {normalized_symbol}.",
-                details=self._order_context_details(
-                    symbol=normalized_symbol,
-                    side=side,
-                    volume=volume,
-                    sl=sl,
-                    tp=tp,
-                    filling_type=filling_type,
-                    request=request,
-                    symbol_info=symbol_info,
-                ),
-            )
-        if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
-            raise AdapterError(
-                code="mt5_order_rejected",
-                message=f"Order placement rejected for {normalized_symbol}.",
-                details=self._result_details(
-                    result,
-                    request,
-                    symbol=normalized_symbol,
-                    side=side,
-                    volume=volume,
-                    sl=sl,
-                    tp=tp,
-                    filling_type=filling_type,
-                    symbol_info=symbol_info,
-                ),
-            )
+        result, request_used = self._send_market_order_with_fallback(
+            request_base=request_base,
+            symbol=normalized_symbol,
+            side=side,
+            volume=volume,
+            sl=sl,
+            tp=tp,
+            symbol_info=symbol_info,
+            rejection_code="mt5_order_rejected",
+            rejection_message=f"Order placement rejected for {normalized_symbol}.",
+            send_failed_code="mt5_order_send_failed",
+            send_failed_message=f"Order placement failed for {normalized_symbol}.",
+        )
         ticket = int(getattr(result, "order", 0) or getattr(result, "deal", 0))
         if ticket <= 0:
             raise AdapterError(
                 code="mt5_order_ticket_missing",
                 message=f"Order placement returned no usable ticket for {normalized_symbol}.",
-                details=self._result_details(result, request),
+                details=self._result_details(
+                    result,
+                    request_used,
+                    symbol=normalized_symbol,
+                    side=side,
+                    volume=volume,
+                    sl=sl,
+                    tp=tp,
+                    filling_type=request_used["type_filling"],
+                    symbol_info=symbol_info,
+                ),
             )
         return {
             "ticket": ticket,
@@ -214,7 +203,7 @@ class MT5ExecutionAdapter(ExecutionAdapter):
         close_side = "sell" if side == "buy" else "buy"
         order_type = self._mt5.ORDER_TYPE_SELL if side == "buy" else self._mt5.ORDER_TYPE_BUY
         price = quote["bid"] if side == "buy" else quote["ask"]
-        request = {
+        request_base = {
             "action": self._mt5.TRADE_ACTION_DEAL,
             "symbol": normalized_symbol,
             "volume": float(volume),
@@ -225,40 +214,20 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "magic": 20260409,
             "comment": comment[:31],
             "type_time": self._mt5.ORDER_TIME_GTC,
-            "type_filling": self._resolve_filling_type(symbol_info),
         }
-        result = self._mt5.order_send(request)
-        if result is None:
-            raise AdapterError(
-                code="mt5_rollback_send_failed",
-                message=f"Rollback failed for {normalized_symbol}.",
-                details=self._order_context_details(
-                    symbol=normalized_symbol,
-                    side=close_side,
-                    volume=volume,
-                    sl=None,
-                    tp=None,
-                    filling_type=request["type_filling"],
-                    request=request,
-                    symbol_info=symbol_info,
-                ),
-            )
-        if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
-            raise AdapterError(
-                code="mt5_rollback_rejected",
-                message=f"Rollback rejected for {normalized_symbol}.",
-                details=self._result_details(
-                    result,
-                    request,
-                    symbol=normalized_symbol,
-                    side=close_side,
-                    volume=volume,
-                    sl=None,
-                    tp=None,
-                    filling_type=request["type_filling"],
-                    symbol_info=symbol_info,
-                ),
-            )
+        result, _request_used = self._send_market_order_with_fallback(
+            request_base=request_base,
+            symbol=normalized_symbol,
+            side=close_side,
+            volume=volume,
+            sl=None,
+            tp=None,
+            symbol_info=symbol_info,
+            rejection_code="mt5_rollback_rejected",
+            rejection_message=f"Rollback rejected for {normalized_symbol}.",
+            send_failed_code="mt5_rollback_send_failed",
+            send_failed_message=f"Rollback failed for {normalized_symbol}.",
+        )
         return {
             "ticket": int(getattr(result, "order", 0) or getattr(result, "deal", 0)),
             "order": getattr(result, "order", None),
@@ -319,10 +288,149 @@ class MT5ExecutionAdapter(ExecutionAdapter):
         return {"last_error": last_error, **extra}
 
     def _resolve_filling_type(self, symbol_info: Any) -> int:
-        filling_mode = getattr(symbol_info, "filling_mode", None)
-        if filling_mode is not None:
-            return filling_mode
-        return self._mt5.ORDER_FILLING_IOC
+        return self._candidate_filling_types(symbol_info)[0]
+
+    def _candidate_filling_types(self, symbol_info: Any) -> list[int]:
+        supported_mask = getattr(symbol_info, "filling_mode", None)
+        trade_exemode = getattr(symbol_info, "trade_exemode", None)
+
+        symbol_fok = getattr(self._mt5, "SYMBOL_FILLING_FOK", 1)
+        symbol_ioc = getattr(self._mt5, "SYMBOL_FILLING_IOC", 2)
+        symbol_boc = getattr(self._mt5, "SYMBOL_FILLING_BOC", 4)
+
+        order_fok = self._mt5.ORDER_FILLING_FOK
+        order_ioc = self._mt5.ORDER_FILLING_IOC
+        order_return = self._mt5.ORDER_FILLING_RETURN
+        market_execution = getattr(self._mt5, "SYMBOL_TRADE_EXECUTION_MARKET", None)
+
+        candidates: list[int] = []
+        if supported_mask is not None:
+            if supported_mask & symbol_ioc:
+                candidates.append(order_ioc)
+            if supported_mask & symbol_fok:
+                candidates.append(order_fok)
+            if (
+                trade_exemode is not None
+                and market_execution is not None
+                and trade_exemode != market_execution
+            ):
+                candidates.append(order_return)
+            if supported_mask & symbol_boc:
+                pass
+
+        if not candidates:
+            candidates.extend([order_ioc, order_fok])
+            if (
+                trade_exemode is not None
+                and market_execution is not None
+                and trade_exemode != market_execution
+            ):
+                candidates.append(order_return)
+
+        unique_candidates: list[int] = []
+        for candidate in candidates:
+            if candidate not in unique_candidates:
+                unique_candidates.append(candidate)
+        return unique_candidates
+
+    def _send_market_order_with_fallback(
+        self,
+        *,
+        request_base: dict[str, object],
+        symbol: str,
+        side: str,
+        volume: float,
+        sl: float | None,
+        tp: float | None,
+        symbol_info: Any,
+        rejection_code: str,
+        rejection_message: str,
+        send_failed_code: str,
+        send_failed_message: str,
+    ) -> tuple[Any, dict[str, object]]:
+        candidates = self._candidate_filling_types(symbol_info)[:2]
+        attempts: list[dict[str, object]] = []
+        last_result = None
+        last_request = None
+
+        for filling_type in candidates:
+            request = {**request_base, "type_filling": filling_type}
+            result = self._mt5.order_send(request)
+            last_result = result
+            last_request = request
+            if result is None:
+                attempts.append(
+                    {
+                        "type_filling": filling_type,
+                        "result": None,
+                        "last_error": self._error_details().get("last_error"),
+                    }
+                )
+                continue
+
+            attempts.append(
+                {
+                    "type_filling": filling_type,
+                    "retcode": getattr(result, "retcode", None),
+                    "comment": getattr(result, "comment", None),
+                }
+            )
+            if getattr(result, "retcode", None) == self._mt5.TRADE_RETCODE_DONE:
+                return result, request
+            if getattr(result, "retcode", None) != 10030:
+                raise AdapterError(
+                    code=rejection_code,
+                    message=rejection_message,
+                    details=self._result_details(
+                        result,
+                        request,
+                        symbol=symbol,
+                        side=side,
+                        volume=volume,
+                        sl=sl,
+                        tp=tp,
+                        filling_type=filling_type,
+                        symbol_info=symbol_info,
+                        attempted_filling_modes=candidates,
+                        attempts=attempts,
+                    ),
+                )
+
+        if last_result is None or last_request is None:
+            raise AdapterError(
+                code=send_failed_code,
+                message=send_failed_message,
+                details=self._order_context_details(
+                    symbol=symbol,
+                    side=side,
+                    volume=volume,
+                    sl=sl,
+                    tp=tp,
+                    filling_type=candidates[0] if candidates else None,
+                    request=request_base,
+                    symbol_info=symbol_info,
+                    attempted_filling_modes=candidates,
+                    attempts=attempts,
+                ),
+            )
+
+        raise AdapterError(
+            code=rejection_code,
+            message=rejection_message,
+            details=self._result_details(
+                last_result,
+                last_request,
+                symbol=symbol,
+                side=side,
+                volume=volume,
+                sl=sl,
+                tp=tp,
+                filling_type=last_request["type_filling"],
+                symbol_info=symbol_info,
+                attempted_filling_modes=candidates,
+                attempts=attempts,
+            ),
+        )
 
     def _result_details(self, result: Any, request: dict[str, object], **context: Any) -> dict[str, object]:
         return {
@@ -343,9 +451,11 @@ class MT5ExecutionAdapter(ExecutionAdapter):
         volume: float,
         sl: float | None,
         tp: float | None,
-        filling_type: int,
+        filling_type: int | None,
         request: dict[str, object],
         symbol_info: Any,
+        attempted_filling_modes: list[int] | None = None,
+        attempts: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         return {
             **self._error_details(),
@@ -355,9 +465,12 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "sl": sl,
             "tp": tp,
             "filling_mode_used": filling_type,
+            "attempted_filling_modes": attempted_filling_modes,
+            "attempts": attempts,
             "request": request,
             "symbol_info": {
                 "trade_mode": getattr(symbol_info, "trade_mode", None),
+                "trade_exemode": getattr(symbol_info, "trade_exemode", None),
                 "filling_mode": getattr(symbol_info, "filling_mode", None),
                 "volume_min": getattr(symbol_info, "volume_min", None),
                 "volume_step": getattr(symbol_info, "volume_step", None),
