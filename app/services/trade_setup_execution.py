@@ -29,6 +29,9 @@ class TradeSetupExecutionService:
         setup.status = "queued"
         setup.execution_error = None
         setup.execution_details = None
+        setup.monitoring_status = None
+        setup.order2_be_moved_at = None
+        setup.order2_be_move_error = None
         setup.order1_ticket = None
         setup.order2_ticket = None
         self.db.add(setup)
@@ -100,6 +103,7 @@ class TradeSetupExecutionService:
             )
             setup.status = "executed"
             setup.execution_error = None
+            setup.monitoring_status = "waiting_tp1"
             setup.executed_at = datetime.now(timezone.utc)
             create_trade_event(
                 self.db,
@@ -112,6 +116,7 @@ class TradeSetupExecutionService:
             setup.status = "failed"
             setup.execution_error = setup.execution_error or self._error_summary(exc)
             setup.execution_details = setup.execution_details or self._error_details(exc)
+            setup.monitoring_status = "execution_failed"
             setup.executed_at = None
             create_trade_event(
                 self.db,

@@ -60,3 +60,23 @@ class ExecutionAdapter(ABC):
         comment: str,
     ) -> dict[str, object]:
         raise NotImplementedError
+
+    @abstractmethod
+    def get_position(self, *, position_ticket: int) -> dict[str, object] | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_position_history(self, *, position_ticket: int) -> list[dict[str, object]]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def modify_position_sl(
+        self,
+        *,
+        symbol: str,
+        position_ticket: int,
+        sl: float,
+        tp: float | None,
+        comment: str,
+    ) -> dict[str, object]:
+        raise NotImplementedError

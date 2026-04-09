@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from typing import Any
 
@@ -234,6 +235,102 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "deal": getattr(result, "deal", None),
             "price": getattr(result, "price", price),
             "volume": volume,
+        }
+
+    def get_position(self, *, position_ticket: int) -> dict[str, object] | None:
+        self._ensure_connected()
+        positions = self._mt5.positions_get(ticket=int(position_ticket))
+        if positions is None:
+            raise AdapterError(
+                code="mt5_positions_unavailable",
+                message=f"Unable to inspect MT5 position {position_ticket}.",
+                details=self._error_details(position_ticket=position_ticket),
+            )
+        if not positions:
+            return None
+        return self._position_to_dict(positions[0])
+
+    def get_position_history(self, *, position_ticket: int) -> list[dict[str, object]]:
+        self._ensure_connected()
+        date_to = datetime.now(timezone.utc)
+        date_from = date_to - timedelta(days=30)
+        deals = self._mt5.history_deals_get(date_from, date_to, position=int(position_ticket))
+        if deals is None:
+            raise AdapterError(
+                code="mt5_history_unavailable",
+                message=f"Unable to inspect MT5 history for position {position_ticket}.",
+                details=self._error_details(position_ticket=position_ticket),
+            )
+        return [self._deal_to_dict(deal) for deal in deals]
+
+    def modify_position_sl(
+        self,
+        *,
+        symbol: str,
+        position_ticket: int,
+        sl: float,
+        tp: float | None,
+        comment: str,
+    ) -> dict[str, object]:
+        self._ensure_connected()
+        normalized_symbol = symbol.upper()
+        symbol_info = self._ensure_symbol_selected(normalized_symbol)
+        position = self.get_position(position_ticket=position_ticket)
+        if position is None:
+            raise AdapterError(
+                code="mt5_position_not_found",
+                message=f"MT5 position {position_ticket} is no longer open.",
+                details=self._error_details(symbol=normalized_symbol, position_ticket=position_ticket),
+            )
+
+        request = {
+            "action": self._mt5.TRADE_ACTION_SLTP,
+            "symbol": normalized_symbol,
+            "position": int(position_ticket),
+            "sl": float(sl),
+            "tp": float(tp) if tp is not None else float(position.get("tp") or 0.0),
+            "magic": 20260409,
+            "comment": comment[:31],
+        }
+        result = self._mt5.order_send(request)
+        if result is None:
+            raise AdapterError(
+                code="mt5_modify_sl_send_failed",
+                message=f"Stop-loss modification failed for {normalized_symbol}.",
+                details=self._order_context_details(
+                    symbol=normalized_symbol,
+                    side=str(position.get("side") or ""),
+                    volume=float(position.get("volume") or 0.0),
+                    sl=sl,
+                    tp=tp,
+                    filling_type=None,
+                    request=request,
+                    symbol_info=symbol_info,
+                ),
+            )
+        if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
+            raise AdapterError(
+                code="mt5_modify_sl_rejected",
+                message=f"Stop-loss modification rejected for {normalized_symbol}.",
+                details=self._result_details(
+                    result,
+                    request,
+                    symbol=normalized_symbol,
+                    side=str(position.get("side") or ""),
+                    volume=float(position.get("volume") or 0.0),
+                    sl=sl,
+                    tp=tp,
+                    filling_type=None,
+                    symbol_info=symbol_info,
+                ),
+            )
+
+        return {
+            "ticket": int(position_ticket),
+            "order": getattr(result, "order", None),
+            "deal": getattr(result, "deal", None),
+            "sl": float(sl),
+            "tp": float(request["tp"]),
         }
 
     def close(self) -> None:
@@ -477,3 +574,29 @@ class MT5ExecutionAdapter(ExecutionAdapter):
                 "trade_stops_level": getattr(symbol_info, "trade_stops_level", None),
             },
         }
+
+    def _position_to_dict(self, position: Any) -> dict[str, object]:
+        raw = self._namedtuple_to_dict(position)
+        position_type = raw.get("type")
+        return {
+            **raw,
+            "ticket": raw.get("ticket"),
+            "symbol": raw.get("symbol"),
+            "volume": raw.get("volume"),
+            "price_open": raw.get("price_open"),
+            "sl": raw.get("sl"),
+            "tp": raw.get("tp"),
+            "type": position_type,
+            "side": "buy" if position_type == getattr(self._mt5, "POSITION_TYPE_BUY", 0) else "sell",
+        }
+
+    def _deal_to_dict(self, deal: Any) -> dict[str, object]:
+        raw = self._namedtuple_to_dict(deal)
+        return raw
+
+    def _namedtuple_to_dict(self, value: Any) -> dict[str, object]:
+        if hasattr(value, "_asdict"):
+            return dict(value._asdict())
+        if hasattr(value, "_fields"):
+            return {field: getattr(value, field) for field in value._fields}
+        return dict(value)

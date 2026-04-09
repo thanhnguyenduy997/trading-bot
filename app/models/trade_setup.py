@@ -35,6 +35,9 @@ class TradeSetup(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
     execution_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     execution_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    monitoring_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    order2_be_moved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    order2_be_move_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

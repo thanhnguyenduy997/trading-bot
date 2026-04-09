@@ -4,7 +4,7 @@
     <div class="section-header">
         <div>
             <h1>Trade Setup #{{ setup.id }}</h1>
-            <p class="muted">Saved setup detail for review before future execution features.</p>
+            <p class="muted">Saved setup detail, execution state, and monitoring timeline.</p>
         </div>
         <a class="button-link" href="/trade-setups">Back to Setups</a>
     </div>
@@ -35,8 +35,45 @@
             <tr><th>Order 1 volume</th><td>{{ setup.order1_volume }}</td></tr>
             <tr><th>Order 2 volume</th><td>{{ setup.order2_volume }}</td></tr>
             <tr><th>Order 1 ticket</th><td>{{ setup.order1_ticket or "Not opened" }}</td></tr>
+            <tr>
+                <th>Order 1 state</th>
+                <td>
+                    {% if setup.monitoring_status == "waiting_tp1" %}
+                    Open
+                    {% elif setup.monitoring_status in ["order1_closed_not_tp1", "be_already_set", "be_already_moved", "be_moved", "be_move_failed", "order2_closed"] %}
+                    Closed
+                    {% else %}
+                    Unknown
+                    {% endif %}
+                </td>
+            </tr>
             <tr><th>Order 2 ticket</th><td>{{ setup.order2_ticket or "Not opened" }}</td></tr>
+            <tr>
+                <th>Order 2 state</th>
+                <td>
+                    {% if setup.monitoring_status == "order2_closed" %}
+                    Closed
+                    {% elif setup.order2_ticket %}
+                    Open or pending refresh
+                    {% else %}
+                    Unknown
+                    {% endif %}
+                </td>
+            </tr>
             <tr><th>Status</th><td>{{ setup.status }}</td></tr>
+            <tr><th>Monitoring status</th><td>{{ setup.monitoring_status or "Not started" }}</td></tr>
+            <tr><th>Order 2 BE moved at</th><td>{{ setup.order2_be_moved_at or "Not moved" }}</td></tr>
+            <tr>
+                <th>Order 2 BE move error</th>
+                <td>
+                    {% if setup.order2_be_move_error %}
+                    <details class="diagnostic-details" open>
+                        <summary>Breakeven move diagnostic</summary>
+                        <pre class="diagnostic-block">{{ setup.order2_be_move_error }}</pre>
+                    </details>
+                    {% else %}None{% endif %}
+                </td>
+            </tr>
             <tr>
                 <th>Execution error</th>
                 <td>
@@ -59,6 +96,9 @@
 
     <form action="/trade-setups/{{ setup.id }}/execute" method="post" class="save-setup-form">
         <button type="submit">Execute</button>
+    </form>
+    <form action="/trade-setups/{{ setup.id }}/monitor" method="post" class="save-setup-form">
+        <button type="submit">Check TP1 / Move BE</button>
     </form>
 </section>
 

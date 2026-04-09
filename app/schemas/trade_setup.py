@@ -53,6 +53,9 @@ class TradeSetupRead(BaseModel):
     status: Literal["draft", "queued", "executing", "executed", "failed"]
     execution_error: str | None
     execution_details: str | None
+    monitoring_status: str | None
+    order2_be_moved_at: datetime | None
+    order2_be_move_error: str | None
     executed_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -78,3 +81,13 @@ class TradeSetupExecutionRead(BaseModel):
     execution_error: str | None
     execution_details: str | None
     executed_at: datetime | None
+
+
+class TradeSetupMonitoringRead(BaseModel):
+    success: bool
+    monitoring_status: str
+    order1_status: str
+    order2_status: str
+    be_moved: bool
+    order2_be_moved_at: datetime | None
+    order2_be_move_error: str | None
