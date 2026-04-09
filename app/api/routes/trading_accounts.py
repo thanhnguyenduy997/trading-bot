@@ -96,9 +96,10 @@ def test_trading_account_connection(
     if not result.success:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=result.error
-            or {
+            detail={
+                **(result.error or {}),
                 "connection_status": result.connection_status,
+                "last_heartbeat_at": result.last_heartbeat_at.isoformat() if result.last_heartbeat_at else None,
                 "last_error": result.last_error,
             },
         )
@@ -118,7 +119,13 @@ def get_trading_account_quote(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AdapterError as exc:
+        account = get_trading_account(db, account_id, current_user.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=exc.to_dict(),
+            detail={
+                **exc.to_dict(),
+                "connection_status": account.connection_status if account else "error",
+                "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
+                "last_error": account.last_error if account else exc.message,
+            },
         ) from exc

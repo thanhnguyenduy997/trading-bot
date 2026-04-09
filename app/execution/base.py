@@ -6,12 +6,12 @@ from dataclasses import dataclass
 class AdapterError(Exception):
     code: str
     message: str
-    details: dict[str, str] | None = None
+    details: dict[str, object] | None = None
 
     def __str__(self) -> str:
         return self.message
 
-    def to_dict(self) -> dict[str, str | dict[str, str] | None]:
+    def to_dict(self) -> dict[str, object]:
         return {"code": self.code, "message": self.message, "details": self.details}
 
 

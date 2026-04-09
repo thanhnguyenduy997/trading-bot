@@ -41,8 +41,18 @@ class TradingAccountConnectionTestRead(BaseModel):
     connection_status: str
     last_heartbeat_at: datetime | None
     last_error: str | None
-    account_info: dict[str, str | int | float | None] | None = None
-    error: dict[str, str | dict[str, str] | None] | None = None
+    account_info: dict[str, object] | None = None
+    error: dict[str, object] | None = None
+
+
+class TradingAccountSymbolInfoRead(BaseModel):
+    symbol: str
+    point: float | None = None
+    digits: int | None = None
+    trade_contract_size: float | None = None
+    volume_min: float | None = None
+    volume_max: float | None = None
+    volume_step: float | None = None
 
 
 class TradingAccountQuoteRead(BaseModel):
@@ -52,3 +62,4 @@ class TradingAccountQuoteRead(BaseModel):
     connection_status: str
     last_heartbeat_at: datetime | None
     last_error: str | None
+    symbol_info: TradingAccountSymbolInfoRead | None = None

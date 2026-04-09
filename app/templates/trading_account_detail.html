@@ -17,17 +17,17 @@
             <tr><th>Platform</th><td>{{ account.platform }}</td></tr>
             <tr><th>Server</th><td>{{ account.server_name }}</td></tr>
             <tr><th>Terminal path</th><td>{{ account.terminal_path or "Not set" }}</td></tr>
-            <tr><th>Connection status</th><td>{{ account.connection_status }}</td></tr>
-            <tr><th>Last heartbeat</th><td>{{ account.last_heartbeat_at or "Never" }}</td></tr>
-            <tr><th>Last error</th><td>{{ account.last_error or "None" }}</td></tr>
+            <tr><th>Connection status</th><td id="account-connection-status">{{ account.connection_status }}</td></tr>
+            <tr><th>Last heartbeat</th><td id="account-last-heartbeat">{{ account.last_heartbeat_at or "Never" }}</td></tr>
+            <tr><th>Last error</th><td id="account-last-error">{{ account.last_error or "None" }}</td></tr>
         </tbody>
     </table>
 
     <div class="action-grid">
-        <form id="test-connection-form" action="/api/trading-accounts/{{ account.id }}/test-connection" method="post" class="stack">
+        <form id="test-connection-form" action="/trading-accounts/id/{{ account.id }}/test-connection" method="post" class="stack">
             <button type="submit">Test Connection</button>
         </form>
-        <form id="quote-form" action="/api/trading-accounts/{{ account.id }}/quote" method="get" class="stack">
+        <form id="quote-form" action="/trading-accounts/id/{{ account.id }}/quote" method="get" class="stack">
             <label>
                 Quote symbol
                 <select id="quote-symbol" name="symbol" required>
@@ -47,6 +47,7 @@
         <tbody>
             <tr><th>Status</th><td id="connection-status">{{ connection_result.connection_status if connection_result else "" }}</td></tr>
             <tr><th>Last heartbeat</th><td id="connection-heartbeat">{{ connection_result.last_heartbeat_at if connection_result else "" }}</td></tr>
+            <tr><th>Last error</th><td id="connection-error">{{ connection_result.last_error if connection_result else "" }}</td></tr>
             <tr><th>Login</th><td id="connection-login">{{ connection_result.account_info.login if connection_result and connection_result.account_info else "" }}</td></tr>
             <tr><th>Server</th><td id="connection-server">{{ connection_result.account_info.server if connection_result and connection_result.account_info else "" }}</td></tr>
             <tr><th>Balance</th><td id="connection-balance">{{ connection_result.account_info.balance if connection_result and connection_result.account_info else "" }}</td></tr>
@@ -64,6 +65,22 @@
             <tr><th>Ask</th><td id="quote-ask">{{ quote_result.ask if quote_result else "" }}</td></tr>
             <tr><th>Connection status</th><td id="quote-status">{{ quote_result.connection_status if quote_result else "" }}</td></tr>
             <tr><th>Last heartbeat</th><td id="quote-heartbeat">{{ quote_result.last_heartbeat_at if quote_result else "" }}</td></tr>
+            <tr><th>Last error</th><td id="quote-error">{{ quote_result.last_error if quote_result else "" }}</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section id="symbol-info-card" class="card results-card" {% if not (quote_result and quote_result.symbol_info) %}hidden{% endif %}>
+    <h2>Symbol Info</h2>
+    <table class="accounts-table">
+        <tbody>
+            <tr><th>Symbol</th><td id="symbol-info-symbol">{{ quote_result.symbol_info.symbol if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Point</th><td id="symbol-info-point">{{ quote_result.symbol_info.point if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Digits</th><td id="symbol-info-digits">{{ quote_result.symbol_info.digits if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Contract size</th><td id="symbol-info-contract-size">{{ quote_result.symbol_info.trade_contract_size if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Volume min</th><td id="symbol-info-volume-min">{{ quote_result.symbol_info.volume_min if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Volume max</th><td id="symbol-info-volume-max">{{ quote_result.symbol_info.volume_max if quote_result and quote_result.symbol_info else "" }}</td></tr>
+            <tr><th>Volume step</th><td id="symbol-info-volume-step">{{ quote_result.symbol_info.volume_step if quote_result and quote_result.symbol_info else "" }}</td></tr>
         </tbody>
     </table>
 </section>
@@ -72,6 +89,7 @@
     const errorBox = document.getElementById("account-action-error");
     const connectionCard = document.getElementById("connection-result-card");
     const quoteCard = document.getElementById("quote-result-card");
+    const symbolInfoCard = document.getElementById("symbol-info-card");
 
     function showError(message) {
         errorBox.textContent = message;
@@ -81,6 +99,16 @@
     function clearError() {
         errorBox.textContent = "";
         errorBox.hidden = true;
+    }
+
+    function setText(id, value, fallback = "") {
+        document.getElementById(id).textContent = value ?? fallback;
+    }
+
+    function updateAccountHealth(data) {
+        setText("account-connection-status", data.connection_status, "");
+        setText("account-last-heartbeat", data.last_heartbeat_at, "Never");
+        setText("account-last-error", data.last_error, "None");
     }
 
     document.getElementById("test-connection-form").addEventListener("submit", async (event) => {
@@ -94,16 +122,22 @@
         const data = await response.json();
 
         if (!response.ok) {
+            updateAccountHealth(data.detail || {});
+            setText("connection-status", data.detail?.connection_status, "");
+            setText("connection-heartbeat", data.detail?.last_heartbeat_at, "");
+            setText("connection-error", data.detail?.last_error, "");
             showError(data.detail?.message || data.detail?.last_error || "Connection test failed.");
             return;
         }
 
-        document.getElementById("connection-status").textContent = data.connection_status ?? "";
-        document.getElementById("connection-heartbeat").textContent = data.last_heartbeat_at ?? "";
-        document.getElementById("connection-login").textContent = data.account_info?.login ?? "";
-        document.getElementById("connection-server").textContent = data.account_info?.server ?? "";
-        document.getElementById("connection-balance").textContent = data.account_info?.balance ?? "";
-        document.getElementById("connection-equity").textContent = data.account_info?.equity ?? "";
+        updateAccountHealth(data);
+        setText("connection-status", data.connection_status, "");
+        setText("connection-heartbeat", data.last_heartbeat_at, "");
+        setText("connection-error", data.last_error, "");
+        setText("connection-login", data.account_info?.login, "");
+        setText("connection-server", data.account_info?.server, "");
+        setText("connection-balance", data.account_info?.balance, "");
+        setText("connection-equity", data.account_info?.equity, "");
         connectionCard.hidden = false;
     });
 
@@ -120,16 +154,30 @@
         const data = await response.json();
 
         if (!response.ok) {
+            updateAccountHealth(data.detail || {});
+            setText("quote-status", data.detail?.connection_status, "");
+            setText("quote-heartbeat", data.detail?.last_heartbeat_at, "");
+            setText("quote-error", data.detail?.last_error, "");
             showError(data.detail?.message || data.detail?.last_error || "Quote retrieval failed.");
             return;
         }
 
-        document.getElementById("quote-symbol-value").textContent = data.symbol ?? "";
-        document.getElementById("quote-bid").textContent = data.bid ?? "";
-        document.getElementById("quote-ask").textContent = data.ask ?? "";
-        document.getElementById("quote-status").textContent = data.connection_status ?? "";
-        document.getElementById("quote-heartbeat").textContent = data.last_heartbeat_at ?? "";
+        updateAccountHealth(data);
+        setText("quote-symbol-value", data.symbol, "");
+        setText("quote-bid", data.bid, "");
+        setText("quote-ask", data.ask, "");
+        setText("quote-status", data.connection_status, "");
+        setText("quote-heartbeat", data.last_heartbeat_at, "");
+        setText("quote-error", data.last_error, "");
+        setText("symbol-info-symbol", data.symbol_info?.symbol, "");
+        setText("symbol-info-point", data.symbol_info?.point, "");
+        setText("symbol-info-digits", data.symbol_info?.digits, "");
+        setText("symbol-info-contract-size", data.symbol_info?.trade_contract_size, "");
+        setText("symbol-info-volume-min", data.symbol_info?.volume_min, "");
+        setText("symbol-info-volume-max", data.symbol_info?.volume_max, "");
+        setText("symbol-info-volume-step", data.symbol_info?.volume_step, "");
         quoteCard.hidden = false;
+        symbolInfoCard.hidden = !data.symbol_info;
     });
 </script>
 {% endblock %}

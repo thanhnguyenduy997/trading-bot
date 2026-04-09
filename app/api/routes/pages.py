@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -362,39 +362,40 @@ def create_trading_account_from_form(
     return RedirectResponse(url="/trading-accounts", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/trading-accounts/{account_id}/test-connection", response_class=HTMLResponse)
+@router.post("/trading-accounts/id/{account_id}/test-connection")
 def test_trading_account_connection_page(
     account_id: int,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
-) -> HTMLResponse:
+) -> JSONResponse:
     account = get_trading_account(db, account_id, current_user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
 
     service = TradingAccountExecutionService(db)
     result = service.test_connection(account_id, current_user.id)
-    account = get_trading_account(db, account_id, current_user.id)
-    status_code = status.HTTP_200_OK if result.success else status.HTTP_503_SERVICE_UNAVAILABLE
-    return _render_trading_account_detail_page(
-        request,
-        current_user,
-        account,
-        connection_result=result,
-        error=None if result.success else result.last_error,
-        status_code=status_code,
-    )
+    if not result.success:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": {
+                    **(result.error or {}),
+                    "connection_status": result.connection_status,
+                    "last_heartbeat_at": result.last_heartbeat_at.isoformat() if result.last_heartbeat_at else None,
+                    "last_error": result.last_error,
+                }
+            },
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=result.model_dump(mode="json"))
 
 
-@router.post("/trading-accounts/{account_id}/quote", response_class=HTMLResponse)
+@router.get("/trading-accounts/id/{account_id}/quote")
 def get_trading_account_quote_page(
     account_id: int,
-    request: Request,
+    symbol: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
-    symbol: str = Form(...),
-) -> HTMLResponse:
+) -> JSONResponse:
     account = get_trading_account(db, account_id, current_user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
@@ -402,19 +403,17 @@ def get_trading_account_quote_page(
     service = TradingAccountExecutionService(db)
     try:
         quote = service.fetch_quote(account_id, current_user.id, symbol)
-        account = get_trading_account(db, account_id, current_user.id)
-        return _render_trading_account_detail_page(
-            request,
-            current_user,
-            account,
-            quote_result=quote,
-        )
+        return JSONResponse(status_code=status.HTTP_200_OK, content=quote.model_dump(mode="json"))
     except AdapterError as exc:
         account = get_trading_account(db, account_id, current_user.id)
-        return _render_trading_account_detail_page(
-            request,
-            current_user,
-            account,
-            error=str(exc),
+        return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": {
+                    **exc.to_dict(),
+                    "connection_status": account.connection_status if account else "error",
+                    "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
+                    "last_error": account.last_error if account else str(exc),
+                }
+            },
         )

@@ -1,6 +1,8 @@
 from app.models.trading_account import TradingAccount
+from app.execution.base import AdapterError
 from app.schemas.trading_account import TradingAccountCreate
 from app.schemas.user import UserCreate
+from app.services.execution import TradingAccountExecutionService
 from app.services.users import create_user
 
 
@@ -15,6 +17,14 @@ def _create_account(db_session, user, account_number: str = "123456"):
     from app.services.trading_accounts import create_trading_account
 
     return create_trading_account(db_session, user.id, response)
+
+
+def _login_web_session(client, email: str, password: str = "password123") -> None:
+    response = client.post(
+        "/api/auth/token",
+        data={"username": email, "password": password},
+    )
+    assert response.status_code == 200
 
 
 class FakeExecutionAdapter:
@@ -36,7 +46,15 @@ class FakeExecutionAdapter:
         return {"symbol": symbol, "bid": 2320.0, "ask": 2320.2, "time": 1710000000}
 
     def get_symbol_info(self, symbol: str) -> dict[str, str | int | float | None]:
-        return {"symbol": symbol, "digits": 2}
+        return {
+            "symbol": symbol,
+            "point": 0.01,
+            "digits": 2,
+            "trade_contract_size": 100.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+        }
 
     def close(self) -> None:
         return None
@@ -100,3 +118,79 @@ def test_quote_retrieval_via_adapter_abstraction(client, db_session, created_use
     assert data["bid"] == 2320.0
     assert data["ask"] == 2320.2
     assert data["connection_status"] == "connected"
+    assert data["symbol_info"]["digits"] == 2
+
+
+class FailingConnectAdapter(FakeExecutionAdapter):
+    def connect(self) -> None:
+        raise AdapterError(code="mt5_login_failed", message="MT5 login failed.")
+
+
+class MissingSymbolAdapter(FakeExecutionAdapter):
+    def get_quote(self, symbol: str) -> dict[str, str | int | float | None]:
+        raise AdapterError(code="mt5_symbol_not_found", message=f"Symbol {symbol} is unavailable in MT5.")
+
+
+def test_connection_failure_marks_account_disconnected(db_session, created_user):
+    account = _create_account(db_session, created_user, "123458")
+    service = TradingAccountExecutionService(db_session, adapter_factory=lambda current: FailingConnectAdapter(current))
+
+    result = service.test_connection(account.id, created_user.id)
+
+    assert result.success is False
+    assert result.connection_status == "disconnected"
+    stored = db_session.query(TradingAccount).filter(TradingAccount.id == account.id).first()
+    assert stored is not None
+    assert stored.connection_status == "disconnected"
+    assert stored.last_error == "mt5_login_failed: MT5 login failed."
+
+
+def test_symbol_failure_preserves_connected_status_with_error(db_session, created_user):
+    account = _create_account(db_session, created_user, "123459")
+    service = TradingAccountExecutionService(db_session, adapter_factory=lambda current: MissingSymbolAdapter(current))
+
+    try:
+        service.fetch_quote(account.id, created_user.id, "BTCUSD")
+    except AdapterError as exc:
+        assert exc.code == "mt5_symbol_not_found"
+    else:
+        raise AssertionError("Expected symbol lookup to fail")
+
+    stored = db_session.query(TradingAccount).filter(TradingAccount.id == account.id).first()
+    assert stored is not None
+    assert stored.connection_status == "connected"
+    assert stored.last_error == "mt5_symbol_not_found: Symbol BTCUSD is unavailable in MT5."
+
+
+def test_web_session_connection_route_uses_cookie_auth(client, db_session, created_user, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakeExecutionAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123460")
+    _login_web_session(client, created_user.email)
+
+    response = client.post(f"/trading-accounts/id/{account.id}/test-connection")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["connection_status"] == "connected"
+
+
+def test_web_session_quote_route_rejects_other_users_account(client, db_session, created_user, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakeExecutionAdapter(account),
+    )
+    other_user = create_user(
+        db_session,
+        UserCreate(email="web-other@example.com", password="password123", full_name="Other User"),
+    )
+    other_account = _create_account(db_session, other_user, "123461")
+    _login_web_session(client, created_user.email)
+
+    response = client.get(f"/trading-accounts/id/{other_account.id}/quote", params={"symbol": "XAUUSD"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Trading account not found"
