@@ -34,6 +34,8 @@
             <tr><th>Risk per order</th><td>{{ setup.risk_per_order }}</td></tr>
             <tr><th>Order 1 volume</th><td>{{ setup.order1_volume }}</td></tr>
             <tr><th>Order 2 volume</th><td>{{ setup.order2_volume }}</td></tr>
+            <tr><th>Order 1 ticket</th><td>{{ setup.order1_ticket or "Not opened" }}</td></tr>
+            <tr><th>Order 2 ticket</th><td>{{ setup.order2_ticket or "Not opened" }}</td></tr>
             <tr><th>Status</th><td>{{ setup.status }}</td></tr>
             <tr><th>Execution error</th><td>{{ setup.execution_error or "None" }}</td></tr>
             <tr><th>Executed at</th><td>{{ setup.executed_at or "Not executed" }}</td></tr>

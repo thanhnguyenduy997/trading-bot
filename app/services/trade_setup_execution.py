@@ -27,6 +27,8 @@ class TradeSetupExecutionService:
         create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
         setup.status = "queued"
         setup.execution_error = None
+        setup.order1_ticket = None
+        setup.order2_ticket = None
         self.db.add(setup)
         self.db.flush()
 
@@ -35,14 +37,59 @@ class TradeSetupExecutionService:
             self.db.add(setup)
             self.db.flush()
 
-            adapter.execute_setup(setup)
+            order1 = adapter.place_market_order(
+                symbol=setup.symbol,
+                side=setup.side,
+                volume=float(setup.order1_volume),
+                sl=float(setup.sl_price),
+                tp=float(setup.tp1_price),
+                comment=f"setup-{setup.id}-o1",
+            )
+            setup.order1_ticket = int(order1["ticket"])
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "order1_opened",
+                f"Order 1 opened with ticket {setup.order1_ticket}.",
+            )
+            self.db.add(setup)
+            self.db.flush()
+
+            try:
+                order2 = adapter.place_market_order(
+                    symbol=setup.symbol,
+                    side=setup.side,
+                    volume=float(setup.order2_volume),
+                    sl=float(setup.sl_price),
+                    tp=float(setup.tp2_price),
+                    comment=f"setup-{setup.id}-o2",
+                )
+            except AdapterError as exc:
+                self._rollback_order1(adapter, setup, user_id)
+                raise exc
+
+            setup.order2_ticket = int(order2["ticket"])
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "order2_opened",
+                f"Order 2 opened with ticket {setup.order2_ticket}.",
+            )
             setup.status = "executed"
             setup.execution_error = None
             setup.executed_at = datetime.now(timezone.utc)
-            create_trade_event(self.db, user_id, setup.id, "execute_completed", "Trade setup execution completed.")
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "execute_completed",
+                f"Trade setup executed. Tickets: {setup.order1_ticket}, {setup.order2_ticket}.",
+            )
         except AdapterError as exc:
             setup.status = "failed"
-            setup.execution_error = exc.message
+            setup.execution_error = setup.execution_error or exc.message
             setup.executed_at = None
             create_trade_event(self.db, user_id, setup.id, "execute_failed", exc.message)
             self.db.add(setup)
@@ -58,3 +105,44 @@ class TradeSetupExecutionService:
         self.db.commit()
         self.db.refresh(setup)
         return setup
+
+    def _rollback_order1(self, adapter, setup, user_id: int) -> None:
+        if setup.order1_ticket is None:
+            return
+
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "rollback_started",
+            f"Rollback started for order 1 ticket {setup.order1_ticket}.",
+        )
+        self.db.flush()
+
+        try:
+            adapter.close_position(
+                symbol=setup.symbol,
+                side=setup.side,
+                volume=float(setup.order1_volume),
+                position_ticket=int(setup.order1_ticket),
+                comment=f"setup-{setup.id}-rb1",
+            )
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "rollback_completed",
+                f"Rollback completed for order 1 ticket {setup.order1_ticket}.",
+            )
+            setup.order1_ticket = None
+        except AdapterError as rollback_exc:
+            create_trade_event(
+                self.db,
+                user_id,
+                setup.id,
+                "rollback_failed",
+                rollback_exc.message,
+            )
+            setup.execution_error = f"Rollback failed after partial execution: {rollback_exc.message}"
+            self.db.add(setup)
+            self.db.flush()

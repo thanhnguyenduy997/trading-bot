@@ -280,7 +280,7 @@ def execute_trade_setup_page(
             current_user,
             setup,
             events,
-            message="Execution completed.",
+            message=f"Execution completed. Tickets: {setup.order1_ticket}, {setup.order2_ticket}.",
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -294,7 +294,7 @@ def execute_trade_setup_page(
             current_user,
             setup,
             events,
-            error=exc.message,
+            error=setup.execution_error or exc.message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 

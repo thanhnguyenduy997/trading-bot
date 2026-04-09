@@ -83,6 +83,8 @@ def execute_trade_setup(
     return TradeSetupExecutionRead(
         success=True,
         status=setup.status,
+        order1_ticket=setup.order1_ticket,
+        order2_ticket=setup.order2_ticket,
         execution_error=setup.execution_error,
         executed_at=setup.executed_at,
     )

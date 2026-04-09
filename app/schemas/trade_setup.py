@@ -48,6 +48,8 @@ class TradeSetupRead(BaseModel):
     risk_per_order: float
     order1_volume: float
     order2_volume: float
+    order1_ticket: int | None
+    order2_ticket: int | None
     status: Literal["draft", "queued", "executing", "executed", "failed"]
     execution_error: str | None
     executed_at: datetime | None
@@ -69,5 +71,7 @@ class TradeEventRead(BaseModel):
 class TradeSetupExecutionRead(BaseModel):
     success: bool
     status: Literal["queued", "executing", "executed", "failed"]
+    order1_ticket: int | None
+    order2_ticket: int | None
     execution_error: str | None
     executed_at: datetime | None

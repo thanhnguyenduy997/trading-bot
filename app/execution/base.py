@@ -35,3 +35,28 @@ class ExecutionAdapter(ABC):
     @abstractmethod
     def execute_setup(self, setup: object) -> dict[str, str | int | float | None]:
         raise NotImplementedError
+
+    @abstractmethod
+    def place_market_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        sl: float,
+        tp: float,
+        comment: str,
+    ) -> dict[str, object]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        position_ticket: int,
+        comment: str,
+    ) -> dict[str, object]:
+        raise NotImplementedError

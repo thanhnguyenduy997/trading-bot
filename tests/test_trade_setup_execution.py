@@ -50,6 +50,8 @@ def _create_setup(db_session, user, account):
 class SuccessfulExecutionAdapter:
     def __init__(self, account):
         self.account = account
+        self.placed_orders = []
+        self.closed_positions = []
 
     def connect(self):
         return None
@@ -66,6 +68,15 @@ class SuccessfulExecutionAdapter:
     def execute_setup(self, setup):
         return {"status": "executed", "setup_id": setup.id}
 
+    def place_market_order(self, **kwargs):
+        ticket = 1000 + len(self.placed_orders) + 1
+        self.placed_orders.append({**kwargs, "ticket": ticket})
+        return {"ticket": ticket, "order": ticket, "deal": ticket + 5000}
+
+    def close_position(self, **kwargs):
+        self.closed_positions.append(kwargs)
+        return {"ticket": kwargs["position_ticket"], "order": kwargs["position_ticket"]}
+
     def close(self):
         return None
 
@@ -76,6 +87,24 @@ class UnavailableExecutionAdapter(SuccessfulExecutionAdapter):
             code="mt5_execution_unavailable",
             message="MT5 execution unavailable on this machine.",
             details={"hint": "Use Windows with MetaTrader5 installed."},
+        )
+
+    def place_market_order(self, **kwargs):
+        raise AdapterError(
+            code="mt5_execution_unavailable",
+            message="MT5 execution unavailable on this machine.",
+            details={"hint": "Use Windows with MetaTrader5 installed."},
+        )
+
+
+class PartialFailureExecutionAdapter(SuccessfulExecutionAdapter):
+    def place_market_order(self, **kwargs):
+        if len(self.placed_orders) == 0:
+            return super().place_market_order(**kwargs)
+        raise AdapterError(
+            code="mt5_order_rejected",
+            message="Order placement rejected for XAUUSD.",
+            details={"order": 2},
         )
 
 
@@ -93,10 +122,14 @@ def test_executing_own_setup(client, db_session, created_user, auth_headers, mon
     data = response.json()
     assert data["success"] is True
     assert data["status"] == "executed"
+    assert data["order1_ticket"] == 1001
+    assert data["order2_ticket"] == 1002
     stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
     assert stored is not None
     assert stored.status == "executed"
     assert stored.executed_at is not None
+    assert stored.order1_ticket == 1001
+    assert stored.order2_ticket == 1002
 
 
 def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch):
@@ -135,10 +168,16 @@ def test_graceful_failure_when_execution_unavailable(client, db_session, created
     assert stored.execution_error == "MT5 execution unavailable on this machine."
 
 
-def test_event_creation_on_execution_attempt(client, db_session, created_user, auth_headers, monkeypatch):
+def test_order1_succeeds_order2_fails_and_rollback_happens(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
-        lambda account: UnavailableExecutionAdapter(account),
+        lambda account: PartialFailureExecutionAdapter(account),
     )
     account = _create_account(db_session, created_user, "123459")
     setup = _create_setup(db_session, created_user, account)
@@ -146,6 +185,13 @@ def test_event_creation_on_execution_attempt(client, db_session, created_user, a
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
 
     assert response.status_code == 503
+    assert response.json()["detail"]["message"] == "Order placement rejected for XAUUSD."
+    stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.order1_ticket is None
+    assert stored.order2_ticket is None
+
     events = (
         db_session.query(TradeEvent)
         .filter(TradeEvent.setup_id == setup.id)
@@ -155,4 +201,7 @@ def test_event_creation_on_execution_attempt(client, db_session, created_user, a
     event_types = [event.event_type for event in events]
     assert "setup_saved" in event_types
     assert "execute_requested" in event_types
+    assert "order1_opened" in event_types
+    assert "rollback_started" in event_types
+    assert "rollback_completed" in event_types
     assert "execute_failed" in event_types

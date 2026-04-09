@@ -120,6 +120,115 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             details={"status": "skeleton_only"},
         )
 
+    def place_market_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        sl: float,
+        tp: float,
+        comment: str,
+    ) -> dict[str, object]:
+        self._ensure_connected()
+        normalized_symbol = symbol.upper()
+        symbol_info = self._ensure_symbol_selected(normalized_symbol)
+        quote = self.get_quote(normalized_symbol)
+        order_type = self._mt5.ORDER_TYPE_BUY if side == "buy" else self._mt5.ORDER_TYPE_SELL
+        price = quote["ask"] if side == "buy" else quote["bid"]
+        filling_type = self._resolve_filling_type(symbol_info)
+        request = {
+            "action": self._mt5.TRADE_ACTION_DEAL,
+            "symbol": normalized_symbol,
+            "volume": float(volume),
+            "type": order_type,
+            "price": float(price),
+            "sl": float(sl),
+            "tp": float(tp),
+            "deviation": 20,
+            "magic": 20260409,
+            "comment": comment[:31],
+            "type_time": self._mt5.ORDER_TIME_GTC,
+            "type_filling": filling_type,
+        }
+        result = self._mt5.order_send(request)
+        if result is None:
+            raise AdapterError(
+                code="mt5_order_send_failed",
+                message=f"Order placement failed for {normalized_symbol}.",
+                details=self._error_details(symbol=normalized_symbol, side=side, volume=volume),
+            )
+        if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
+            raise AdapterError(
+                code="mt5_order_rejected",
+                message=f"Order placement rejected for {normalized_symbol}.",
+                details=self._result_details(result, request),
+            )
+        ticket = int(getattr(result, "order", 0) or getattr(result, "deal", 0))
+        if ticket <= 0:
+            raise AdapterError(
+                code="mt5_order_ticket_missing",
+                message=f"Order placement returned no usable ticket for {normalized_symbol}.",
+                details=self._result_details(result, request),
+            )
+        return {
+            "ticket": ticket,
+            "order": getattr(result, "order", None),
+            "deal": getattr(result, "deal", None),
+            "price": getattr(result, "price", price),
+            "volume": volume,
+        }
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        position_ticket: int,
+        comment: str,
+    ) -> dict[str, object]:
+        self._ensure_connected()
+        normalized_symbol = symbol.upper()
+        symbol_info = self._ensure_symbol_selected(normalized_symbol)
+        quote = self.get_quote(normalized_symbol)
+        close_side = "sell" if side == "buy" else "buy"
+        order_type = self._mt5.ORDER_TYPE_SELL if side == "buy" else self._mt5.ORDER_TYPE_BUY
+        price = quote["bid"] if side == "buy" else quote["ask"]
+        request = {
+            "action": self._mt5.TRADE_ACTION_DEAL,
+            "symbol": normalized_symbol,
+            "volume": float(volume),
+            "type": order_type,
+            "position": int(position_ticket),
+            "price": float(price),
+            "deviation": 20,
+            "magic": 20260409,
+            "comment": comment[:31],
+            "type_time": self._mt5.ORDER_TIME_GTC,
+            "type_filling": self._resolve_filling_type(symbol_info),
+        }
+        result = self._mt5.order_send(request)
+        if result is None:
+            raise AdapterError(
+                code="mt5_rollback_send_failed",
+                message=f"Rollback failed for {normalized_symbol}.",
+                details=self._error_details(symbol=normalized_symbol, side=close_side, volume=volume),
+            )
+        if getattr(result, "retcode", None) != self._mt5.TRADE_RETCODE_DONE:
+            raise AdapterError(
+                code="mt5_rollback_rejected",
+                message=f"Rollback rejected for {normalized_symbol}.",
+                details=self._result_details(result, request),
+            )
+        return {
+            "ticket": int(getattr(result, "order", 0) or getattr(result, "deal", 0)),
+            "order": getattr(result, "order", None),
+            "deal": getattr(result, "deal", None),
+            "price": getattr(result, "price", price),
+            "volume": volume,
+        }
+
     def close(self) -> None:
         if self._mt5 is not None:
             self._mt5.shutdown()
@@ -170,3 +279,19 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             code, description = self._mt5.last_error()
             last_error = {"code": code, "description": description}
         return {"last_error": last_error, **extra}
+
+    def _resolve_filling_type(self, symbol_info: Any) -> int:
+        filling_mode = getattr(symbol_info, "filling_mode", None)
+        if filling_mode is not None:
+            return filling_mode
+        return self._mt5.ORDER_FILLING_IOC
+
+    def _result_details(self, result: Any, request: dict[str, object]) -> dict[str, object]:
+        return {
+            **self._error_details(),
+            "retcode": getattr(result, "retcode", None),
+            "comment": getattr(result, "comment", None),
+            "order": getattr(result, "order", None),
+            "deal": getattr(result, "deal", None),
+            "request": request,
+        }

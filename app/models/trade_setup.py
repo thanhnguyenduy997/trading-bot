@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -30,6 +30,8 @@ class TradeSetup(Base):
     risk_per_order: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     order1_volume: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     order2_volume: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    order1_ticket: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    order2_ticket: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
     execution_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
