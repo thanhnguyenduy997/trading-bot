@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 from sqlalchemy.orm import Session
@@ -11,6 +11,8 @@ from app.services.trading_accounts import get_trading_account
 
 
 class TradeSetupExecutionService:
+    preview_ttl = timedelta(minutes=5)
+
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
@@ -19,25 +21,28 @@ class TradeSetupExecutionService:
         setup = get_trade_setup(self.db, setup_id, user_id)
         if not setup:
             raise LookupError("Trade setup not found")
+        if self._is_stale_draft(setup):
+            raise ValueError("Preview is older than 5 minutes. Refresh the preview before execution.")
 
         account = get_trading_account(self.db, setup.trading_account_id, user_id)
         if not account:
             raise LookupError("Trading account not found")
 
         adapter = self.adapter_factory(account)
-        create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
-        setup.status = "queued"
-        setup.execution_error = None
-        setup.execution_details = None
-        setup.monitoring_status = None
-        setup.order2_be_moved_at = None
-        setup.order2_be_move_error = None
-        setup.order1_ticket = None
-        setup.order2_ticket = None
-        self.db.add(setup)
-        self.db.flush()
-
         try:
+            self._validate_quote_snapshot(adapter, setup)
+            create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
+            setup.status = "queued"
+            setup.execution_error = None
+            setup.execution_details = None
+            setup.monitoring_status = None
+            setup.order2_be_moved_at = None
+            setup.order2_be_move_error = None
+            setup.order1_ticket = None
+            setup.order2_ticket = None
+            self.db.add(setup)
+            self.db.flush()
+
             setup.status = "executing"
             self.db.add(setup)
             self.db.flush()
@@ -190,3 +195,26 @@ class TradeSetupExecutionService:
         if not error.details:
             return None
         return json.dumps(error.details, indent=2, sort_keys=True, default=str)
+
+    def _is_stale_draft(self, setup) -> bool:
+        if setup.status != "draft" or setup.updated_at is None:
+            return False
+        updated_at = setup.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - updated_at > self.preview_ttl
+
+    def _validate_quote_snapshot(self, adapter, setup) -> None:
+        quote = adapter.get_quote(setup.symbol)
+        quote_price = quote.get("ask") if setup.side == "buy" else quote.get("bid")
+        if quote_price is None:
+            return
+
+        current_entry = float(quote_price)
+        saved_entry = float(setup.estimated_entry)
+        r_value = float(setup.r_value)
+        max_allowed_move = max(r_value * 0.25, abs(saved_entry) * 0.0001)
+        if abs(current_entry - saved_entry) > max_allowed_move:
+            raise ValueError(
+                "Live quote has moved materially since preview. Refresh the preview before execution."
+            )

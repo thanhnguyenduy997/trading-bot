@@ -16,7 +16,7 @@ from app.services.preview_service import PreviewService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
-from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups
+from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups, update_draft_trade_setup
 from app.services.trading_accounts import create_trading_account, get_trading_account, list_trading_accounts
 
 
@@ -30,6 +30,7 @@ def _render_trade_preview_page(
     accounts: list,
     form_data: dict[str, object] | None = None,
     preview: object | None = None,
+    setup: object | None = None,
     error: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
@@ -49,6 +50,7 @@ def _render_trade_preview_page(
                 "rr_order2": 2.0,
             },
             "preview": preview,
+            "setup": setup,
             "error": error,
         },
         status_code=status_code,
@@ -159,6 +161,7 @@ def trade_preview_page_submit(
     risk_mode: str = Form(...),
     risk_value: float = Form(...),
     rr_order2: float = Form(...),
+    draft_setup_id: int | None = Form(None),
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
     form_data = {
@@ -169,6 +172,7 @@ def trade_preview_page_submit(
         "risk_mode": risk_mode,
         "risk_value": risk_value,
         "rr_order2": rr_order2,
+        "draft_setup_id": draft_setup_id,
     }
 
     try:
@@ -193,7 +197,42 @@ def trade_preview_page_submit(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    return _render_trade_preview_page(request, current_user, accounts, form_data=form_data, preview=preview)
+    setup_payload = TradeSetupCreate(
+        trading_account_id=trading_account_id,
+        symbol=preview.symbol,
+        side=preview.side,
+        sl_price=preview.sl_price,
+        risk_mode=risk_mode,
+        risk_value=risk_value,
+        rr_order2=rr_order2,
+        estimated_entry=preview.estimated_entry,
+        r_value=preview.r_value,
+        tp1_price=preview.tp1_price,
+        tp2_price=preview.tp2_price,
+        total_risk_money=preview.total_risk_money,
+        risk_per_order=preview.risk_per_order,
+        order1_volume=preview.order1_volume,
+        order2_volume=preview.order2_volume,
+        status="draft",
+    )
+    try:
+        if draft_setup_id:
+            setup = update_draft_trade_setup(db, draft_setup_id, current_user.id, setup_payload)
+        else:
+            setup = create_trade_setup(db, current_user.id, setup_payload)
+    except (LookupError, ValueError) as exc:
+        return _render_trade_preview_page(
+            request,
+            current_user,
+            accounts,
+            form_data=form_data,
+            preview=preview,
+            error=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    form_data["draft_setup_id"] = setup.id
+    return _render_trade_preview_page(request, current_user, accounts, form_data=form_data, preview=preview, setup=setup)
 
 
 @router.post("/trade-setups/save")
@@ -285,6 +324,19 @@ def execute_trade_setup_page(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        setup = get_trade_setup(db, setup_id, current_user.id)
+        if not setup:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found") from exc
+        events = list_trade_events(db, setup_id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            events,
+            error=str(exc),
+            status_code=status.HTTP_409_CONFLICT,
+        )
     except AdapterError as exc:
         setup = get_trade_setup(db, setup_id, current_user.id)
         if not setup:

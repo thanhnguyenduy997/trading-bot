@@ -210,8 +210,15 @@ button:hover {
 .secondary-button {
     color: var(--accent);
     background: #eef5ff;
+    border: 1px solid #c9defc;
     border-color: #c9defc;
     box-shadow: none;
+}
+
+.button-link.secondary-button {
+    padding: 0.72rem 0.85rem;
+    border-radius: 10px;
+    font-weight: 700;
 }
 
 .secondary-button:hover {

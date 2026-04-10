@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
+<section class="card" id="preview-form">
     <div class="section-header">
         <div>
             <h1>Trade Preview</h1>
@@ -13,6 +13,9 @@
     {% endif %}
 
     <form action="/trade-setups/preview" method="post" class="stack preview-form">
+        {% if setup %}
+        <input type="hidden" name="draft_setup_id" value="{{ setup.id }}">
+        {% endif %}
         <label>
             Trading account
             <select name="trading_account_id" required>
@@ -59,56 +62,81 @@
             RR order 2
             <input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
         </label>
-        <button type="submit">Preview Setup</button>
+        <button type="submit">{{ "Update Review" if setup else "Preview Setup" }}</button>
     </form>
 </section>
 
-{% if preview %}
-<section class="card results-card">
-    <h2>Preview Result</h2>
-    <table class="accounts-table detail-table">
-        <tbody>
-            <tr><th>Symbol</th><td>{{ preview.symbol }}</td></tr>
-            <tr><th>Side</th><td>{{ preview.side|upper }}</td></tr>
-            <tr><th>Live bid</th><td>{{ preview.bid }}</td></tr>
-            <tr><th>Live ask</th><td>{{ preview.ask }}</td></tr>
-            <tr><th>Estimated entry</th><td>{{ preview.estimated_entry }} (live MT5 {{ "ask" if preview.side == "buy" else "bid" }})</td></tr>
-            <tr><th>Stop loss</th><td>{{ preview.sl_price }}</td></tr>
-            <tr><th>R value</th><td>{{ preview.r_value }}</td></tr>
-            <tr><th>Order 1 TP</th><td>{{ preview.tp1_price }}</td></tr>
-            <tr><th>Order 2 TP</th><td>{{ preview.tp2_price }}</td></tr>
-            <tr><th>Total risk</th><td>{{ preview.total_risk_money }}</td></tr>
-            <tr><th>Risk per order</th><td>{{ preview.risk_per_order }}</td></tr>
-            <tr><th>Order 1 volume</th><td>{{ preview.order1_volume }}</td></tr>
-            <tr><th>Order 2 volume</th><td>{{ preview.order2_volume }}</td></tr>
-            <tr><th>Digits</th><td>{{ preview.digits if preview.digits is not none else "N/A" }}</td></tr>
-            <tr><th>Point</th><td>{{ preview.point if preview.point is not none else "N/A" }}</td></tr>
-            <tr><th>Contract size</th><td>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</td></tr>
-            <tr><th>Volume min</th><td>{{ preview.volume_min if preview.volume_min is not none else "N/A" }}</td></tr>
-            <tr><th>Volume max</th><td>{{ preview.volume_max if preview.volume_max is not none else "N/A" }}</td></tr>
-            <tr><th>Volume step</th><td>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</td></tr>
-            <tr><th>Status</th><td>{{ preview.validation_status }}</td></tr>
-            <tr><th>Warnings</th><td>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</td></tr>
-        </tbody>
-    </table>
-    <form action="/trade-setups/save" method="post" class="save-setup-form">
-        <input type="hidden" name="trading_account_id" value="{{ form_data.trading_account_id }}">
-        <input type="hidden" name="symbol" value="{{ preview.symbol }}">
-        <input type="hidden" name="side" value="{{ preview.side }}">
-        <input type="hidden" name="sl_price" value="{{ preview.sl_price }}">
-        <input type="hidden" name="risk_mode" value="{{ form_data.risk_mode }}">
-        <input type="hidden" name="risk_value" value="{{ form_data.risk_value }}">
-        <input type="hidden" name="rr_order2" value="{{ form_data.rr_order2 }}">
-        <input type="hidden" name="estimated_entry" value="{{ preview.estimated_entry }}">
-        <input type="hidden" name="r_value" value="{{ preview.r_value }}">
-        <input type="hidden" name="tp1_price" value="{{ preview.tp1_price }}">
-        <input type="hidden" name="tp2_price" value="{{ preview.tp2_price }}">
-        <input type="hidden" name="total_risk_money" value="{{ preview.total_risk_money }}">
-        <input type="hidden" name="risk_per_order" value="{{ preview.risk_per_order }}">
-        <input type="hidden" name="order1_volume" value="{{ preview.order1_volume }}">
-        <input type="hidden" name="order2_volume" value="{{ preview.order2_volume }}">
-        <button type="submit">Save Setup</button>
-    </form>
+{% if preview and setup %}
+<section class="card results-card setup-detail-card">
+    <div class="section-header compact-header">
+        <div>
+            <h2>Review Setup #{{ setup.id }}</h2>
+            <p class="muted">Auto-saved as draft. Entry uses a live MT5 quote snapshot from this preview.</p>
+        </div>
+        <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
+    </div>
+
+    <div class="setup-hero">
+        <div>
+            <div class="setup-symbol">{{ preview.symbol }}</div>
+            <div class="setup-subtitle">{{ preview.side|upper }} · {{ "ask" if preview.side == "buy" else "bid" }} snapshot {{ preview.estimated_entry }}</div>
+        </div>
+        <div class="status-pill">{{ preview.validation_status }}</div>
+    </div>
+
+    <div class="metric-grid">
+        <div class="metric-card primary-metric">
+            <span>Entry</span>
+            <strong>{{ preview.estimated_entry }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Stop loss</span>
+            <strong>{{ preview.sl_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>TP1</span>
+            <strong>{{ preview.tp1_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>TP2</span>
+            <strong>{{ preview.tp2_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Total risk</span>
+            <strong>{{ preview.total_risk_money }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Volumes</span>
+            <strong>{{ preview.order1_volume }} / {{ preview.order2_volume }}</strong>
+        </div>
+    </div>
+
+    <section class="detail-panel">
+        <h2>Quote Snapshot</h2>
+        <dl class="compact-details">
+            <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
+            <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
+            <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
+            <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
+            <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
+            <div><dt>Warnings</dt><dd>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</dd></div>
+        </dl>
+    </section>
+
+    <div class="alert alert-success">
+        Draft saved. Execute within 5 minutes or refresh the preview to avoid stale quote risk.
+    </div>
+
+    <section class="detail-panel actions-panel">
+        <h2>Actions</h2>
+        <div class="action-row">
+            <a class="button-link secondary-button" href="#preview-form">Edit setup</a>
+            <form action="/trade-setups/{{ setup.id }}/execute" method="post">
+                <button type="submit">Execute Now</button>
+            </form>
+        </div>
+        <p class="muted">Execution uses saved setup ID {{ setup.id }}. This draft is visible in setup history.</p>
+    </section>
 </section>
 {% endif %}
 {% endblock %}
