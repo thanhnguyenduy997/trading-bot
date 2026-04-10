@@ -10,7 +10,7 @@
     <header class="site-header">
         <div class="brand">Trading Web App</div>
         {% if user %}
-        <nav class="nav">
+        <nav class="nav desktop-nav">
             <a href="/dashboard">Dashboard</a>
             <a href="/trading-accounts">Trading Accounts</a>
             <a href="/trade-setups/preview">Trade Preview</a>
@@ -19,6 +19,18 @@
                 <button type="submit" class="link-button">Logout</button>
             </form>
         </nav>
+        <details class="mobile-nav">
+            <summary>Menu</summary>
+            <nav class="mobile-nav-panel">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/trading-accounts">Trading Accounts</a>
+                <a href="/trade-setups/preview">Trade Preview</a>
+                <a href="/trade-setups">Trade Setups</a>
+                <form action="/api/auth/logout" method="post">
+                    <button type="submit" class="link-button">Logout</button>
+                </form>
+            </nav>
+        </details>
         {% endif %}
     </header>
     <main class="page-shell">

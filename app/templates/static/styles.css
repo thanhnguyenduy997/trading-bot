@@ -12,11 +12,17 @@
     box-sizing: border-box;
 }
 
+html {
+    overflow-x: hidden;
+}
+
 body {
     margin: 0;
     font-family: "Segoe UI", sans-serif;
     background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
     color: var(--ink);
+    overflow-x: hidden;
+    line-height: 1.5;
 }
 
 .site-header {
@@ -26,16 +32,24 @@ body {
     padding: 1rem 2rem;
     border-bottom: 1px solid var(--line);
     background: rgba(255, 255, 255, 0.9);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(12px);
+    gap: 1rem;
 }
 
 .brand {
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .nav {
     display: flex;
     gap: 1rem;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .nav a,
@@ -49,10 +63,58 @@ body {
     font: inherit;
 }
 
+.mobile-nav {
+    display: none;
+    position: relative;
+}
+
+.mobile-nav summary {
+    list-style: none;
+    cursor: pointer;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.55rem 0.9rem;
+    font-weight: 700;
+}
+
+.mobile-nav summary::-webkit-details-marker {
+    display: none;
+}
+
+.mobile-nav-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.6rem);
+    min-width: min(78vw, 280px);
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 20px 50px rgba(17, 24, 39, 0.16);
+}
+
+.mobile-nav-panel a,
+.mobile-nav-panel .link-button {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 0.85rem;
+    border-radius: 10px;
+    text-align: left;
+}
+
+.mobile-nav-panel a:hover,
+.mobile-nav-panel .link-button:hover {
+    background: #eef4ff;
+}
+
 .page-shell {
     max-width: 960px;
     margin: 2rem auto;
     padding: 0 1rem;
+    width: 100%;
 }
 
 .card {
@@ -61,6 +123,13 @@ body {
     border-radius: 16px;
     padding: 1.5rem;
     box-shadow: 0 10px 30px rgba(17, 24, 39, 0.06);
+    overflow-wrap: anywhere;
+}
+
+h1,
+h2 {
+    margin-top: 0;
+    line-height: 1.15;
 }
 
 .auth-card {
@@ -73,18 +142,32 @@ body {
     gap: 0.75rem;
 }
 
+label {
+    color: var(--ink);
+    font-weight: 600;
+}
+
 input,
 select,
 button {
     padding: 0.8rem 0.9rem;
     border-radius: 10px;
     border: 1px solid var(--line);
+    max-width: 100%;
+    font: inherit;
+}
+
+input,
+select {
+    width: 100%;
+    background: #fff;
 }
 
 button {
     background: var(--accent);
     color: #fff;
     font-weight: 600;
+    cursor: pointer;
 }
 
 .section-header {
@@ -92,11 +175,13 @@ button {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
+    gap: 1rem;
 }
 
 .accounts-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
 }
 
 .accounts-table th,
@@ -104,6 +189,18 @@ button {
     padding: 0.75rem;
     text-align: left;
     border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.accounts-table th {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.accounts-table tbody tr:last-child th,
+.accounts-table tbody tr:last-child td {
+    border-bottom: 0;
 }
 
 .muted {
@@ -123,6 +220,10 @@ button {
     margin-top: 1rem;
 }
 
+.save-setup-form + .save-setup-form {
+    margin-top: 0.75rem;
+}
+
 .action-grid {
     display: grid;
     gap: 1rem;
@@ -134,6 +235,7 @@ button {
     padding: 0.9rem 1rem;
     border-radius: 12px;
     margin-bottom: 1rem;
+    overflow-wrap: anywhere;
 }
 
 .alert-error {
@@ -158,4 +260,186 @@ button {
 
 .diagnostic-details {
     margin-top: 0.5rem;
+}
+
+@media (max-width: 820px) {
+    .site-header {
+        padding: 0.9rem 1rem;
+    }
+
+    .desktop-nav {
+        display: none;
+    }
+
+    .mobile-nav {
+        display: block;
+    }
+
+    .page-shell {
+        margin: 1.25rem auto;
+        padding: 0 0.85rem;
+    }
+
+    .card {
+        padding: 1.15rem;
+        border-radius: 14px;
+    }
+
+    .section-header {
+        align-items: flex-start;
+    }
+
+    .section-header h1 {
+        margin-bottom: 0.35rem;
+    }
+
+    .button-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.55rem 0.8rem;
+        white-space: nowrap;
+    }
+
+    .action-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    body {
+        font-size: 15px;
+    }
+
+    .site-header {
+        align-items: center;
+    }
+
+    .brand {
+        max-width: 58vw;
+        white-space: normal;
+        line-height: 1.15;
+    }
+
+    .page-shell {
+        margin: 0.85rem auto;
+        padding: 0 0.65rem;
+    }
+
+    .card {
+        padding: 1rem;
+        border-radius: 12px;
+    }
+
+    .auth-card {
+        margin: 1.5rem auto;
+    }
+
+    .section-header {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    .section-header .button-link {
+        width: 100%;
+    }
+
+    .stack {
+        gap: 0.85rem;
+    }
+
+    input,
+    select,
+    button,
+    .button-link {
+        min-height: 44px;
+    }
+
+    button,
+    .save-setup-form button,
+    .action-grid button {
+        width: 100%;
+    }
+
+    .accounts-table {
+        display: block;
+    }
+
+    .accounts-table thead {
+        display: none;
+    }
+
+    .accounts-table tbody,
+    .accounts-table tr,
+    .accounts-table th,
+    .accounts-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .accounts-table tr {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.75rem;
+        margin-bottom: 0.8rem;
+        background: #fff;
+    }
+
+    .accounts-table tbody tr:last-child {
+        margin-bottom: 0;
+    }
+
+    .accounts-table th,
+    .accounts-table td {
+        border-bottom: 0;
+        padding: 0.35rem 0;
+    }
+
+    .accounts-table th {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .accounts-table td[data-label] {
+        display: grid;
+        grid-template-columns: minmax(8.5rem, 42%) 1fr;
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    .accounts-table td[data-label]::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .diagnostic-block {
+        max-height: 45vh;
+        overflow: auto;
+        padding: 0.75rem;
+        border-radius: 10px;
+        background: #f8fafc;
+    }
+
+    .alert {
+        padding: 0.8rem;
+    }
+}
+
+@media (max-width: 420px) {
+    .accounts-table td[data-label] {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .mobile-nav-panel {
+        right: -0.25rem;
+        min-width: calc(100vw - 1.3rem);
+    }
 }

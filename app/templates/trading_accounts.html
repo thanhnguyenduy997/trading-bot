@@ -22,14 +22,14 @@
         <tbody>
             {% for account in accounts %}
             <tr>
-                <td>{{ account.broker_name }}</td>
-                <td><a href="/trading-accounts/id/{{ account.id }}">{{ account.account_number }}</a></td>
-                <td>{{ account.platform }}</td>
-                <td>{{ account.server_name }}</td>
-                <td>{{ account.connection_status }}</td>
-                <td>{{ account.last_heartbeat_at.strftime("%Y-%m-%d %H:%M") if account.last_heartbeat_at else "Never" }}</td>
-                <td>{{ account.last_error or "None" }}</td>
-                <td>{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                <td data-label="Broker">{{ account.broker_name }}</td>
+                <td data-label="Account Number"><a href="/trading-accounts/id/{{ account.id }}">{{ account.account_number }}</a></td>
+                <td data-label="Platform">{{ account.platform }}</td>
+                <td data-label="Server">{{ account.server_name }}</td>
+                <td data-label="Status">{{ account.connection_status }}</td>
+                <td data-label="Heartbeat">{{ account.last_heartbeat_at.strftime("%Y-%m-%d %H:%M") if account.last_heartbeat_at else "Never" }}</td>
+                <td data-label="Last Error">{{ account.last_error or "None" }}</td>
+                <td data-label="Created">{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
             </tr>
             {% endfor %}
         </tbody>
