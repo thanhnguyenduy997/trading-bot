@@ -31,3 +31,16 @@ def list_trade_events(db: Session, setup_id: int, user_id: int, limit: int = 10)
         .limit(limit)
         .all()
     )
+
+
+def event_exists(db: Session, setup_id: int, user_id: int, event_type: str) -> bool:
+    return (
+        db.query(TradeEvent.id)
+        .filter(
+            TradeEvent.setup_id == setup_id,
+            TradeEvent.user_id == user_id,
+            TradeEvent.event_type == event_type,
+        )
+        .first()
+        is not None
+    )

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     database_url: str = Field(..., alias="DATABASE_URL")
     encryption_key: str = Field(..., alias="ENCRYPTION_KEY")
+    trade_monitor_enabled: bool = Field(False, alias="TRADE_MONITOR_ENABLED")
+    trade_monitor_interval_seconds: int = Field(15, alias="TRADE_MONITOR_INTERVAL_SECONDS")
+    telegram_bot_token: str | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str | None = Field(None, alias="TELEGRAM_CHAT_ID")
+    telegram_timeout_seconds: int = Field(5, alias="TELEGRAM_TIMEOUT_SECONDS")
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
 from app.services.execution import default_adapter_factory
-from app.services.trade_events import create_trade_event
+from app.services.trade_events import create_trade_event, event_exists
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
 
@@ -53,7 +53,7 @@ class TradeSetupMonitoringService:
                 self._persist(setup)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
-            if setup.monitoring_status not in {"be_moved", "be_already_moved", "be_already_set"}:
+            if not event_exists(self.db, setup.id, user_id, "tp1_hit"):
                 create_trade_event(
                     self.db,
                     user_id,

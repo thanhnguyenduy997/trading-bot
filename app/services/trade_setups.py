@@ -1,5 +1,6 @@
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.services.trade_events import create_trade_event
@@ -60,4 +61,32 @@ def get_trade_setup(db: Session, setup_id: int, user_id: int) -> TradeSetup | No
         db.query(TradeSetup)
         .filter(TradeSetup.id == setup_id, TradeSetup.user_id == user_id)
         .first()
+    )
+
+
+def list_setups_requiring_monitoring(db: Session, limit: int = 50) -> list[TradeSetup]:
+    terminal_monitoring_statuses = {
+        "be_moved",
+        "be_already_moved",
+        "be_already_set",
+        "order2_closed",
+        "order1_closed_not_tp1",
+        "be_move_failed",
+        "execution_failed",
+    }
+    return (
+        db.query(TradeSetup)
+        .filter(
+            TradeSetup.status == "executed",
+            TradeSetup.order1_ticket.isnot(None),
+            TradeSetup.order2_ticket.isnot(None),
+            TradeSetup.order2_be_moved_at.is_(None),
+            or_(
+                TradeSetup.monitoring_status.is_(None),
+                ~TradeSetup.monitoring_status.in_(terminal_monitoring_statuses),
+            ),
+        )
+        .order_by(TradeSetup.executed_at.asc().nulls_last(), TradeSetup.id.asc())
+        .limit(limit)
+        .all()
     )
