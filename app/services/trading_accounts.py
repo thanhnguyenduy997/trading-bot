@@ -31,6 +31,9 @@ def create_trading_account(db: Session, user_id: int, payload: TradingAccountCre
         password_encrypted=encrypt_value(payload.password),
         platform=payload.platform,
         terminal_path=payload.terminal_path,
+        telegram_enabled=payload.telegram_enabled,
+        telegram_chat_id=payload.telegram_chat_id,
+        telegram_bot_token_encrypted=encrypt_value(payload.telegram_bot_token) if payload.telegram_bot_token else None,
     )
     db.add(account)
     db.commit()
@@ -50,10 +53,13 @@ def update_trading_account(
 
     updates = payload.model_dump(exclude_unset=True)
     password = updates.pop("password", None)
+    telegram_bot_token = updates.pop("telegram_bot_token", None)
     for field, value in updates.items():
         setattr(account, field, value)
     if password is not None:
         account.password_encrypted = encrypt_value(password)
+    if telegram_bot_token is not None:
+        account.telegram_bot_token_encrypted = encrypt_value(telegram_bot_token)
 
     db.add(account)
     db.commit()

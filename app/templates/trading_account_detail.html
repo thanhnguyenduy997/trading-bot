@@ -10,6 +10,7 @@
     </div>
 
     <div id="account-action-error" class="alert alert-error" {% if not error %}hidden{% endif %}>{{ error or "" }}</div>
+    <div id="account-action-success" class="alert alert-success" {% if not message %}hidden{% endif %}>{{ message or "" }}</div>
 
     <table class="accounts-table detail-table">
         <tbody>
@@ -20,6 +21,9 @@
             <tr><th>Connection status</th><td id="account-connection-status">{{ account.connection_status }}</td></tr>
             <tr><th>Last heartbeat</th><td id="account-last-heartbeat">{{ account.last_heartbeat_at or "Never" }}</td></tr>
             <tr><th>Last error</th><td id="account-last-error">{{ account.last_error or "None" }}</td></tr>
+            <tr><th>Telegram enabled</th><td>{{ "Yes" if account.telegram_enabled else "No" }}</td></tr>
+            <tr><th>Telegram chat</th><td>{{ account.telegram_chat_id or "Global fallback" }}</td></tr>
+            <tr><th>Telegram bot token</th><td>{{ "Account override configured" if account.telegram_bot_token_encrypted else "Global fallback" }}</td></tr>
         </tbody>
     </table>
 
@@ -39,6 +43,29 @@
             <button type="submit">Get Quote</button>
         </form>
     </div>
+</section>
+
+<section class="card results-card">
+    <h2>Telegram Notifications</h2>
+    <form action="/trading-accounts/id/{{ account.id }}/telegram" method="post" class="stack">
+        <label>
+            <input type="checkbox" name="telegram_enabled" value="true" {% if account.telegram_enabled %}checked{% endif %}>
+            Enable Telegram notifications for this account
+        </label>
+        <label>
+            Telegram Chat ID
+            <input type="text" name="telegram_chat_id" value="{{ account.telegram_chat_id or '' }}" placeholder="Falls back to global TELEGRAM_CHAT_ID">
+        </label>
+        <label>
+            Bot Token Override
+            <input type="password" name="telegram_bot_token" placeholder="Leave blank to keep existing override or use global fallback">
+        </label>
+        <div class="action-row">
+            <button type="submit">Save Telegram Settings</button>
+            <button id="test-telegram-button" type="button" class="secondary-button">Send Test Telegram</button>
+        </div>
+        <p class="muted">Raw bot tokens are encrypted and never displayed.</p>
+    </form>
 </section>
 
 <section id="connection-result-card" class="card results-card" {% if not (connection_result and connection_result.success) %}hidden{% endif %}>
@@ -87,6 +114,7 @@
 
 <script>
     const errorBox = document.getElementById("account-action-error");
+    const successBox = document.getElementById("account-action-success");
     const connectionCard = document.getElementById("connection-result-card");
     const quoteCard = document.getElementById("quote-result-card");
     const symbolInfoCard = document.getElementById("symbol-info-card");
@@ -94,10 +122,17 @@
     function showError(message) {
         errorBox.textContent = message;
         errorBox.hidden = false;
+        successBox.hidden = true;
     }
 
     function clearError() {
         errorBox.textContent = "";
+        errorBox.hidden = true;
+    }
+
+    function showSuccess(message) {
+        successBox.textContent = message;
+        successBox.hidden = false;
         errorBox.hidden = true;
     }
 
@@ -178,6 +213,20 @@
         setText("symbol-info-volume-step", data.symbol_info?.volume_step, "");
         quoteCard.hidden = false;
         symbolInfoCard.hidden = !data.symbol_info;
+    });
+
+    document.getElementById("test-telegram-button").addEventListener("click", async () => {
+        clearError();
+        const response = await fetch("/trading-accounts/id/{{ account.id }}/test-telegram", {
+            method: "POST",
+            credentials: "same-origin",
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            showError(data.message || data.detail || "Telegram test failed.");
+            return;
+        }
+        showSuccess(data.message || "Telegram test sent.");
     });
 </script>
 {% endblock %}

@@ -194,6 +194,12 @@ select {
     background: #fff;
 }
 
+input[type="checkbox"] {
+    width: auto;
+    min-height: auto;
+    margin-right: 0.45rem;
+}
+
 button {
     background: var(--accent);
     border-color: var(--accent);

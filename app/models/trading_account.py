@@ -21,6 +21,9 @@ class TradingAccount(Base):
     connection_status: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown", server_default="unknown")
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    telegram_enabled: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    telegram_bot_token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

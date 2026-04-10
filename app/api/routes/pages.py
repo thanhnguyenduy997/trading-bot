@@ -10,14 +10,15 @@ from app.execution.base import AdapterError
 from app.models.user import User
 from app.schemas.trade_preview import TradePreviewRequest
 from app.schemas.trade_setup import TradeSetupCreate
-from app.schemas.trading_account import TradingAccountCreate
+from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
+from app.services.notifications import send_trading_account_test_notification
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups, update_draft_trade_setup
-from app.services.trading_accounts import create_trading_account, get_trading_account, list_trading_accounts
+from app.services.trading_accounts import create_trading_account, get_trading_account, list_trading_accounts, update_trading_account
 
 
 router = APIRouter(tags=["pages"])
@@ -99,6 +100,7 @@ def _render_trading_account_detail_page(
     account: object,
     connection_result: object | None = None,
     quote_result: object | None = None,
+    message: str | None = None,
     error: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
@@ -111,6 +113,7 @@ def _render_trading_account_detail_page(
             "account": account,
             "connection_result": connection_result,
             "quote_result": quote_result,
+            "message": message,
             "error": error,
         },
         status_code=status_code,
@@ -453,6 +456,9 @@ def create_trading_account_from_form(
     server_name: str = Form(...),
     terminal_path: str = Form(""),
     password: str = Form(...),
+    telegram_enabled: bool = Form(False),
+    telegram_chat_id: str = Form(""),
+    telegram_bot_token: str = Form(""),
 ) -> RedirectResponse:
     create_trading_account(
         db,
@@ -462,10 +468,53 @@ def create_trading_account_from_form(
             account_number=account_number,
             server_name=server_name,
             terminal_path=terminal_path or None,
+            telegram_enabled=telegram_enabled,
+            telegram_chat_id=telegram_chat_id or None,
+            telegram_bot_token=telegram_bot_token or None,
             password=password,
         ),
     )
     return RedirectResponse(url="/trading-accounts", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/trading-accounts/id/{account_id}/telegram", response_class=HTMLResponse)
+def update_trading_account_telegram_page(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    telegram_enabled: bool = Form(False),
+    telegram_chat_id: str = Form(""),
+    telegram_bot_token: str = Form(""),
+) -> HTMLResponse:
+    payload = TradingAccountUpdate(
+        telegram_enabled=telegram_enabled,
+        telegram_chat_id=telegram_chat_id or None,
+        **({"telegram_bot_token": telegram_bot_token} if telegram_bot_token else {}),
+    )
+    account = update_trading_account(db, account_id, current_user.id, payload)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    return _render_trading_account_detail_page(
+        request,
+        current_user,
+        account,
+        message="Telegram notification settings updated.",
+    )
+
+
+@router.post("/trading-accounts/id/{account_id}/test-telegram")
+def test_trading_account_telegram_page(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> JSONResponse:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    success, message = send_trading_account_test_notification(account)
+    status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+    return JSONResponse(status_code=status_code, content={"success": success, "message": message})
 
 
 @router.post("/trading-accounts/id/{account_id}/test-connection")

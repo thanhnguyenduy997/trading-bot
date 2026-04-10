@@ -12,9 +12,11 @@ from app.schemas.trading_account import (
     TradingAccountConnectionTestRead,
     TradingAccountQuoteRead,
     TradingAccountRead,
+    TradingAccountTelegramTestRead,
     TradingAccountUpdate,
 )
 from app.services.execution import TradingAccountExecutionService
+from app.services.notifications import send_trading_account_test_notification
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -129,3 +131,18 @@ def get_trading_account_quote(
                 "last_error": account.last_error if account else exc.message,
             },
         ) from exc
+
+
+@router.post("/{account_id}/test-telegram", response_model=TradingAccountTelegramTestRead)
+def test_trading_account_telegram(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradingAccountTelegramTestRead:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    success, message = send_trading_account_test_notification(account)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    return TradingAccountTelegramTestRead(success=True, message=message)

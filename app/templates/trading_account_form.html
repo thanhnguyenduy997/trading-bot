@@ -13,6 +13,18 @@
         <input type="text" name="terminal_path" placeholder="C:\\Program Files\\MetaTrader 5\\terminal64.exe">
         <label>Password</label>
         <input type="password" name="password" required>
+        <section class="detail-panel">
+            <h2>Telegram Notifications</h2>
+            <label>
+                <input type="checkbox" name="telegram_enabled" value="true" checked>
+                Enable Telegram notifications for this account
+            </label>
+            <label>Telegram Chat ID (optional)</label>
+            <input type="text" name="telegram_chat_id" placeholder="Falls back to global TELEGRAM_CHAT_ID">
+            <label>Bot Token Override (optional)</label>
+            <input type="password" name="telegram_bot_token" placeholder="Falls back to global TELEGRAM_BOT_TOKEN">
+            <p class="muted">Bot token overrides are encrypted before storage and are never shown again.</p>
+        </section>
         <button type="submit">Save Account</button>
     </form>
 </section>
