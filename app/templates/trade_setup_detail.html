@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
+<section class="card setup-detail-card">
     <div class="section-header">
         <div>
             <h1>Trade Setup #{{ setup.id }}</h1>
-            <p class="muted">Saved setup detail, execution state, and monitoring timeline.</p>
+            <p class="muted">{{ setup.symbol }} {{ setup.side|upper }} control panel</p>
         </div>
         <a class="button-link" href="/trade-setups">Back to Setups</a>
     </div>
@@ -16,123 +16,152 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <table class="accounts-table">
-        <tbody>
-            <tr><th>ID</th><td>{{ setup.id }}</td></tr>
-            <tr><th>Trading account</th><td>{{ setup.trading_account_id }}</td></tr>
-            <tr><th>Symbol</th><td>{{ setup.symbol }}</td></tr>
-            <tr><th>Side</th><td>{{ setup.side|upper }}</td></tr>
-            <tr><th>Stop loss</th><td>{{ setup.sl_price }}</td></tr>
-            <tr><th>Risk mode</th><td>{{ setup.risk_mode }}</td></tr>
-            <tr><th>Risk value</th><td>{{ setup.risk_value }}</td></tr>
-            <tr><th>RR order 2</th><td>{{ setup.rr_order2 }}</td></tr>
-            <tr><th>Estimated entry</th><td>{{ setup.estimated_entry }}</td></tr>
-            <tr><th>R value</th><td>{{ setup.r_value }}</td></tr>
-            <tr><th>TP1</th><td>{{ setup.tp1_price }}</td></tr>
-            <tr><th>TP2</th><td>{{ setup.tp2_price }}</td></tr>
-            <tr><th>Total risk</th><td>{{ setup.total_risk_money }}</td></tr>
-            <tr><th>Risk per order</th><td>{{ setup.risk_per_order }}</td></tr>
-            <tr><th>Order 1 volume</th><td>{{ setup.order1_volume }}</td></tr>
-            <tr><th>Order 2 volume</th><td>{{ setup.order2_volume }}</td></tr>
-            <tr><th>Order 1 ticket</th><td>{{ setup.order1_ticket or "Not opened" }}</td></tr>
-            <tr>
-                <th>Order 1 state</th>
-                <td>
-                    {% if setup.monitoring_status == "waiting_tp1" %}
-                    Open
-                    {% elif setup.monitoring_status in ["order1_closed_not_tp1", "be_already_set", "be_already_moved", "be_moved", "be_move_failed", "order2_closed"] %}
-                    Closed
-                    {% else %}
-                    Unknown
-                    {% endif %}
-                </td>
-            </tr>
-            <tr><th>Order 2 ticket</th><td>{{ setup.order2_ticket or "Not opened" }}</td></tr>
-            <tr>
-                <th>Order 2 state</th>
-                <td>
-                    {% if setup.monitoring_status == "order2_closed" %}
-                    Closed
-                    {% elif setup.order2_ticket %}
-                    Open or pending refresh
-                    {% else %}
-                    Unknown
-                    {% endif %}
-                </td>
-            </tr>
-            <tr><th>Status</th><td>{{ setup.status }}</td></tr>
-            <tr><th>Monitoring status</th><td>{{ setup.monitoring_status or "Not started" }}</td></tr>
-            <tr><th>Order 2 BE moved at</th><td>{{ setup.order2_be_moved_at or "Not moved" }}</td></tr>
-            <tr>
-                <th>Order 2 BE move error</th>
-                <td>
-                    {% if setup.order2_be_move_error %}
-                    <details class="diagnostic-details" open>
-                        <summary>Breakeven move diagnostic</summary>
-                        <pre class="diagnostic-block">{{ setup.order2_be_move_error }}</pre>
-                    </details>
-                    {% else %}None{% endif %}
-                </td>
-            </tr>
-            <tr>
-                <th>Execution error</th>
-                <td>
-                    {% if setup.execution_error %}
-                    <div>{{ setup.execution_error }}</div>
-                    {% if setup.execution_details %}
-                    <details class="diagnostic-details">
-                        <summary>Full MT5 diagnostic details</summary>
-                        <pre class="diagnostic-block">{{ setup.execution_details }}</pre>
-                    </details>
-                    {% endif %}
-                    {% else %}None{% endif %}
-                </td>
-            </tr>
-            <tr><th>Executed at</th><td>{{ setup.executed_at or "Not executed" }}</td></tr>
-            <tr><th>Created</th><td>{{ setup.created_at }}</td></tr>
-            <tr><th>Updated</th><td>{{ setup.updated_at }}</td></tr>
-        </tbody>
-    </table>
+    <div class="setup-hero">
+        <div>
+            <div class="setup-symbol">{{ setup.symbol }}</div>
+            <div class="setup-subtitle">{{ setup.side|upper }} · Account {{ setup.trading_account_id }}</div>
+        </div>
+        <div class="status-pill status-{{ setup.status }}">{{ setup.status }}</div>
+    </div>
 
-    <form action="/trade-setups/{{ setup.id }}/execute" method="post" class="save-setup-form">
-        <button type="submit">Execute</button>
-    </form>
-    <form action="/trade-setups/{{ setup.id }}/monitor" method="post" class="save-setup-form">
-        <button type="submit">Check TP1 / Move BE</button>
-    </form>
+    <div class="metric-grid">
+        <div class="metric-card primary-metric">
+            <span>Entry</span>
+            <strong>{{ setup.estimated_entry }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Stop loss</span>
+            <strong>{{ setup.sl_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>TP1</span>
+            <strong>{{ setup.tp1_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>TP2</span>
+            <strong>{{ setup.tp2_price }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Total risk</span>
+            <strong>{{ setup.total_risk_money }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Risk / order</span>
+            <strong>{{ setup.risk_per_order }}</strong>
+        </div>
+    </div>
+
+    <div class="detail-section-grid">
+        <section class="detail-panel">
+            <h2>Setup</h2>
+            <dl class="compact-details">
+                <div><dt>Risk mode</dt><dd>{{ setup.risk_mode }}</dd></div>
+                <div><dt>Risk value</dt><dd>{{ setup.risk_value }}</dd></div>
+                <div><dt>R value</dt><dd>{{ setup.r_value }}</dd></div>
+                <div><dt>RR order 2</dt><dd>{{ setup.rr_order2 }}</dd></div>
+                <div><dt>Volumes</dt><dd>{{ setup.order1_volume }} / {{ setup.order2_volume }}</dd></div>
+            </dl>
+        </section>
+
+        <section class="detail-panel">
+            <h2>Execution</h2>
+            <dl class="compact-details">
+                <div><dt>Order 1</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
+                <div><dt>Order 2</dt><dd>{{ setup.order2_ticket or "Not opened" }}</dd></div>
+                <div>
+                    <dt>Order 1 state</dt>
+                    <dd>
+                        {% if setup.monitoring_status == "waiting_tp1" %}
+                        Open
+                        {% elif setup.monitoring_status in ["order1_closed_not_tp1", "be_already_set", "be_already_moved", "be_moved", "be_move_failed", "order2_closed"] %}
+                        Closed
+                        {% else %}
+                        Unknown
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Order 2 state</dt>
+                    <dd>
+                        {% if setup.monitoring_status == "order2_closed" %}
+                        Closed
+                        {% elif setup.order2_ticket %}
+                        Open or pending refresh
+                        {% else %}
+                        Unknown
+                        {% endif %}
+                    </dd>
+                </div>
+                <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
+                <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
+            </dl>
+        </section>
+    </div>
+
+    {% if setup.execution_error or setup.order2_be_move_error %}
+    <section class="detail-panel diagnostic-panel">
+        <h2>Diagnostics</h2>
+        {% if setup.execution_error %}
+        <p>{{ setup.execution_error }}</p>
+        {% if setup.execution_details %}
+        <details class="diagnostic-details">
+            <summary>Full MT5 execution details</summary>
+            <pre class="diagnostic-block">{{ setup.execution_details }}</pre>
+        </details>
+        {% endif %}
+        {% endif %}
+        {% if setup.order2_be_move_error %}
+        <details class="diagnostic-details" open>
+            <summary>Breakeven move diagnostic</summary>
+            <pre class="diagnostic-block">{{ setup.order2_be_move_error }}</pre>
+        </details>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="detail-panel actions-panel">
+        <h2>Actions</h2>
+        <div class="action-row">
+            <form action="/trade-setups/{{ setup.id }}/execute" method="post">
+                <button type="submit">Execute</button>
+            </form>
+            <form action="/trade-setups/{{ setup.id }}/monitor" method="post">
+                <button type="submit" class="secondary-button">Check TP1 / Move BE</button>
+            </form>
+        </div>
+        <p class="muted">Created {{ setup.created_at }} · Updated {{ setup.updated_at }}{% if setup.executed_at %} · Executed {{ setup.executed_at }}{% endif %}</p>
+    </section>
 </section>
 
-<section class="card results-card">
-    <h2>Recent Events</h2>
+<section class="card results-card events-card">
+    <div class="section-header compact-header">
+        <div>
+            <h2>Recent Events</h2>
+            <p class="muted">Execution and monitoring timeline</p>
+        </div>
+    </div>
     {% if events %}
-    <table class="accounts-table">
-        <thead>
-            <tr>
-                <th>Event</th>
-                <th>Message</th>
-                <th>Created</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for event in events %}
-            <tr>
-                <td data-label="Event">{{ event.event_type }}</td>
-                <td data-label="Message">
-                    {% if event.message %}
-                    <div>{{ event.message }}</div>
-                    {% if event.details %}
-                    <details class="diagnostic-details">
-                        <summary>Full details</summary>
-                        <pre class="diagnostic-block">{{ event.details }}</pre>
-                    </details>
-                    {% endif %}
-                    {% else %}None{% endif %}
-                </td>
-                <td data-label="Created">{{ event.created_at }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="event-timeline">
+        {% for event in events %}
+        <article class="event-item">
+            <div class="event-meta">
+                <span>{{ event.event_type }}</span>
+                <time>{{ event.created_at }}</time>
+            </div>
+            <div class="event-message">
+                {% if event.message %}
+                {{ event.message }}
+                {% else %}No message{% endif %}
+            </div>
+            {% if event.details %}
+            <details class="diagnostic-details">
+                <summary>Details</summary>
+                <pre class="diagnostic-block">{{ event.details }}</pre>
+            </details>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
     {% else %}
     <p class="muted">No events recorded yet.</p>
     {% endif %}

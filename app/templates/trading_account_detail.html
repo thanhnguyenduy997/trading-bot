@@ -11,7 +11,7 @@
 
     <div id="account-action-error" class="alert alert-error" {% if not error %}hidden{% endif %}>{{ error or "" }}</div>
 
-    <table class="accounts-table">
+    <table class="accounts-table detail-table">
         <tbody>
             <tr><th>Broker</th><td>{{ account.broker_name }}</td></tr>
             <tr><th>Platform</th><td>{{ account.platform }}</td></tr>
@@ -43,7 +43,7 @@
 
 <section id="connection-result-card" class="card results-card" {% if not (connection_result and connection_result.success) %}hidden{% endif %}>
     <h2>Connection Result</h2>
-    <table class="accounts-table">
+    <table class="accounts-table detail-table">
         <tbody>
             <tr><th>Status</th><td id="connection-status">{{ connection_result.connection_status if connection_result else "" }}</td></tr>
             <tr><th>Last heartbeat</th><td id="connection-heartbeat">{{ connection_result.last_heartbeat_at if connection_result else "" }}</td></tr>
@@ -58,7 +58,7 @@
 
 <section id="quote-result-card" class="card results-card" {% if not quote_result %}hidden{% endif %}>
     <h2>Quote Result</h2>
-    <table class="accounts-table">
+    <table class="accounts-table detail-table">
         <tbody>
             <tr><th>Symbol</th><td id="quote-symbol-value">{{ quote_result.symbol if quote_result else "" }}</td></tr>
             <tr><th>Bid</th><td id="quote-bid">{{ quote_result.bid if quote_result else "" }}</td></tr>
@@ -72,7 +72,7 @@
 
 <section id="symbol-info-card" class="card results-card" {% if not (quote_result and quote_result.symbol_info) %}hidden{% endif %}>
     <h2>Symbol Info</h2>
-    <table class="accounts-table">
+    <table class="accounts-table detail-table">
         <tbody>
             <tr><th>Symbol</th><td id="symbol-info-symbol">{{ quote_result.symbol_info.symbol if quote_result and quote_result.symbol_info else "" }}</td></tr>
             <tr><th>Point</th><td id="symbol-info-point">{{ quote_result.symbol_info.point if quote_result and quote_result.symbol_info else "" }}</td></tr>
