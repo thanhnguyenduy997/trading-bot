@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>{{ target.email }}</h1>
+            <p class="muted">Admin user detail and account management.</p>
+        </div>
+        <a class="button-link" href="/admin/users">Back to Users</a>
+    </div>
+
+    <div class="detail-section-grid">
+        <section class="detail-panel">
+            <h2>User Info</h2>
+            <form action="/admin/users/{{ target.id }}/edit" method="post" class="stack">
+                <label>Email</label>
+                <input type="email" name="email" value="{{ target.email }}" required>
+                <label>Full name</label>
+                <input type="text" name="full_name" value="{{ target.full_name or '' }}">
+                <label>Role</label>
+                <select name="role">
+                    {% for role in ["user", "operator", "admin"] %}
+                    <option value="{{ role }}" {% if target.role == role %}selected{% endif %}>{{ role }}</option>
+                    {% endfor %}
+                </select>
+                <label>
+                    <input type="checkbox" name="is_active" value="true" {% if target.is_active %}checked{% endif %}>
+                    Active
+                </label>
+                <button type="submit">Save User</button>
+            </form>
+        </section>
+
+        <section class="detail-panel">
+            <h2>Admin Actions</h2>
+            <form action="/admin/users/{{ target.id }}/password" method="post" class="stack">
+                <label>Set new password</label>
+                <input type="password" name="password" minlength="8" required>
+                <button type="submit" class="secondary-button">Reset Password</button>
+            </form>
+            {% if target.id != admin_user.id and target.is_active %}
+            <form action="/admin/users/{{ target.id }}/impersonate" method="post" class="save-setup-form">
+                <button type="submit">Login as this user</button>
+            </form>
+            {% endif %}
+        </section>
+    </div>
+</section>
+
+<section class="card results-card">
+    <h2>Trading Accounts</h2>
+    {% if accounts %}
+    <table class="accounts-table account-list-table">
+        <thead>
+            <tr>
+                <th>Broker</th>
+                <th>Account</th>
+                <th>Server</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in accounts %}
+            <tr>
+                <td data-label="Broker">{{ account.broker_name }}</td>
+                <td data-label="Account">{{ account.account_number }}</td>
+                <td data-label="Server">{{ account.server_name }}</td>
+                <td data-label="Actions">
+                    <form action="/admin/users/{{ target.id }}/trading-accounts/{{ account.id }}/edit" method="post" class="stack">
+                        <input type="text" name="broker_name" value="{{ account.broker_name }}" required>
+                        <input type="text" name="account_number" value="{{ account.account_number }}" required>
+                        <input type="text" name="server_name" value="{{ account.server_name }}" required>
+                        <input type="text" name="terminal_path" value="{{ account.terminal_path or '' }}" placeholder="Terminal path">
+                        <input type="password" name="password" placeholder="New password optional">
+                        <button type="submit" class="secondary-button">Update Account</button>
+                    </form>
+                    <form action="/admin/users/{{ target.id }}/trading-accounts/{{ account.id }}/delete" method="post" class="save-setup-form">
+                        <button type="submit" class="secondary-button">Delete Account</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No trading accounts for this user yet.</p>
+    {% endif %}
+</section>
+
+<section class="card results-card">
+    <h2>Create Trading Account For User</h2>
+    <form action="/admin/users/{{ target.id }}/trading-accounts" method="post" class="stack">
+        <label>Broker Name</label>
+        <input type="text" name="broker_name" required>
+        <label>Account Number</label>
+        <input type="text" name="account_number" required>
+        <label>Server Name</label>
+        <input type="text" name="server_name" required>
+        <label>Terminal Path</label>
+        <input type="text" name="terminal_path">
+        <label>Password</label>
+        <input type="password" name="password" required>
+        <button type="submit">Create Trading Account</button>
+    </form>
+</section>
+{% endblock %}

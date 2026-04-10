@@ -318,6 +318,27 @@ button:hover {
     color: #166534;
 }
 
+.impersonation-banner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background: #fff7ed;
+    border-bottom: 1px solid #fed7aa;
+    color: #9a3412;
+    font-weight: 700;
+}
+
+.impersonation-banner form {
+    margin: 0;
+}
+
+.impersonation-banner button {
+    min-height: 0;
+    padding: 0.35rem 0.7rem;
+}
+
 .diagnostic-block {
     margin: 0;
     white-space: pre-wrap;

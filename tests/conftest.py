@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models import trade_event, trade_setup, trading_account, user  # noqa: F401
+from app.models import admin_audit_log, trade_event, trade_setup, trading_account, user  # noqa: F401
 from app.schemas.user import UserCreate
 from app.services.users import create_user
 

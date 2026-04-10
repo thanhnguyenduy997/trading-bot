@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Create User</h1>
+            <p class="muted">Create a user without editing the database.</p>
+        </div>
+        <a class="button-link" href="/admin/users">Back</a>
+    </div>
+    <form action="/admin/users/new" method="post" class="stack">
+        <label>Email</label>
+        <input type="email" name="email" required>
+        <label>Full name</label>
+        <input type="text" name="full_name">
+        <label>Role</label>
+        <select name="role">
+            <option value="user">user</option>
+            <option value="operator">operator</option>
+            <option value="admin">admin</option>
+        </select>
+        <label>Password</label>
+        <input type="password" name="password" minlength="8" required>
+        <label>
+            <input type="checkbox" name="is_active" value="true" checked>
+            Active
+        </label>
+        <button type="submit">Create User</button>
+    </form>
+</section>
+{% endblock %}

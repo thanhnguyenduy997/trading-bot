@@ -15,6 +15,9 @@
             <a href="/trading-accounts">Trading Accounts</a>
             <a href="/trade-setups/preview">Trade Preview</a>
             <a href="/trade-setups">Trade Setups</a>
+            {% if user.role == "admin" or user.impersonator is defined %}
+            <a href="/admin/users">Admin</a>
+            {% endif %}
             <form action="/api/auth/logout" method="post">
                 <button type="submit" class="link-button">Logout</button>
             </form>
@@ -26,6 +29,9 @@
                 <a href="/trading-accounts">Trading Accounts</a>
                 <a href="/trade-setups/preview">Trade Preview</a>
                 <a href="/trade-setups">Trade Setups</a>
+                {% if user.role == "admin" or user.impersonator is defined %}
+                <a href="/admin/users">Admin</a>
+                {% endif %}
                 <form action="/api/auth/logout" method="post">
                     <button type="submit" class="link-button">Logout</button>
                 </form>
@@ -33,6 +39,14 @@
         </details>
         {% endif %}
     </header>
+    {% if user and user.impersonator is defined %}
+    <div class="impersonation-banner">
+        <span>You are acting as {{ user.email }}.</span>
+        <form action="/admin/impersonation/stop" method="post">
+            <button type="submit" class="secondary-button">Return to Admin</button>
+        </form>
+    </div>
+    {% endif %}
     <main class="page-shell">
         {% block content %}{% endblock %}
     </main>

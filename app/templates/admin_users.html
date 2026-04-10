@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Admin Users</h1>
+            <p class="muted">Manage users, accounts, and impersonation.</p>
+        </div>
+        <a class="button-link" href="/admin/users/new">Create User</a>
+    </div>
+
+    <table class="accounts-table setup-list-table">
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in users %}
+            <tr>
+                <td data-label="Email"><a href="/admin/users/{{ item.id }}">{{ item.email }}</a></td>
+                <td data-label="Name">{{ item.full_name or "-" }}</td>
+                <td data-label="Role">{{ item.role }}</td>
+                <td data-label="Status">{{ "active" if item.is_active else "inactive" }}</td>
+                <td data-label="Created">{{ item.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -20,7 +20,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)) -> User:
     existing = db.query(User).filter(User.email == user_in.email).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-    return create_user(db, user_in)
+    safe_user = UserCreate(email=user_in.email, password=user_in.password, full_name=user_in.full_name)
+    return create_user(db, safe_user)
 
 
 @router.post("/token", response_model=Token)
@@ -32,6 +33,8 @@ def login_for_access_token(
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
     access_token = create_access_token(subject=str(user.id))
     response.set_cookie(
@@ -53,6 +56,8 @@ def login_from_form(
     user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
     access_token = create_access_token(subject=str(user.id))
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
@@ -70,6 +75,7 @@ def login_from_form(
 def logout(response: Response) -> RedirectResponse:
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("access_token")
+    response.delete_cookie("admin_access_token")
     return response
 
 
