@@ -14,6 +14,7 @@ from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpda
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.notifications import send_trading_account_test_notification
+from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
@@ -133,12 +134,14 @@ def login_page(request: Request) -> HTMLResponse:
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
+    daily_risk_state = RiskManagementService(db).get_daily_state(current_user.id)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"request": request, "user": current_user},
+        {"request": request, "user": current_user, "daily_risk_state": daily_risk_state},
     )
 
 

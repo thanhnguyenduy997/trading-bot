@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
 from app.services.execution import default_adapter_factory
+from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event, event_exists
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
@@ -14,6 +15,7 @@ class TradeSetupMonitoringService:
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
+        self.risk_management = RiskManagementService(db)
 
     def process_setup(self, setup_id: int, user_id: int):
         setup = get_trade_setup(self.db, setup_id, user_id)
@@ -42,6 +44,12 @@ class TradeSetupMonitoringService:
             if order2_position is None:
                 setup.monitoring_status = "order2_closed"
                 setup.order2_be_move_error = None
+                if setup.result_status is None:
+                    stoploss_hit, _ = self._was_closed_by_stoploss(setup, adapter.get_position_history(position_ticket=int(setup.order1_ticket)))
+                    self.risk_management.record_setup_result(
+                        setup=setup,
+                        result_status="stoploss" if stoploss_hit else "non_stoploss",
+                    )
                 self._persist(setup)
                 return self._result(setup, order1_status="closed", order2_status="closed")
 
@@ -62,6 +70,8 @@ class TradeSetupMonitoringService:
                     "Order 1 appears to have closed at TP1.",
                     details=json.dumps(tp1_details, indent=2, sort_keys=True, default=str),
                 )
+            if setup.result_status is None:
+                self.risk_management.record_setup_result(setup=setup, result_status="non_stoploss")
 
             be_price = float(order2_position["price_open"])
             current_sl = float(order2_position.get("sl") or 0.0)
@@ -163,6 +173,27 @@ class TradeSetupMonitoringService:
             if point:
                 return float(point)
         return None
+
+    def _was_closed_by_stoploss(self, setup, history: list[dict[str, object]]) -> tuple[bool, dict[str, object]]:
+        sl_price = float(setup.sl_price)
+        point = self._history_point(history) or 0.0
+        tolerance = max(point, abs(sl_price) * 1e-6, 1e-6)
+        out_entries = {1, 3}
+        if history:
+            sample_entry = history[0].get("entry")
+            if isinstance(sample_entry, str):
+                out_entries = {"out", "out_by", "out_by_reverse", "close"}
+
+        for deal in history:
+            if deal.get("entry") not in out_entries:
+                continue
+            reason = deal.get("reason")
+            price = deal.get("price")
+            if reason in {4, "sl", "stop_loss"}:
+                return True, {"deal": deal, "point": tolerance}
+            if price is not None and abs(float(price) - sl_price) <= tolerance:
+                return True, {"deal": deal, "point": tolerance}
+        return False, {"history": history, "point": tolerance}
 
     def _is_at_or_better_than_be(self, side: str, current_sl: float, be_price: float, point: float) -> bool:
         tolerance = max(point, 1e-6)

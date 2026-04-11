@@ -56,6 +56,8 @@ class TradeSetupRead(BaseModel):
     monitoring_status: str | None
     order2_be_moved_at: datetime | None
     order2_be_move_error: str | None
+    result_status: str | None
+    result_recorded_at: datetime | None
     executed_at: datetime | None
     created_at: datetime
     updated_at: datetime

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -24,6 +24,7 @@ class TradingAccount(Base):
     telegram_enabled: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     telegram_bot_token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    max_total_setup_volume: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

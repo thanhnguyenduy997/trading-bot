@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
-from app.models import admin_audit_log, trade_event, trade_setup, trading_account, user  # noqa: F401
+from app.models import admin_audit_log, risk_control_log, trade_event, trade_setup, trading_account, user, user_daily_risk_state  # noqa: F401
 
 
 config = context.config

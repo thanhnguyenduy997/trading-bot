@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
 from app.services.execution import default_adapter_factory
+from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
@@ -16,6 +17,7 @@ class TradeSetupExecutionService:
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
+        self.risk_management = RiskManagementService(db)
 
     def execute_setup(self, setup_id: int, user_id: int):
         setup = get_trade_setup(self.db, setup_id, user_id)
@@ -30,6 +32,7 @@ class TradeSetupExecutionService:
 
         adapter = self.adapter_factory(account)
         try:
+            self.risk_management.assert_execute_allowed(setup=setup, account=account)
             self._validate_quote_snapshot(adapter, setup)
             create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
             setup.status = "queued"

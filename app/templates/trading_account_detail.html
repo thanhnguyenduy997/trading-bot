@@ -21,6 +21,7 @@
             <tr><th>Connection status</th><td id="account-connection-status">{{ account.connection_status }}</td></tr>
             <tr><th>Last heartbeat</th><td id="account-last-heartbeat">{{ account.last_heartbeat_at or "Never" }}</td></tr>
             <tr><th>Last error</th><td id="account-last-error">{{ account.last_error or "None" }}</td></tr>
+            <tr><th>Max total setup volume</th><td>{{ account.max_total_setup_volume or "Not set" }}</td></tr>
             <tr><th>Telegram enabled</th><td>{{ "Yes" if account.telegram_enabled else "No" }}</td></tr>
             <tr><th>Telegram chat</th><td>{{ account.telegram_chat_id or "Global fallback" }}</td></tr>
             <tr><th>Telegram bot token</th><td>{{ "Account override configured" if account.telegram_bot_token_encrypted else "Global fallback" }}</td></tr>

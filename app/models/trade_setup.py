@@ -38,6 +38,8 @@ class TradeSetup(Base):
     monitoring_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     order2_be_moved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     order2_be_move_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    result_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -70,7 +70,6 @@ def list_setups_requiring_monitoring(db: Session, limit: int = 50) -> list[Trade
         "be_already_moved",
         "be_already_set",
         "order2_closed",
-        "order1_closed_not_tp1",
         "be_move_failed",
         "execution_failed",
     }

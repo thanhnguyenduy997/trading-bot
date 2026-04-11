@@ -93,6 +93,7 @@
                     </dd>
                 </div>
                 <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
+                <div><dt>Setup result</dt><dd>{{ setup.result_status or "Pending" }}</dd></div>
                 <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
             </dl>
         </section>

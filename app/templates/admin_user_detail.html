@@ -45,6 +45,17 @@
             {% endif %}
         </section>
     </div>
+
+    <section class="detail-panel results-card">
+        <h2>Daily Risk State</h2>
+        <dl class="compact-details">
+            <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>
+            <div><dt>Consecutive stoploss today</dt><dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd></div>
+            <div><dt>Daily lock</dt><dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd></div>
+            <div><dt>Last setup result</dt><dd>{{ daily_risk_state.last_setup_result or "None" }}</dd></div>
+            <div><dt>Reset timing</dt><dd>Resets on next UTC trading day or next non-stoploss setup</dd></div>
+        </dl>
+    </section>
 </section>
 
 <section class="card results-card">
@@ -71,6 +82,7 @@
                         <input type="text" name="account_number" value="{{ account.account_number }}" required>
                         <input type="text" name="server_name" value="{{ account.server_name }}" required>
                         <input type="text" name="terminal_path" value="{{ account.terminal_path or '' }}" placeholder="Terminal path">
+                        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ account.max_total_setup_volume or '' }}" placeholder="Max total setup volume">
                         <input type="password" name="password" placeholder="New password optional">
                         <button type="submit" class="secondary-button">Update Account</button>
                     </form>
@@ -98,6 +110,8 @@
         <input type="text" name="server_name" required>
         <label>Terminal Path</label>
         <input type="text" name="terminal_path">
+        <label>Max Total Setup Volume</label>
+        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume">
         <label>Password</label>
         <input type="password" name="password" required>
         <button type="submit">Create Trading Account</button>

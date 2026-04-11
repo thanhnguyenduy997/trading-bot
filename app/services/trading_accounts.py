@@ -34,6 +34,7 @@ def create_trading_account(db: Session, user_id: int, payload: TradingAccountCre
         telegram_enabled=payload.telegram_enabled,
         telegram_chat_id=payload.telegram_chat_id,
         telegram_bot_token_encrypted=encrypt_value(payload.telegram_bot_token) if payload.telegram_bot_token else None,
+        max_total_setup_volume=payload.max_total_setup_volume,
     )
     db.add(account)
     db.commit()

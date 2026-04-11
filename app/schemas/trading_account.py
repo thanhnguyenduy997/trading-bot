@@ -11,6 +11,7 @@ class TradingAccountBase(BaseModel):
     terminal_path: str | None = Field(default=None, max_length=512)
     telegram_enabled: bool = True
     telegram_chat_id: str | None = Field(default=None, max_length=120)
+    max_total_setup_volume: float | None = Field(default=None, gt=0)
 
 
 class TradingAccountCreate(TradingAccountBase):
@@ -26,6 +27,7 @@ class TradingAccountUpdate(BaseModel):
     terminal_path: str | None = Field(default=None, max_length=512)
     telegram_enabled: bool | None = None
     telegram_chat_id: str | None = Field(default=None, max_length=120)
+    max_total_setup_volume: float | None = Field(default=None, gt=0)
     password: str | None = Field(default=None, min_length=1, max_length=255)
     telegram_bot_token: str | None = Field(default=None, min_length=1, max_length=255)
 
@@ -40,6 +42,7 @@ class TradingAccountRead(TradingAccountBase):
     last_error: str | None
     telegram_enabled: bool
     telegram_chat_id: str | None
+    max_total_setup_volume: float | None
     created_at: datetime
     updated_at: datetime
 

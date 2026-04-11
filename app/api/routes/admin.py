@@ -10,6 +10,7 @@ from app.models.user import User
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.schemas.user import UserCreate, UserUpdate
 from app.services.admin_audit import log_admin_action
+from app.services.risk_management import RiskManagementService
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -99,6 +100,7 @@ def admin_user_detail_page(
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     accounts = list_trading_accounts(db, target.id)
+    daily_risk_state = RiskManagementService(db).get_daily_state(target.id)
     return templates.TemplateResponse(
         request,
         "admin_user_detail.html",
@@ -108,6 +110,7 @@ def admin_user_detail_page(
             "admin_user": admin_user,
             "target": target,
             "accounts": accounts,
+            "daily_risk_state": daily_risk_state,
         },
     )
 
@@ -224,6 +227,7 @@ def admin_create_trading_account(
     server_name: str = Form(...),
     terminal_path: str = Form(""),
     password: str = Form(...),
+    max_total_setup_volume: str = Form(""),
 ) -> RedirectResponse:
     target = get_user(db, user_id)
     if not target:
@@ -236,6 +240,7 @@ def admin_create_trading_account(
             account_number=account_number,
             server_name=server_name,
             terminal_path=terminal_path or None,
+            max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
             password=password,
         ),
     )
@@ -261,12 +266,14 @@ def admin_update_trading_account(
     server_name: str = Form(...),
     terminal_path: str = Form(""),
     password: str = Form(""),
+    max_total_setup_volume: str = Form(""),
 ) -> RedirectResponse:
     payload = TradingAccountUpdate(
         broker_name=broker_name,
         account_number=account_number,
         server_name=server_name,
         terminal_path=terminal_path or None,
+        max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
         **({"password": password} if password else {}),
     )
     account = update_trading_account(db, account_id, user_id, payload)

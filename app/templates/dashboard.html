@@ -4,5 +4,16 @@
     <h1>Dashboard</h1>
     <p>Welcome, {{ user.full_name or user.email }}.</p>
     <p>This foundation is ready for account management, authentication, and future trading integrations.</p>
+    {% if daily_risk_state %}
+    <section class="detail-panel results-card">
+        <h2>Daily Risk State</h2>
+        <dl class="compact-details">
+            <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>
+            <div><dt>Consecutive stoploss today</dt><dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd></div>
+            <div><dt>Daily lock</dt><dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd></div>
+            <div><dt>Reset timing</dt><dd>Next UTC trading day or next non-stoploss setup</dd></div>
+        </dl>
+    </section>
+    {% endif %}
 </section>
 {% endblock %}

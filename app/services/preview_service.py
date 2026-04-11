@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.execution.base import AdapterError
 from app.schemas.trade_preview import TradePreviewRequest, TradePreviewResponse
 from app.services.execution import TradingAccountExecutionService
+from app.services.risk_management import RiskManagementService
 from app.services.risk_service import RiskService
 from app.services.trading_accounts import get_trading_account
 
@@ -19,6 +20,7 @@ class PreviewService:
         self.db = db
         self.execution_service = execution_service or TradingAccountExecutionService(db)
         self.risk_service = risk_service or RiskService()
+        self.risk_management = RiskManagementService(db)
 
     def build_preview(self, user_id: int, payload: TradePreviewRequest) -> TradePreviewResponse:
         account = get_trading_account(self.db, payload.trading_account_id, user_id)
@@ -92,6 +94,12 @@ class PreviewService:
         )
 
         warnings = list(dict.fromkeys(order1_warnings + order2_warnings))
+        total_setup_volume = order1_volume + order2_volume
+        self.risk_management.assert_preview_allowed(
+            user_id=user_id,
+            account=account,
+            total_setup_volume=total_setup_volume,
+        )
 
         return TradePreviewResponse(
             symbol=payload.symbol,
