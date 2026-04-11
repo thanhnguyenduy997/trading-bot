@@ -111,13 +111,13 @@ class PartialFailureExecutionAdapter(SuccessfulExecutionAdapter):
         )
 
 
-def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: SuccessfulExecutionAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
     setup = _create_setup(db_session, created_user, account)
 
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
@@ -136,17 +136,19 @@ def test_executing_own_setup(client, db_session, created_user, auth_headers, mon
     assert stored.order2_ticket == 1002
 
 
-def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: SuccessfulExecutionAdapter(account),
     )
+    current_account = _create_account(db_session, created_user, "123456")
+    sync_account_symbols(current_account, "XAUUSD")
     other_user = create_user(
         db_session,
         UserCreate(email="execute-other@example.com", password="password123", full_name="Other User"),
     )
     account = _create_account(db_session, other_user, "123457")
+    sync_account_symbols(account, "XAUUSD")
     setup = _create_setup(db_session, other_user, account)
 
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
@@ -155,13 +157,13 @@ def test_rejecting_another_users_setup(client, db_session, created_user, auth_he
     assert response.json()["detail"] == "Trade setup not found"
 
 
-def test_graceful_failure_when_execution_unavailable(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_graceful_failure_when_execution_unavailable(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: UnavailableExecutionAdapter(account),
     )
     account = _create_account(db_session, created_user, "123458")
+    sync_account_symbols(account, "XAUUSD")
     setup = _create_setup(db_session, created_user, account)
 
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
@@ -189,14 +191,14 @@ def test_order1_succeeds_order2_fails_and_rollback_happens(
     created_user,
     auth_headers,
     monkeypatch,
-    allow_symbol,
+    sync_account_symbols,
 ):
-    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: PartialFailureExecutionAdapter(account),
     )
     account = _create_account(db_session, created_user, "123459")
+    sync_account_symbols(account, "XAUUSD")
     setup = _create_setup(db_session, created_user, account)
 
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)

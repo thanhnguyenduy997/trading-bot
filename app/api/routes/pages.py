@@ -11,11 +11,14 @@ from app.models.user import User
 from app.schemas.trade_preview import TradePreviewRequest
 from app.schemas.trade_setup import TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
+from app.services.account_symbols import (
+    EMPTY_SYMBOL_MESSAGE,
+    TradingAccountSymbolService,
+)
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.notifications import send_trading_account_test_notification
 from app.services.risk_management import RiskManagementService
-from app.services.symbols import SymbolPolicyService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
@@ -36,6 +39,7 @@ def _render_trade_preview_page(
     setup: object | None = None,
     error: str | None = None,
     symbols: list[dict[str, str]] | None = None,
+    symbol_message: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
     initial_symbols = symbols or []
@@ -59,6 +63,7 @@ def _render_trade_preview_page(
             "setup": setup,
             "error": error,
             "symbols": initial_symbols,
+            "symbol_message": symbol_message,
         },
         status_code=status_code,
     )
@@ -109,6 +114,7 @@ def _render_trading_account_detail_page(
     message: str | None = None,
     error: str | None = None,
     symbols: list[dict[str, str]] | None = None,
+    symbol_message: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
@@ -123,18 +129,25 @@ def _render_trading_account_detail_page(
             "message": message,
             "error": error,
             "symbols": symbols or [],
+            "symbol_message": symbol_message,
         },
         status_code=status_code,
     )
 
 
-def _load_selectable_symbols(db: Session, current_user: User, account_id: int | None) -> list[dict[str, str]]:
+def _load_synced_symbols(
+    db: Session,
+    current_user: User,
+    account_id: int | None,
+) -> tuple[list[dict[str, str]], str | None]:
     if account_id is None:
-        return []
+        return [], EMPTY_SYMBOL_MESSAGE
     try:
-        return SymbolPolicyService(db).list_selectable_symbols(account_id=account_id, user_id=current_user.id)
-    except (LookupError, AdapterError):
-        return []
+        service = TradingAccountSymbolService(db)
+        symbols = service.list_synced_symbols(account_id=account_id, user_id=current_user.id)
+        return symbols, service.get_symbol_message(account_id=account_id, user_id=current_user.id)
+    except LookupError:
+        return [], EMPTY_SYMBOL_MESSAGE
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -169,8 +182,8 @@ def trade_preview_page(
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
     selected_account_id = accounts[0].id if accounts else None
-    symbols = _load_selectable_symbols(db, current_user, selected_account_id)
-    return _render_trade_preview_page(request, current_user, accounts, symbols=symbols)
+    symbols, symbol_message = _load_synced_symbols(db, current_user, selected_account_id)
+    return _render_trade_preview_page(request, current_user, accounts, symbols=symbols, symbol_message=symbol_message)
 
 
 @router.post("/trade-setups/preview", response_class=HTMLResponse)
@@ -199,7 +212,7 @@ def trade_preview_page_submit(
         "draft_setup_id": draft_setup_id,
     }
 
-    symbols = _load_selectable_symbols(db, current_user, trading_account_id)
+    symbols, symbol_message = _load_synced_symbols(db, current_user, trading_account_id)
 
     try:
         payload = TradePreviewRequest(**form_data)
@@ -212,6 +225,7 @@ def trade_preview_page_submit(
             form_data=form_data,
             error=exc.errors()[0]["msg"],
             symbols=symbols,
+            symbol_message=symbol_message,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     except (LookupError, ValueError) as exc:
@@ -222,6 +236,7 @@ def trade_preview_page_submit(
             form_data=form_data,
             error=str(exc),
             symbols=symbols,
+            symbol_message=symbol_message,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -257,6 +272,7 @@ def trade_preview_page_submit(
             preview=preview,
             error=str(exc),
             symbols=symbols,
+            symbol_message=symbol_message,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -269,6 +285,7 @@ def trade_preview_page_submit(
         preview=preview,
         setup=setup,
         symbols=symbols,
+        symbol_message=symbol_message,
     )
 
 
@@ -466,8 +483,14 @@ def trading_account_detail_page(
     account = get_trading_account(db, account_id, current_user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
-    symbols = _load_selectable_symbols(db, current_user, account.id)
-    return _render_trading_account_detail_page(request, current_user, account, symbols=symbols)
+    symbols, symbol_message = _load_synced_symbols(db, current_user, account.id)
+    return _render_trading_account_detail_page(
+        request,
+        current_user,
+        account,
+        symbols=symbols,
+        symbol_message=symbol_message,
+    )
 
 
 @router.get("/trading-accounts/create", response_class=HTMLResponse)
@@ -530,12 +553,14 @@ def update_trading_account_telegram_page(
     account = update_trading_account(db, account_id, current_user.id, payload)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    symbols, symbol_message = _load_synced_symbols(db, current_user, account.id)
     return _render_trading_account_detail_page(
         request,
         current_user,
         account,
         message="Telegram notification settings updated.",
-        symbols=_load_selectable_symbols(db, current_user, account.id),
+        symbols=symbols,
+        symbol_message=symbol_message,
     )
 
 
@@ -593,7 +618,7 @@ def get_trading_account_quote_page(
 
     service = TradingAccountExecutionService(db)
     try:
-        SymbolPolicyService(db, execution_service=service).assert_symbol_allowed_for_account(
+        TradingAccountSymbolService(db).assert_symbol_synced(
             account_id=account_id,
             user_id=current_user.id,
             symbol=symbol,
@@ -638,19 +663,77 @@ def get_trading_account_symbols_page(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
 
     try:
-        symbols = SymbolPolicyService(db).list_selectable_symbols(account_id=account_id, user_id=current_user.id)
-        return JSONResponse(status_code=status.HTTP_200_OK, content={"symbols": symbols})
+        service = TradingAccountSymbolService(db)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "symbols": service.list_synced_symbols(account_id=account_id, user_id=current_user.id),
+                "message": service.get_symbol_message(account_id=account_id, user_id=current_user.id),
+            },
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/trading-accounts/id/{account_id}/refresh-symbols")
+def refresh_trading_account_symbols_page(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> JSONResponse:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    service = TradingAccountSymbolService(db)
+    try:
+        symbols = service.sync_symbols(account_id=account_id, user_id=current_user.id)
+        message = (
+            f"Refreshed {len(symbols)} symbols from MT5 Market Watch."
+            if symbols
+            else EMPTY_SYMBOL_MESSAGE
+        )
+        refreshed_account = get_trading_account(db, account_id, current_user.id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "symbols": symbols,
+                "message": message,
+                "symbols_last_synced_at": refreshed_account.symbols_last_synced_at.isoformat()
+                if refreshed_account and refreshed_account.symbols_last_synced_at
+                else None,
+                "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "unknown",
+                "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else None,
+            },
+        )
+    except ValueError as exc:
+        refreshed_account = get_trading_account(db, account_id, current_user.id)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "detail": {
+                    "message": str(exc),
+                    "symbols_last_synced_at": refreshed_account.symbols_last_synced_at.isoformat()
+                    if refreshed_account and refreshed_account.symbols_last_synced_at
+                    else None,
+                    "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "failed",
+                    "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else str(exc),
+                }
+            },
+        )
     except AdapterError as exc:
-        account = get_trading_account(db, account_id, current_user.id)
+        refreshed_account = get_trading_account(db, account_id, current_user.id)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "detail": {
                     **exc.to_dict(),
-                    "message": exc.message,
-                    "connection_status": account.connection_status if account else "error",
-                    "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
-                    "last_error": account.last_error if account else str(exc),
+                    "message": refreshed_account.symbols_sync_error if refreshed_account else exc.message,
+                    "symbols_last_synced_at": refreshed_account.symbols_last_synced_at.isoformat()
+                    if refreshed_account and refreshed_account.symbols_last_synced_at
+                    else None,
+                    "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "failed",
+                    "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else exc.message,
                 }
             },
         )

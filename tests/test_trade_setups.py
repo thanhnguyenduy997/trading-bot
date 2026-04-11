@@ -127,13 +127,13 @@ def test_reject_access_to_another_users_setup_detail(client, db_session, created
     assert response.json()["detail"] == "Trade setup not found"
 
 
-def test_saved_setup_fields_match_preview_values(client, db_session, created_user, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_saved_setup_fields_match_preview_values(client, db_session, created_user, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user, "ACC-404")
+    sync_account_symbols(account, "XAUUSD")
     headers = _login_headers(client, created_user.email, "password123")
 
     preview_response = client.post(

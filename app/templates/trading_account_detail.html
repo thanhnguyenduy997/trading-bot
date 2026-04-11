@@ -21,6 +21,9 @@
             <tr><th>Connection status</th><td id="account-connection-status">{{ account.connection_status }}</td></tr>
             <tr><th>Last heartbeat</th><td id="account-last-heartbeat">{{ account.last_heartbeat_at or "Never" }}</td></tr>
             <tr><th>Last error</th><td id="account-last-error">{{ account.last_error or "None" }}</td></tr>
+            <tr><th>Symbols sync</th><td id="account-symbols-sync-status">{{ account.symbols_sync_status }}</td></tr>
+            <tr><th>Symbols last synced</th><td id="account-symbols-last-synced">{{ account.symbols_last_synced_at or "Never" }}</td></tr>
+            <tr><th>Symbols sync error</th><td id="account-symbols-sync-error">{{ account.symbols_sync_error or "None" }}</td></tr>
             <tr><th>Max total setup volume</th><td>{{ account.max_total_setup_volume or "Not set" }}</td></tr>
             <tr><th>Telegram enabled</th><td>{{ "Yes" if account.telegram_enabled else "No" }}</td></tr>
             <tr><th>Telegram chat</th><td>{{ account.telegram_chat_id or "Global fallback" }}</td></tr>
@@ -32,20 +35,23 @@
         <form id="test-connection-form" action="/trading-accounts/id/{{ account.id }}/test-connection" method="post" class="stack">
             <button type="submit">Test Connection</button>
         </form>
+        <form id="refresh-symbols-form" action="/trading-accounts/id/{{ account.id }}/refresh-symbols" method="post" class="stack">
+            <button type="submit" class="secondary-button">Refresh Symbols from MT5</button>
+        </form>
         <form id="quote-form" action="/trading-accounts/id/{{ account.id }}/quote" method="get" class="stack">
             <label>
                 Quote symbol
                 <select id="quote-symbol" name="symbol" required {% if not symbols %}disabled{% endif %}>
                     {% for item in symbols %}
-                    <option value="{{ item.symbol_name }}">{{ item.display_name }}</option>
+                    <option value="{{ item.symbol_name }}">{{ item.symbol_name }}</option>
                     {% endfor %}
                 </select>
             </label>
             <p class="muted" id="quote-symbol-help">
                 {% if symbols %}
-                Showing only symbols allowed by admin policy and available on this MT5 account.
+                Showing symbols from this account's synced MT5 Market Watch list.
                 {% else %}
-                No selectable symbols are currently available for this account.
+                {{ symbol_message or "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." }}
                 {% endif %}
             </p>
             <button type="submit" {% if not symbols %}disabled{% endif %}>Get Quote</button>
@@ -155,6 +161,12 @@
         setText("account-last-error", data.last_error, "None");
     }
 
+    function updateSymbolSync(data) {
+        setText("account-symbols-sync-status", data.symbols_sync_status, "unknown");
+        setText("account-symbols-last-synced", data.symbols_last_synced_at, "Never");
+        setText("account-symbols-sync-error", data.symbols_sync_error, "None");
+    }
+
     document.getElementById("test-connection-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         clearError();
@@ -224,6 +236,28 @@
         symbolInfoCard.hidden = !data.symbol_info;
     });
 
+    document.getElementById("refresh-symbols-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearError();
+
+        const response = await fetch(event.currentTarget.action, {
+            method: "POST",
+            credentials: "same-origin",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            updateSymbolSync(data.detail || {});
+            showError(data.detail?.message || "Symbol sync failed.");
+            await refreshQuoteSymbols();
+            return;
+        }
+
+        updateSymbolSync(data);
+        showSuccess(data.message || "Symbols refreshed from MT5.");
+        await refreshQuoteSymbols();
+    });
+
     async function refreshQuoteSymbols() {
         const response = await fetch("/trading-accounts/id/{{ account.id }}/symbols", {
             method: "GET",
@@ -239,7 +273,7 @@
             if (quoteSubmitButton) {
                 quoteSubmitButton.disabled = true;
             }
-            quoteSymbolHelp.textContent = data.detail?.message || "No selectable symbols are currently available for this account.";
+            quoteSymbolHelp.textContent = data.detail?.message || "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5.";
             return;
         }
 
@@ -247,7 +281,7 @@
         for (const item of data.symbols || []) {
             const option = document.createElement("option");
             option.value = item.symbol_name;
-            option.textContent = item.display_name;
+            option.textContent = item.symbol_name;
             quoteSymbol.appendChild(option);
         }
         quoteSymbol.disabled = quoteSymbol.options.length === 0;
@@ -255,8 +289,8 @@
             quoteSubmitButton.disabled = quoteSymbol.disabled;
         }
         quoteSymbolHelp.textContent = quoteSymbol.disabled
-            ? "No selectable symbols are currently available for this account."
-            : "Showing only symbols allowed by admin policy and available on this MT5 account.";
+            ? (data.message || "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5.")
+            : (data.message || "Showing symbols from this account's synced MT5 Market Watch list.");
     }
 
     document.getElementById("test-telegram-button").addEventListener("click", async () => {

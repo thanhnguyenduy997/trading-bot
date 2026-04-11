@@ -114,10 +114,13 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             )
         result: list[dict[str, object]] = []
         for item in symbols:
+            if getattr(item, "visible", False) is not True:
+                continue
             result.append(
                 {
                     "symbol": getattr(item, "name", None),
                     "visible": getattr(item, "visible", None),
+                    "select": getattr(item, "select", None),
                     "path": getattr(item, "path", None),
                     "trade_mode": getattr(item, "trade_mode", None),
                 }

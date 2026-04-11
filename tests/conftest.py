@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
@@ -12,8 +13,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models.allowed_symbol import AllowedSymbol
-from app.models import admin_audit_log, allowed_symbol, risk_control_log, trade_event, trade_setup, trading_account, user, user_daily_risk_state  # noqa: F401
+from app.models.trading_account_symbol import TradingAccountSymbol
+from app.models import admin_audit_log, risk_control_log, trade_event, trade_setup, trading_account, trading_account_symbol, user, user_daily_risk_state  # noqa: F401
 from app.schemas.user import UserCreate
 from app.services.users import create_user
 
@@ -76,17 +77,27 @@ def auth_headers(client, created_user):
 
 
 @pytest.fixture
-def allow_symbol(db_session):
-    def _allow(symbol_name: str, *, active: bool = True, display_name: str | None = None, notes: str | None = None):
-        symbol = AllowedSymbol(
-            symbol_name=symbol_name.upper(),
-            is_active=active,
-            display_name=display_name,
-            notes=notes,
-        )
-        db_session.add(symbol)
+def sync_account_symbols(db_session):
+    def _sync(account, *symbol_names: str):
+        for symbol_name in symbol_names:
+            db_session.add(
+                TradingAccountSymbol(
+                    trading_account_id=account.id,
+                    symbol_name=symbol_name.upper(),
+                    last_synced_at=datetime.now(timezone.utc),
+                    sync_status="synced",
+                )
+            )
+        account.symbols_last_synced_at = datetime.now(timezone.utc)
+        account.symbols_sync_status = "synced"
+        account.symbols_sync_error = None
         db_session.commit()
-        db_session.refresh(symbol)
-        return symbol
+        db_session.refresh(account)
+        return (
+            db_session.query(TradingAccountSymbol)
+            .filter(TradingAccountSymbol.trading_account_id == account.id)
+            .order_by(TradingAccountSymbol.symbol_name.asc())
+            .all()
+        )
 
-    return _allow
+    return _sync

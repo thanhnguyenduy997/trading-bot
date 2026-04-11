@@ -1,4 +1,3 @@
-from app.models.allowed_symbol import AllowedSymbol
 from app.models.trading_account import TradingAccount
 from app.models.user import User
 from app.schemas.user import UserCreate
@@ -112,25 +111,3 @@ def test_impersonation_start_stop_preserves_admin_identity(client, db_session):
     dashboard_after = client.get("/dashboard")
     assert "You are acting as" not in dashboard_after.text
     assert "Admin User" in dashboard_after.text
-
-
-def test_admin_can_add_and_enable_symbol(client, db_session):
-    admin = _create_admin(db_session)
-    _login(client, admin.email)
-
-    response = client.post(
-        "/admin/symbols",
-        data={
-            "symbol_name": "XAUUSD",
-            "display_name": "Gold Spot",
-            "notes": "Primary gold symbol",
-            "is_active": "true",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    symbol = db_session.query(AllowedSymbol).filter(AllowedSymbol.symbol_name == "XAUUSD").first()
-    assert symbol is not None
-    assert symbol.display_name == "Gold Spot"
-    assert symbol.is_active is True

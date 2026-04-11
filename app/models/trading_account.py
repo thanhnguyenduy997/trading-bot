@@ -21,6 +21,9 @@ class TradingAccount(Base):
     connection_status: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown", server_default="unknown")
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    symbols_last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    symbols_sync_status: Mapped[str] = mapped_column(String(30), nullable=False, default="never", server_default="never")
+    symbols_sync_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     telegram_enabled: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     telegram_bot_token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -35,3 +38,4 @@ class TradingAccount(Base):
 
     owner = relationship("User", back_populates="trading_accounts")
     trade_setups = relationship("TradeSetup", back_populates="trading_account", cascade="all, delete-orphan")
+    symbols = relationship("TradingAccountSymbol", back_populates="trading_account", cascade="all, delete-orphan")

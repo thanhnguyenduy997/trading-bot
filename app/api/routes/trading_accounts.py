@@ -15,9 +15,9 @@ from app.schemas.trading_account import (
     TradingAccountTelegramTestRead,
     TradingAccountUpdate,
 )
+from app.services.account_symbols import TradingAccountSymbolService
 from app.services.execution import TradingAccountExecutionService
 from app.services.notifications import send_trading_account_test_notification
-from app.services.symbols import SymbolPolicyService
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -118,7 +118,7 @@ def get_trading_account_quote(
 ) -> TradingAccountQuoteRead:
     service = TradingAccountExecutionService(db)
     try:
-        SymbolPolicyService(db, execution_service=service).assert_symbol_allowed_for_account(
+        TradingAccountSymbolService(db).assert_symbol_synced(
             account_id=account_id,
             user_id=current_user.id,
             symbol=symbol,

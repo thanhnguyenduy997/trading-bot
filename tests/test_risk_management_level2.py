@@ -126,9 +126,9 @@ class WinningMonitoringAdapter(FakePreviewAdapter):
         return {"sl": kwargs["sl"]}
 
 
-def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, created_user, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, created_user, sync_account_symbols):
     account = _create_account(db_session, created_user, "RISK-100", max_total_setup_volume=0.4)
+    sync_account_symbols(account, "XAUUSD")
     preview_service = PreviewService(
         db_session,
         execution_service=None,
@@ -159,13 +159,13 @@ def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, create
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "risk_limit_preview_rejected").count() == 1
 
 
-def test_execute_rejected_when_total_setup_volume_exceeds_cap(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_execute_rejected_when_total_setup_volume_exceeds_cap(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: DummyExecutionAdapter(account),
     )
     account = _create_account(db_session, created_user, "RISK-101", max_total_setup_volume=0.4)
+    sync_account_symbols(account, "XAUUSD")
     setup = _create_setup(db_session, created_user, account, order1_volume=0.3, order2_volume=0.3)
 
     response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
@@ -203,15 +203,16 @@ def test_two_consecutive_losing_setups_trigger_user_daily_lock_and_other_account
     db_session,
     created_user,
     monkeypatch,
-    allow_symbol,
+    sync_account_symbols,
 ):
-    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_monitoring.default_adapter_factory",
         lambda account: LosingMonitoringAdapter(account),
     )
     account1 = _create_account(db_session, created_user, "RISK-103")
     account2 = _create_account(db_session, created_user, "RISK-104")
+    sync_account_symbols(account1, "XAUUSD")
+    sync_account_symbols(account2, "XAUUSD")
     setup1 = _create_setup(db_session, created_user, account1, status="executed")
     setup2 = _create_setup(db_session, created_user, account2, status="executed")
     for index, setup in enumerate([setup1, setup2], start=1):
@@ -290,9 +291,9 @@ def test_non_stoploss_setup_resets_counter(db_session, created_user, monkeypatch
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "daily_lock_reset").count() >= 1
 
 
-def test_new_day_resets_lock(db_session, created_user, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_new_day_resets_lock(db_session, created_user, sync_account_symbols):
     account = _create_account(db_session, created_user, "RISK-106")
+    sync_account_symbols(account, "XAUUSD")
     yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
     db_session.add(
         UserDailyRiskState(

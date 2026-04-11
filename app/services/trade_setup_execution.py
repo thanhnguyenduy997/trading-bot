@@ -4,9 +4,9 @@ import json
 from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
+from app.services.account_symbols import TradingAccountSymbolService
 from app.services.execution import default_adapter_factory
 from app.services.risk_management import RiskManagementService
-from app.services.symbols import SymbolPolicyService
 from app.services.trade_events import create_trade_event
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
@@ -19,7 +19,7 @@ class TradeSetupExecutionService:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
         self.risk_management = RiskManagementService(db)
-        self.symbol_policy = SymbolPolicyService(db)
+        self.account_symbols = TradingAccountSymbolService(db)
 
     def execute_setup(self, setup_id: int, user_id: int):
         setup = get_trade_setup(self.db, setup_id, user_id)
@@ -31,7 +31,7 @@ class TradeSetupExecutionService:
         account = get_trading_account(self.db, setup.trading_account_id, user_id)
         if not account:
             raise LookupError("Trading account not found")
-        self.symbol_policy.assert_symbol_allowed_for_account(
+        self.account_symbols.assert_symbol_synced(
             account_id=setup.trading_account_id,
             user_id=user_id,
             symbol=setup.symbol,

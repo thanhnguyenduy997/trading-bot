@@ -7,12 +7,10 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_admin_user_from_cookie, get_current_user_from_cookie
 from app.core.security import create_access_token
 from app.models.user import User
-from app.schemas.allowed_symbol import AllowedSymbolCreate, AllowedSymbolUpdate
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.schemas.user import UserCreate, UserUpdate
 from app.services.admin_audit import log_admin_action
 from app.services.risk_management import RiskManagementService
-from app.services.symbols import create_allowed_symbol, list_allowed_symbols, update_allowed_symbol
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -30,83 +28,6 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("", response_class=HTMLResponse)
 def admin_home() -> RedirectResponse:
     return RedirectResponse(url="/admin/users", status_code=status.HTTP_302_FOUND)
-
-
-@router.get("/symbols", response_class=HTMLResponse)
-def admin_symbol_list_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_from_cookie),
-    admin_user: User = Depends(get_current_admin_user_from_cookie),
-) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request,
-        "admin_symbols.html",
-        {
-            "request": request,
-            "user": current_user,
-            "admin_user": admin_user,
-            "symbols": list_allowed_symbols(db),
-        },
-    )
-
-
-@router.post("/symbols")
-def admin_create_symbol(
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(get_current_admin_user_from_cookie),
-    symbol_name: str = Form(...),
-    display_name: str = Form(""),
-    notes: str = Form(""),
-    is_active: bool = Form(False),
-) -> RedirectResponse:
-    symbol = create_allowed_symbol(
-        db,
-        AllowedSymbolCreate(
-            symbol_name=symbol_name,
-            display_name=display_name or None,
-            notes=notes or None,
-            is_active=is_active,
-        ),
-    )
-    log_admin_action(
-        db,
-        admin_user_id=admin_user.id,
-        action="allowed_symbol_created",
-        message=f"Created allowed symbol {symbol.symbol_name}.",
-    )
-    db.commit()
-    return RedirectResponse(url="/admin/symbols", status_code=status.HTTP_303_SEE_OTHER)
-
-
-@router.post("/symbols/{symbol_id}/edit")
-def admin_update_symbol(
-    symbol_id: int,
-    db: Session = Depends(get_db),
-    admin_user: User = Depends(get_current_admin_user_from_cookie),
-    display_name: str = Form(""),
-    notes: str = Form(""),
-    is_active: bool = Form(False),
-) -> RedirectResponse:
-    symbol = update_allowed_symbol(
-        db,
-        symbol_id,
-        AllowedSymbolUpdate(
-            display_name=display_name or None,
-            notes=notes or None,
-            is_active=is_active,
-        ),
-    )
-    if not symbol:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allowed symbol not found")
-    log_admin_action(
-        db,
-        admin_user_id=admin_user.id,
-        action="allowed_symbol_updated",
-        message=f"Updated allowed symbol {symbol.symbol_name}.",
-    )
-    db.commit()
-    return RedirectResponse(url="/admin/symbols", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/users", response_class=HTMLResponse)

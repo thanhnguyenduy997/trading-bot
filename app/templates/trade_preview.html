@@ -33,15 +33,15 @@
             Symbol
             <select id="preview-symbol-select" name="symbol" required {% if not symbols %}disabled{% endif %}>
                 {% for item in symbols %}
-                <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.display_name }}</option>
+                <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.symbol_name }}</option>
                 {% endfor %}
             </select>
         </label>
         <p id="preview-symbol-help" class="muted">
             {% if symbols %}
-            Symbols are filtered to the admin allow-list and this MT5 account's live symbol list.
+            Symbols come from the selected account's synced MT5 Market Watch list.
             {% else %}
-            No selectable symbols are currently available for this account.
+            {{ symbol_message or "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." }}
             {% endif %}
         </p>
         <label>
@@ -172,7 +172,7 @@
         const data = await response.json();
 
         if (!response.ok) {
-            previewSymbolHelp.textContent = data.detail?.message || "No selectable symbols are currently available for this account.";
+            previewSymbolHelp.textContent = data.detail?.message || "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5.";
             if (previewSubmitButton) {
                 previewSubmitButton.disabled = true;
             }
@@ -181,7 +181,7 @@
 
         const symbols = data.symbols || [];
         if (!symbols.length) {
-            previewSymbolHelp.textContent = "No selectable symbols are currently available for this account.";
+            previewSymbolHelp.textContent = data.message || "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5.";
             if (previewSubmitButton) {
                 previewSubmitButton.disabled = true;
             }
@@ -191,7 +191,7 @@
         for (const item of symbols) {
             const option = document.createElement("option");
             option.value = item.symbol_name;
-            option.textContent = item.display_name;
+            option.textContent = item.symbol_name;
             if (item.symbol_name === "{{ form_data.symbol or '' }}") {
                 option.selected = true;
             }
@@ -205,7 +205,7 @@
         if (previewSubmitButton) {
             previewSubmitButton.disabled = false;
         }
-        previewSymbolHelp.textContent = "Symbols are filtered to the admin allow-list and this MT5 account's live symbol list.";
+        previewSymbolHelp.textContent = data.message || "Symbols come from the selected account's synced MT5 Market Watch list.";
     }
 
     if (previewAccountSelect) {

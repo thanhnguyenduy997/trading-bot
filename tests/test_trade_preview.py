@@ -80,13 +80,22 @@ class FailingPreviewAdapter(FakePreviewAdapter):
         )
 
 
-def test_valid_buy_preview(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+class MissingSymbolPreviewAdapter(FakePreviewAdapter):
+    def get_quote(self, symbol: str):
+        raise AdapterError(
+            code="mt5_quote_unavailable",
+            message=f"Quote unavailable for {symbol}.",
+            details=None,
+        )
+
+
+def test_valid_buy_preview(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -120,13 +129,13 @@ def test_valid_buy_preview(client, db_session, created_user, auth_headers, monke
     assert data["validation_status"] == "valid"
 
 
-def test_valid_sell_preview(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("EURUSD")
+def test_valid_sell_preview(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "EURUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -152,13 +161,13 @@ def test_valid_sell_preview(client, db_session, created_user, auth_headers, monk
     assert data["order2_volume"] == 0.5
 
 
-def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -178,13 +187,13 @@ def test_invalid_sl_for_buy(client, db_session, created_user, auth_headers, monk
     assert response.json()["detail"] == "For buy setups, sl_price must be below the estimated entry."
 
 
-def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("EURUSD")
+def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "EURUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -204,13 +213,13 @@ def test_invalid_sl_for_sell(client, db_session, created_user, auth_headers, mon
     assert response.json()["detail"] == "For sell setups, sl_price must be above the estimated entry."
 
 
-def test_volume_below_min_lot(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD")
+def test_volume_below_min_lot(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -230,11 +239,11 @@ def test_volume_below_min_lot(client, db_session, created_user, auth_headers, mo
     assert response.json()["detail"] == "Computed volume is below minimum lot size"
 
 
-def test_preview_service_uses_live_symbol_info_with_mocked_adapter(db_session, created_user, allow_symbol):
+def test_preview_service_uses_live_symbol_info_with_mocked_adapter(db_session, created_user, sync_account_symbols):
     from app.services.execution import TradingAccountExecutionService
 
-    allow_symbol("XAUUSD")
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
     execution_service = TradingAccountExecutionService(
         db_session,
         adapter_factory=lambda adapter_account: FakePreviewAdapter(adapter_account),
@@ -259,11 +268,11 @@ def test_preview_service_uses_live_symbol_info_with_mocked_adapter(db_session, c
     assert preview.volume_step == 0.01
 
 
-def test_preview_service_handles_live_quote_failure(db_session, created_user, allow_symbol):
+def test_preview_service_handles_live_quote_failure(db_session, created_user, sync_account_symbols):
     from app.services.execution import TradingAccountExecutionService
 
-    allow_symbol("XAUUSD")
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
     execution_service = TradingAccountExecutionService(
         db_session,
         adapter_factory=lambda adapter_account: FailingPreviewAdapter(adapter_account),
@@ -310,23 +319,23 @@ def test_preview_rejects_symbol_not_allowed_by_admin_policy(client, db_session, 
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Symbol is not allowed by admin policy."
+    assert response.json()["detail"] == "Symbol is not synced for this trading account. Add it in MT5 Market Watch first, then click Refresh Symbols from MT5."
 
 
-def test_preview_rejects_symbol_not_available_on_selected_mt5_account(
+def test_preview_rejects_symbol_when_live_validation_fails(
     client,
     db_session,
     created_user,
     auth_headers,
     monkeypatch,
-    allow_symbol,
+    sync_account_symbols,
 ):
-    allow_symbol("BTCUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
-        lambda account: FakePreviewAdapter(account),
+        lambda account: MissingSymbolPreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "BTCUSD")
 
     response = client.post(
         "/api/trade-setups/preview",
@@ -343,37 +352,7 @@ def test_preview_rejects_symbol_not_available_on_selected_mt5_account(
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Symbol is not available on the selected MT5 account."
-
-
-def test_disabled_symbol_is_hidden_and_rejected(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
-    allow_symbol("XAUUSD", active=False, display_name="Gold Spot")
-    monkeypatch.setattr(
-        "app.services.execution.default_adapter_factory",
-        lambda account: FakePreviewAdapter(account),
-    )
-    account = _create_account(db_session, created_user)
-    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
-
-    page = client.get("/trade-setups/preview")
-    api_response = client.post(
-        "/api/trade-setups/preview",
-        headers=auth_headers,
-        json={
-            "trading_account_id": account.id,
-            "symbol": "XAUUSD",
-            "side": "buy",
-            "sl_price": 2319.2,
-            "risk_mode": "fixed_money",
-            "risk_value": 100,
-            "rr_order2": 2,
-        },
-    )
-
-    assert page.status_code == 200
-    assert "Gold Spot" not in page.text
-    assert api_response.status_code == 400
-    assert api_response.json()["detail"] == "Symbol is not allowed by admin policy."
+    assert response.json()["detail"] == "Live MT5 preview unavailable: Quote unavailable for BTCUSD."
 
 
 def test_preview_page_dropdown_uses_allowed_and_available_symbols(
@@ -381,19 +360,64 @@ def test_preview_page_dropdown_uses_allowed_and_available_symbols(
     db_session,
     created_user,
     monkeypatch,
-    allow_symbol,
+    sync_account_symbols,
 ):
-    allow_symbol("XAUUSD", display_name="Gold Spot")
-    allow_symbol("BTCUSD", display_name="Bitcoin", active=True)
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakePreviewAdapter(account),
     )
     account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
     client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
 
     response = client.get("/trade-setups/preview")
 
     assert response.status_code == 200
-    assert "Gold Spot" in response.text
-    assert "Bitcoin" not in response.text
+    assert "XAUUSD" in response.text
+    assert "BTCUSD" not in response.text
+
+
+def test_preview_page_empty_synced_symbol_list_shows_clear_message(client, db_session, created_user, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    _create_account(db_session, created_user)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.get("/trade-setups/preview")
+
+    assert response.status_code == 200
+    assert "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." in response.text
+
+
+def test_preview_uses_only_synced_symbols_for_selected_account(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account1 = _create_account(db_session, created_user)
+    account2 = create_trading_account(
+        db_session,
+        created_user.id,
+        TradingAccountCreate(
+            broker_name="Demo Broker",
+            account_number="ACC-200",
+            server_name="demo-server",
+            password="secret-pass",
+        ),
+    )
+    sync_account_symbols(account1, "XAUUSD")
+    sync_account_symbols(account2, "EURUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.get(f"/trading-accounts/id/{account2.id}/symbols")
+
+    assert response.status_code == 200
+    assert response.json()["symbols"] == [{"symbol_name": "EURUSD"}]
