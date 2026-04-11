@@ -103,6 +103,27 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "volume_step": getattr(info, "volume_step", None),
         }
 
+    def list_symbols(self) -> list[dict[str, object]]:
+        self._ensure_connected()
+        symbols = self._mt5.symbols_get()
+        if symbols is None:
+            raise AdapterError(
+                code="mt5_symbols_unavailable",
+                message="MT5 symbol list is unavailable.",
+                details=self._error_details(),
+            )
+        result: list[dict[str, object]] = []
+        for item in symbols:
+            result.append(
+                {
+                    "symbol": getattr(item, "name", None),
+                    "visible": getattr(item, "visible", None),
+                    "path": getattr(item, "path", None),
+                    "trade_mode": getattr(item, "trade_mode", None),
+                }
+            )
+        return result
+
     def execute_setup(self, setup: object) -> dict[str, str | int | float | None]:
         try:
             self.connect()

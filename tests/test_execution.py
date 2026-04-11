@@ -56,11 +56,18 @@ class FakeExecutionAdapter:
             "volume_step": 0.01,
         }
 
+    def list_symbols(self) -> list[dict[str, str | int | float | None]]:
+        return [
+            {"symbol": "XAUUSD", "visible": True},
+            {"symbol": "EURUSD", "visible": True},
+        ]
+
     def close(self) -> None:
         return None
 
 
-def test_unauthorized_access_to_another_users_account(client, db_session, created_user, auth_headers, monkeypatch):
+def test_unauthorized_access_to_another_users_account(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakeExecutionAdapter(account),
@@ -77,7 +84,8 @@ def test_unauthorized_access_to_another_users_account(client, db_session, create
     assert response.json()["detail"] == "Trading account not found"
 
 
-def test_connection_test_result_persistence(client, db_session, created_user, auth_headers, monkeypatch):
+def test_connection_test_result_persistence(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakeExecutionAdapter(account),
@@ -99,7 +107,8 @@ def test_connection_test_result_persistence(client, db_session, created_user, au
     assert stored.last_error is None
 
 
-def test_quote_retrieval_via_adapter_abstraction(client, db_session, created_user, auth_headers, monkeypatch):
+def test_quote_retrieval_via_adapter_abstraction(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakeExecutionAdapter(account),
@@ -162,7 +171,8 @@ def test_symbol_failure_preserves_connected_status_with_error(db_session, create
     assert stored.last_error == "mt5_symbol_not_found: Symbol BTCUSD is unavailable in MT5."
 
 
-def test_web_session_connection_route_uses_cookie_auth(client, db_session, created_user, monkeypatch):
+def test_web_session_connection_route_uses_cookie_auth(client, db_session, created_user, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakeExecutionAdapter(account),
@@ -178,7 +188,8 @@ def test_web_session_connection_route_uses_cookie_auth(client, db_session, creat
     assert data["connection_status"] == "connected"
 
 
-def test_web_session_quote_route_rejects_other_users_account(client, db_session, created_user, monkeypatch):
+def test_web_session_quote_route_rejects_other_users_account(client, db_session, created_user, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
         lambda account: FakeExecutionAdapter(account),
@@ -194,3 +205,68 @@ def test_web_session_quote_route_rejects_other_users_account(client, db_session,
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Trading account not found"
+
+
+def test_trading_account_detail_page_uses_dynamic_symbol_list(client, db_session, created_user, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD", display_name="Gold Spot")
+    allow_symbol("BTCUSD", display_name="Bitcoin")
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakeExecutionAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123464")
+    _login_web_session(client, created_user.email)
+
+    response = client.get(f"/trading-accounts/id/{account.id}")
+
+    assert response.status_code == 200
+    assert "Gold Spot" in response.text
+    assert "Bitcoin" not in response.text
+
+
+def test_quote_retrieval_rejects_symbol_not_allowed_by_admin_policy(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakeExecutionAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123462")
+
+    response = client.get(
+        f"/api/trading-accounts/{account.id}/quote",
+        headers=auth_headers,
+        params={"symbol": "BTCUSD"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Symbol is not allowed by admin policy."
+
+
+def test_quote_retrieval_rejects_symbol_not_available_on_selected_mt5_account(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    allow_symbol,
+):
+    allow_symbol("BTCUSD")
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakeExecutionAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123463")
+
+    response = client.get(
+        f"/api/trading-accounts/{account.id}/quote",
+        headers=auth_headers,
+        params={"symbol": "BTCUSD"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Symbol is not available on the selected MT5 account."

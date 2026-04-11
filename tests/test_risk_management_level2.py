@@ -76,6 +76,9 @@ class FakePreviewAdapter:
             "volume_step": 0.01,
         }
 
+    def list_symbols(self):
+        return [{"symbol": "XAUUSD", "visible": True}]
+
     def execute_setup(self, setup):
         return {}
 
@@ -123,7 +126,8 @@ class WinningMonitoringAdapter(FakePreviewAdapter):
         return {"sl": kwargs["sl"]}
 
 
-def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, created_user):
+def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, created_user, allow_symbol):
+    allow_symbol("XAUUSD")
     account = _create_account(db_session, created_user, "RISK-100", max_total_setup_volume=0.4)
     preview_service = PreviewService(
         db_session,
@@ -155,7 +159,8 @@ def test_preview_rejected_when_total_setup_volume_exceeds_cap(db_session, create
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "risk_limit_preview_rejected").count() == 1
 
 
-def test_execute_rejected_when_total_setup_volume_exceeds_cap(client, db_session, created_user, auth_headers, monkeypatch):
+def test_execute_rejected_when_total_setup_volume_exceeds_cap(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: DummyExecutionAdapter(account),
@@ -198,7 +203,9 @@ def test_two_consecutive_losing_setups_trigger_user_daily_lock_and_other_account
     db_session,
     created_user,
     monkeypatch,
+    allow_symbol,
 ):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_monitoring.default_adapter_factory",
         lambda account: LosingMonitoringAdapter(account),
@@ -283,7 +290,8 @@ def test_non_stoploss_setup_resets_counter(db_session, created_user, monkeypatch
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "daily_lock_reset").count() >= 1
 
 
-def test_new_day_resets_lock(db_session, created_user):
+def test_new_day_resets_lock(db_session, created_user, allow_symbol):
+    allow_symbol("XAUUSD")
     account = _create_account(db_session, created_user, "RISK-106")
     yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
     db_session.add(

@@ -15,6 +15,7 @@ from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.notifications import send_trading_account_test_notification
 from app.services.risk_management import RiskManagementService
+from app.services.symbols import SymbolPolicyService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
@@ -34,8 +35,11 @@ def _render_trade_preview_page(
     preview: object | None = None,
     setup: object | None = None,
     error: str | None = None,
+    symbols: list[dict[str, str]] | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
+    initial_symbols = symbols or []
+    default_symbol = initial_symbols[0]["symbol_name"] if initial_symbols else ""
     return templates.TemplateResponse(
         request,
         "trade_preview.html",
@@ -45,7 +49,7 @@ def _render_trade_preview_page(
             "accounts": accounts,
             "form_data": form_data
             or {
-                "symbol": "XAUUSD",
+                "symbol": default_symbol,
                 "side": "buy",
                 "risk_mode": "fixed_money",
                 "risk_value": 100,
@@ -54,6 +58,7 @@ def _render_trade_preview_page(
             "preview": preview,
             "setup": setup,
             "error": error,
+            "symbols": initial_symbols,
         },
         status_code=status_code,
     )
@@ -103,6 +108,7 @@ def _render_trading_account_detail_page(
     quote_result: object | None = None,
     message: str | None = None,
     error: str | None = None,
+    symbols: list[dict[str, str]] | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
@@ -116,9 +122,19 @@ def _render_trading_account_detail_page(
             "quote_result": quote_result,
             "message": message,
             "error": error,
+            "symbols": symbols or [],
         },
         status_code=status_code,
     )
+
+
+def _load_selectable_symbols(db: Session, current_user: User, account_id: int | None) -> list[dict[str, str]]:
+    if account_id is None:
+        return []
+    try:
+        return SymbolPolicyService(db).list_selectable_symbols(account_id=account_id, user_id=current_user.id)
+    except (LookupError, AdapterError):
+        return []
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -152,7 +168,9 @@ def trade_preview_page(
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
-    return _render_trade_preview_page(request, current_user, accounts)
+    selected_account_id = accounts[0].id if accounts else None
+    symbols = _load_selectable_symbols(db, current_user, selected_account_id)
+    return _render_trade_preview_page(request, current_user, accounts, symbols=symbols)
 
 
 @router.post("/trade-setups/preview", response_class=HTMLResponse)
@@ -181,6 +199,8 @@ def trade_preview_page_submit(
         "draft_setup_id": draft_setup_id,
     }
 
+    symbols = _load_selectable_symbols(db, current_user, trading_account_id)
+
     try:
         payload = TradePreviewRequest(**form_data)
         preview = PreviewService(db).build_preview(current_user.id, payload)
@@ -191,6 +211,7 @@ def trade_preview_page_submit(
             accounts,
             form_data=form_data,
             error=exc.errors()[0]["msg"],
+            symbols=symbols,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     except (LookupError, ValueError) as exc:
@@ -200,6 +221,7 @@ def trade_preview_page_submit(
             accounts,
             form_data=form_data,
             error=str(exc),
+            symbols=symbols,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -234,11 +256,20 @@ def trade_preview_page_submit(
             form_data=form_data,
             preview=preview,
             error=str(exc),
+            symbols=symbols,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     form_data["draft_setup_id"] = setup.id
-    return _render_trade_preview_page(request, current_user, accounts, form_data=form_data, preview=preview, setup=setup)
+    return _render_trade_preview_page(
+        request,
+        current_user,
+        accounts,
+        form_data=form_data,
+        preview=preview,
+        setup=setup,
+        symbols=symbols,
+    )
 
 
 @router.post("/trade-setups/save")
@@ -435,7 +466,8 @@ def trading_account_detail_page(
     account = get_trading_account(db, account_id, current_user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
-    return _render_trading_account_detail_page(request, current_user, account)
+    symbols = _load_selectable_symbols(db, current_user, account.id)
+    return _render_trading_account_detail_page(request, current_user, account, symbols=symbols)
 
 
 @router.get("/trading-accounts/create", response_class=HTMLResponse)
@@ -503,6 +535,7 @@ def update_trading_account_telegram_page(
         current_user,
         account,
         message="Telegram notification settings updated.",
+        symbols=_load_selectable_symbols(db, current_user, account.id),
     )
 
 
@@ -560,8 +593,25 @@ def get_trading_account_quote_page(
 
     service = TradingAccountExecutionService(db)
     try:
+        SymbolPolicyService(db, execution_service=service).assert_symbol_allowed_for_account(
+            account_id=account_id,
+            user_id=current_user.id,
+            symbol=symbol,
+        )
         quote = service.fetch_quote(account_id, current_user.id, symbol)
         return JSONResponse(status_code=status.HTTP_200_OK, content=quote.model_dump(mode="json"))
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "detail": {
+                    "message": str(exc),
+                    "connection_status": account.connection_status,
+                    "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account.last_heartbeat_at else None,
+                    "last_error": account.last_error,
+                }
+            },
+        )
     except AdapterError as exc:
         account = get_trading_account(db, account_id, current_user.id)
         return JSONResponse(
@@ -569,6 +619,35 @@ def get_trading_account_quote_page(
             content={
                 "detail": {
                     **exc.to_dict(),
+                    "connection_status": account.connection_status if account else "error",
+                    "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
+                    "last_error": account.last_error if account else str(exc),
+                }
+            },
+        )
+
+
+@router.get("/trading-accounts/id/{account_id}/symbols")
+def get_trading_account_symbols_page(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> JSONResponse:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    try:
+        symbols = SymbolPolicyService(db).list_selectable_symbols(account_id=account_id, user_id=current_user.id)
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"symbols": symbols})
+    except AdapterError as exc:
+        account = get_trading_account(db, account_id, current_user.id)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": {
+                    **exc.to_dict(),
+                    "message": exc.message,
                     "connection_status": account.connection_status if account else "error",
                     "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
                     "last_error": account.last_error if account else str(exc),

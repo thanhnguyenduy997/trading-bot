@@ -65,6 +65,9 @@ class SuccessfulExecutionAdapter:
     def get_symbol_info(self, symbol: str):
         return {}
 
+    def list_symbols(self):
+        return [{"symbol": "XAUUSD", "visible": True}]
+
     def execute_setup(self, setup):
         return {"status": "executed", "setup_id": setup.id}
 
@@ -108,7 +111,8 @@ class PartialFailureExecutionAdapter(SuccessfulExecutionAdapter):
         )
 
 
-def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch):
+def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: SuccessfulExecutionAdapter(account),
@@ -132,7 +136,8 @@ def test_executing_own_setup(client, db_session, created_user, auth_headers, mon
     assert stored.order2_ticket == 1002
 
 
-def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch):
+def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: SuccessfulExecutionAdapter(account),
@@ -150,7 +155,8 @@ def test_rejecting_another_users_setup(client, db_session, created_user, auth_he
     assert response.json()["detail"] == "Trade setup not found"
 
 
-def test_graceful_failure_when_execution_unavailable(client, db_session, created_user, auth_headers, monkeypatch):
+def test_graceful_failure_when_execution_unavailable(client, db_session, created_user, auth_headers, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: UnavailableExecutionAdapter(account),
@@ -183,7 +189,9 @@ def test_order1_succeeds_order2_fails_and_rollback_happens(
     created_user,
     auth_headers,
     monkeypatch,
+    allow_symbol,
 ):
+    allow_symbol("XAUUSD")
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
         lambda account: PartialFailureExecutionAdapter(account),

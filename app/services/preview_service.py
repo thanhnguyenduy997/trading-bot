@@ -7,6 +7,7 @@ from app.schemas.trade_preview import TradePreviewRequest, TradePreviewResponse
 from app.services.execution import TradingAccountExecutionService
 from app.services.risk_management import RiskManagementService
 from app.services.risk_service import RiskService
+from app.services.symbols import SymbolPolicyService
 from app.services.trading_accounts import get_trading_account
 
 
@@ -21,11 +22,17 @@ class PreviewService:
         self.execution_service = execution_service or TradingAccountExecutionService(db)
         self.risk_service = risk_service or RiskService()
         self.risk_management = RiskManagementService(db)
+        self.symbol_policy = SymbolPolicyService(db, execution_service=self.execution_service)
 
     def build_preview(self, user_id: int, payload: TradePreviewRequest) -> TradePreviewResponse:
         account = get_trading_account(self.db, payload.trading_account_id, user_id)
         if not account:
             raise LookupError("Trading account not found")
+        self.symbol_policy.assert_symbol_allowed_for_account(
+            account_id=payload.trading_account_id,
+            user_id=user_id,
+            symbol=payload.symbol,
+        )
 
         try:
             market_data = self.execution_service.fetch_quote(

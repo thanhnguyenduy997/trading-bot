@@ -17,6 +17,7 @@ from app.schemas.trading_account import (
 )
 from app.services.execution import TradingAccountExecutionService
 from app.services.notifications import send_trading_account_test_notification
+from app.services.symbols import SymbolPolicyService
 from app.services.trading_accounts import (
     create_trading_account,
     delete_trading_account,
@@ -117,9 +118,16 @@ def get_trading_account_quote(
 ) -> TradingAccountQuoteRead:
     service = TradingAccountExecutionService(db)
     try:
+        SymbolPolicyService(db, execution_service=service).assert_symbol_allowed_for_account(
+            account_id=account_id,
+            user_id=current_user.id,
+            symbol=symbol,
+        )
         return service.fetch_quote(account_id, current_user.id, symbol)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except AdapterError as exc:
         account = get_trading_account(db, account_id, current_user.id)
         raise HTTPException(

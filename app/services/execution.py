@@ -78,6 +78,22 @@ class TradingAccountExecutionService:
             if callable(close):
                 close()
 
+    def list_symbols(self, account_id: int, user_id: int) -> list[dict[str, object]]:
+        account = self._get_owned_account(account_id, user_id)
+        adapter = self.adapter_factory(account)
+        try:
+            adapter.connect()
+            symbols = adapter.list_symbols()
+            self._mark_connected(account)
+            return symbols
+        except AdapterError as exc:
+            self._mark_quote_failure(account, exc)
+            raise
+        finally:
+            close = getattr(adapter, "close", None)
+            if callable(close):
+                close()
+
     def _get_owned_account(self, account_id: int, user_id: int) -> TradingAccount:
         account = get_trading_account(self.db, account_id, user_id)
         if not account:

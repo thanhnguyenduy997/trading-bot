@@ -46,6 +46,37 @@ def _login_headers(client, email: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+class FakePreviewAdapter:
+    def __init__(self, account):
+        self.account = account
+
+    def connect(self):
+        return None
+
+    def get_account_info(self):
+        return {"balance": 10000.0}
+
+    def get_quote(self, symbol: str):
+        return {"symbol": symbol, "bid": 2320.0, "ask": 2320.2}
+
+    def get_symbol_info(self, symbol: str):
+        return {
+            "symbol": symbol,
+            "point": 0.01,
+            "digits": 2,
+            "trade_contract_size": 100.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+        }
+
+    def list_symbols(self):
+        return [{"symbol": "XAUUSD", "visible": True}]
+
+    def close(self):
+        return None
+
+
 def test_save_setup_successfully(client, db_session, created_user, auth_headers):
     account = _create_account(db_session, created_user)
 
@@ -96,7 +127,12 @@ def test_reject_access_to_another_users_setup_detail(client, db_session, created
     assert response.json()["detail"] == "Trade setup not found"
 
 
-def test_saved_setup_fields_match_preview_values(client, db_session, created_user):
+def test_saved_setup_fields_match_preview_values(client, db_session, created_user, monkeypatch, allow_symbol):
+    allow_symbol("XAUUSD")
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
     account = _create_account(db_session, created_user, "ACC-404")
     headers = _login_headers(client, created_user.email, "password123")
 

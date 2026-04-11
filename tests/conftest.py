@@ -12,7 +12,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models import admin_audit_log, risk_control_log, trade_event, trade_setup, trading_account, user, user_daily_risk_state  # noqa: F401
+from app.models.allowed_symbol import AllowedSymbol
+from app.models import admin_audit_log, allowed_symbol, risk_control_log, trade_event, trade_setup, trading_account, user, user_daily_risk_state  # noqa: F401
 from app.schemas.user import UserCreate
 from app.services.users import create_user
 
@@ -72,3 +73,20 @@ def auth_headers(client, created_user):
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def allow_symbol(db_session):
+    def _allow(symbol_name: str, *, active: bool = True, display_name: str | None = None, notes: str | None = None):
+        symbol = AllowedSymbol(
+            symbol_name=symbol_name.upper(),
+            is_active=active,
+            display_name=display_name,
+            notes=notes,
+        )
+        db_session.add(symbol)
+        db_session.commit()
+        db_session.refresh(symbol)
+        return symbol
+
+    return _allow
