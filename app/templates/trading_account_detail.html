@@ -6,7 +6,10 @@
             <h1>Trading Account {{ account.account_number }}</h1>
             <p class="muted">MT5 adapter health and quote checks for this account.</p>
         </div>
-        <a class="button-link" href="/trading-accounts">Back to Accounts</a>
+        <div class="action-row">
+            <a class="button-link secondary-button" href="/trading-accounts/id/{{ account.id }}/edit">Edit Account</a>
+            <a class="button-link" href="/trading-accounts">Back to Accounts</a>
+        </div>
     </div>
 
     <div id="account-action-error" class="alert alert-error" {% if not error %}hidden{% endif %}>{{ error or "" }}</div>
@@ -25,6 +28,11 @@
             <tr><th>Symbols last synced</th><td id="account-symbols-last-synced">{{ account.symbols_last_synced_at or "Never" }}</td></tr>
             <tr><th>Symbols sync error</th><td id="account-symbols-sync-error">{{ account.symbols_sync_error or "None" }}</td></tr>
             <tr><th>Max total setup volume</th><td>{{ account.max_total_setup_volume or "Not set" }}</td></tr>
+            <tr><th>Default preview symbol</th><td>{{ account.default_symbol or "Auto first synced symbol" }}</td></tr>
+            <tr><th>Default preview side</th><td>{{ account.default_side or "buy" }}</td></tr>
+            <tr><th>Default preview risk mode</th><td>{{ account.default_risk_mode or "fixed_money" }}</td></tr>
+            <tr><th>Default preview risk value</th><td>{{ account.default_risk_value or 100 }}</td></tr>
+            <tr><th>Default preview RR order 2</th><td>{{ account.default_rr_order_2 or 2 }}</td></tr>
             <tr><th>Telegram enabled</th><td>{{ "Yes" if account.telegram_enabled else "No" }}</td></tr>
             <tr><th>Telegram chat</th><td>{{ account.telegram_chat_id or "Global fallback" }}</td></tr>
             <tr><th>Telegram bot token</th><td>{{ "Account override configured" if account.telegram_bot_token_encrypted else "Global fallback" }}</td></tr>

@@ -28,6 +28,11 @@ class TradingAccount(Base):
     telegram_chat_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     telegram_bot_token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
     max_total_setup_volume: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    default_symbol: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    default_side: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    default_risk_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    default_risk_value: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    default_rr_order_2: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

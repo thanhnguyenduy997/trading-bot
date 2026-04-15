@@ -17,6 +17,7 @@
                 <th>Heartbeat</th>
                 <th>Last Error</th>
                 <th>Created</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -30,6 +31,7 @@
                 <td data-label="Heartbeat">{{ account.last_heartbeat_at.strftime("%Y-%m-%d %H:%M") if account.last_heartbeat_at else "Never" }}</td>
                 <td data-label="Last Error">{{ account.last_error or "None" }}</td>
                 <td data-label="Created">{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                <td data-label="Actions"><a class="button-link secondary-button" href="/trading-accounts/id/{{ account.id }}/edit">Edit</a></td>
             </tr>
             {% endfor %}
         </tbody>

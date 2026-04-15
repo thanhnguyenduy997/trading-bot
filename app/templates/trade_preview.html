@@ -46,7 +46,7 @@
         </p>
         <label>
             Side
-            <select name="side" required>
+            <select name="side" id="preview-side-select" required>
                 {% for item in ["buy", "sell"] %}
                 <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
                 {% endfor %}
@@ -58,7 +58,7 @@
         </label>
         <label>
             Risk mode
-            <select name="risk_mode" required>
+            <select name="risk_mode" id="preview-risk-mode-select" required>
                 {% for item in ["fixed_money", "balance_percent"] %}
                 <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
                 {% endfor %}
@@ -66,13 +66,17 @@
         </label>
         <label>
             Risk value
-            <input type="number" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
+            <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
         </label>
         <label>
             RR order 2
-            <input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
+            <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
         </label>
-        <button type="submit" {% if not accounts or not symbols %}disabled{% endif %}>{{ "Update Review" if setup else "Preview Setup" }}</button>
+        <div class="action-row">
+            <button type="submit" {% if not accounts or not symbols %}disabled{% endif %}>{{ "Update Review" if setup else "Preview Setup" }}</button>
+            <button id="reset-preview-defaults-button" type="button" class="secondary-button" {% if not accounts %}disabled{% endif %}>Reset to Account Defaults</button>
+            <button id="save-preview-defaults-button" type="button" class="secondary-button" {% if not accounts or not symbols %}disabled{% endif %}>Save Current Values as Defaults</button>
+        </div>
     </form>
 </section>
 
@@ -155,6 +159,33 @@
     const previewSymbolSelect = document.getElementById("preview-symbol-select");
     const previewSymbolHelp = document.getElementById("preview-symbol-help");
     const previewSubmitButton = document.querySelector(".preview-form button[type='submit']");
+    const previewSideSelect = document.getElementById("preview-side-select");
+    const previewRiskModeSelect = document.getElementById("preview-risk-mode-select");
+    const previewRiskValueInput = document.getElementById("preview-risk-value-input");
+    const previewRrOrder2Input = document.getElementById("preview-rr-order-2-input");
+    const savePreviewDefaultsButton = document.getElementById("save-preview-defaults-button");
+    const resetPreviewDefaultsButton = document.getElementById("reset-preview-defaults-button");
+    let accountPreviewDefaults = {{ preview_defaults|tojson }};
+
+    function applyPreviewDefaults(defaults) {
+        if (!defaults) {
+            return;
+        }
+
+        accountPreviewDefaults = defaults;
+        if (previewSideSelect && defaults.side) {
+            previewSideSelect.value = defaults.side;
+        }
+        if (previewRiskModeSelect && defaults.risk_mode) {
+            previewRiskModeSelect.value = defaults.risk_mode;
+        }
+        if (previewRiskValueInput && defaults.risk_value) {
+            previewRiskValueInput.value = defaults.risk_value;
+        }
+        if (previewRrOrder2Input && defaults.rr_order2) {
+            previewRrOrder2Input.value = defaults.rr_order2;
+        }
+    }
 
     async function loadPreviewSymbols(accountId) {
         if (!previewSymbolSelect || !accountId) {
@@ -180,10 +211,15 @@
         }
 
         const symbols = data.symbols || [];
+        const previewDefaults = data.preview_defaults || {};
         if (!symbols.length) {
             previewSymbolHelp.textContent = data.message || "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5.";
+            applyPreviewDefaults(previewDefaults);
             if (previewSubmitButton) {
                 previewSubmitButton.disabled = true;
+            }
+            if (savePreviewDefaultsButton) {
+                savePreviewDefaultsButton.disabled = true;
             }
             return;
         }
@@ -192,7 +228,7 @@
             const option = document.createElement("option");
             option.value = item.symbol_name;
             option.textContent = item.symbol_name;
-            if (item.symbol_name === "{{ form_data.symbol or '' }}") {
+            if (item.symbol_name === previewDefaults.symbol) {
                 option.selected = true;
             }
             previewSymbolSelect.appendChild(option);
@@ -201,16 +237,61 @@
         if (!previewSymbolSelect.value && symbols[0]) {
             previewSymbolSelect.value = symbols[0].symbol_name;
         }
+        applyPreviewDefaults(previewDefaults);
         previewSymbolSelect.disabled = false;
         if (previewSubmitButton) {
             previewSubmitButton.disabled = false;
         }
+        if (savePreviewDefaultsButton) {
+            savePreviewDefaultsButton.disabled = false;
+        }
         previewSymbolHelp.textContent = data.message || "Symbols come from the selected account's synced MT5 Market Watch list.";
+    }
+
+    async function savePreviewDefaults() {
+        if (!previewAccountSelect || !previewSymbolSelect) {
+            return;
+        }
+
+        const payload = new URLSearchParams();
+        payload.set("trading_account_id", previewAccountSelect.value);
+        payload.set("symbol", previewSymbolSelect.value);
+        payload.set("side", previewSideSelect.value);
+        payload.set("risk_mode", previewRiskModeSelect.value);
+        payload.set("risk_value", previewRiskValueInput.value);
+        payload.set("rr_order2", previewRrOrder2Input.value);
+
+        const response = await fetch("/trade-setups/preview/defaults", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: payload.toString(),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            previewSymbolHelp.textContent = data.detail?.message || "Unable to save account preview defaults.";
+            return;
+        }
+
+        applyPreviewDefaults(data.preview_defaults || {});
+        previewSymbolHelp.textContent = data.message || "Trade Preview defaults saved for this account.";
     }
 
     if (previewAccountSelect) {
         previewAccountSelect.addEventListener("change", (event) => {
             loadPreviewSymbols(event.currentTarget.value);
+        });
+    }
+    if (savePreviewDefaultsButton) {
+        savePreviewDefaultsButton.addEventListener("click", savePreviewDefaults);
+    }
+    if (resetPreviewDefaultsButton) {
+        resetPreviewDefaultsButton.addEventListener("click", () => {
+            if (previewSymbolSelect && accountPreviewDefaults.symbol) {
+                previewSymbolSelect.value = accountPreviewDefaults.symbol;
+            }
+            applyPreviewDefaults(accountPreviewDefaults);
         });
     }
 </script>

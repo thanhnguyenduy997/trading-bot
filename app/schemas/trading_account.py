@@ -1,6 +1,8 @@
+from typing import Literal
+
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TradingAccountBase(BaseModel):
@@ -12,11 +14,21 @@ class TradingAccountBase(BaseModel):
     telegram_enabled: bool = True
     telegram_chat_id: str | None = Field(default=None, max_length=120)
     max_total_setup_volume: float | None = Field(default=None, gt=0)
+    default_symbol: str | None = Field(default=None, min_length=3, max_length=20)
+    default_side: Literal["buy", "sell"] | None = None
+    default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
+    default_risk_value: float | None = Field(default=None, gt=0)
+    default_rr_order_2: float | None = Field(default=None, gt=0)
 
 
 class TradingAccountCreate(TradingAccountBase):
     password: str = Field(min_length=1, max_length=255)
     telegram_bot_token: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("default_symbol")
+    @classmethod
+    def normalize_default_symbol(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
 
 
 class TradingAccountUpdate(BaseModel):
@@ -28,8 +40,18 @@ class TradingAccountUpdate(BaseModel):
     telegram_enabled: bool | None = None
     telegram_chat_id: str | None = Field(default=None, max_length=120)
     max_total_setup_volume: float | None = Field(default=None, gt=0)
+    default_symbol: str | None = Field(default=None, min_length=3, max_length=20)
+    default_side: Literal["buy", "sell"] | None = None
+    default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
+    default_risk_value: float | None = Field(default=None, gt=0)
+    default_rr_order_2: float | None = Field(default=None, gt=0)
     password: str | None = Field(default=None, min_length=1, max_length=255)
     telegram_bot_token: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("default_symbol")
+    @classmethod
+    def normalize_default_symbol(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
 
 
 class TradingAccountRead(TradingAccountBase):

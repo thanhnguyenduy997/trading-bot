@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -23,11 +23,26 @@ from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups, update_draft_trade_setup
-from app.services.trading_accounts import create_trading_account, get_trading_account, list_trading_accounts, update_trading_account
+from app.services.trading_accounts import (
+    DuplicateTradingAccountError,
+    create_trading_account,
+    get_trading_account,
+    list_trading_accounts,
+    update_trading_account,
+)
 
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
+
+INVALID_DEFAULT_SYMBOL_MESSAGE = (
+    "Saved default symbol is no longer synced for this account. "
+    "Using the first available synced symbol instead."
+)
+MISSING_DEFAULT_SYMBOL_MESSAGE = (
+    "Saved default symbol is no longer synced for this account. "
+    "No synced symbols are currently available."
+)
 
 
 def _render_trade_preview_page(
@@ -35,6 +50,7 @@ def _render_trade_preview_page(
     current_user: User,
     accounts: list,
     form_data: dict[str, object] | None = None,
+    preview_defaults: dict[str, object] | None = None,
     preview: object | None = None,
     setup: object | None = None,
     error: str | None = None,
@@ -43,7 +59,7 @@ def _render_trade_preview_page(
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
     initial_symbols = symbols or []
-    default_symbol = initial_symbols[0]["symbol_name"] if initial_symbols else ""
+    resolved_preview_defaults = preview_defaults or {}
     return templates.TemplateResponse(
         request,
         "trade_preview.html",
@@ -64,6 +80,7 @@ def _render_trade_preview_page(
             "error": error,
             "symbols": initial_symbols,
             "symbol_message": symbol_message,
+            "preview_defaults": resolved_preview_defaults,
         },
         status_code=status_code,
     )
@@ -135,6 +152,38 @@ def _render_trading_account_detail_page(
     )
 
 
+def _render_trading_account_form_page(
+    request: Request,
+    current_user: User,
+    *,
+    form_action: str,
+    heading: str,
+    submit_label: str,
+    form_data: dict[str, object] | None = None,
+    account: object | None = None,
+    error: str | None = None,
+    message: str | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    values = form_data or {}
+    return templates.TemplateResponse(
+        request,
+        "trading_account_form.html",
+        {
+            "request": request,
+            "user": current_user,
+            "form_action": form_action,
+            "heading": heading,
+            "submit_label": submit_label,
+            "form_data": values,
+            "account": account,
+            "error": error,
+            "message": message,
+        },
+        status_code=status_code,
+    )
+
+
 def _load_synced_symbols(
     db: Session,
     current_user: User,
@@ -148,6 +197,48 @@ def _load_synced_symbols(
         return symbols, service.get_symbol_message(account_id=account_id, user_id=current_user.id)
     except LookupError:
         return [], EMPTY_SYMBOL_MESSAGE
+
+
+def _resolve_account_preview_defaults(
+    account: object | None,
+    symbols: list[dict[str, str]] | None,
+    symbol_message: str | None,
+) -> tuple[dict[str, object], str | None]:
+    symbol_rows = symbols or []
+    available_symbols = [item["symbol_name"] for item in symbol_rows]
+    selected_symbol = ""
+    resolved_message = symbol_message
+
+    if getattr(account, "default_symbol", None) and account.default_symbol in available_symbols:
+        selected_symbol = account.default_symbol
+    elif available_symbols:
+        selected_symbol = available_symbols[0]
+        if getattr(account, "default_symbol", None):
+            resolved_message = INVALID_DEFAULT_SYMBOL_MESSAGE
+    elif getattr(account, "default_symbol", None):
+        resolved_message = MISSING_DEFAULT_SYMBOL_MESSAGE
+
+    defaults = {
+        "trading_account_id": getattr(account, "id", None),
+        "symbol": selected_symbol,
+        "side": getattr(account, "default_side", None) or "buy",
+        "risk_mode": getattr(account, "default_risk_mode", None) or "fixed_money",
+        "risk_value": float(getattr(account, "default_risk_value", 100) or 100),
+        "rr_order2": float(getattr(account, "default_rr_order_2", 2.0) or 2.0),
+        "sl_price": "",
+    }
+    return defaults, resolved_message
+
+
+def _get_preview_context(
+    db: Session,
+    current_user: User,
+    account_id: int | None,
+) -> tuple[object | None, list[dict[str, str]], str | None, dict[str, object]]:
+    account = get_trading_account(db, account_id, current_user.id) if account_id else None
+    symbols, symbol_message = _load_synced_symbols(db, current_user, account_id)
+    defaults, resolved_message = _resolve_account_preview_defaults(account, symbols, symbol_message)
+    return account, symbols, resolved_message, defaults
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -182,8 +273,16 @@ def trade_preview_page(
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
     selected_account_id = accounts[0].id if accounts else None
-    symbols, symbol_message = _load_synced_symbols(db, current_user, selected_account_id)
-    return _render_trade_preview_page(request, current_user, accounts, symbols=symbols, symbol_message=symbol_message)
+    account, symbols, symbol_message, defaults = _get_preview_context(db, current_user, selected_account_id)
+    return _render_trade_preview_page(
+        request,
+        current_user,
+        accounts,
+        form_data=defaults if account else None,
+        preview_defaults=defaults if account else None,
+        symbols=symbols,
+        symbol_message=symbol_message,
+    )
 
 
 @router.post("/trade-setups/preview", response_class=HTMLResponse)
@@ -212,7 +311,7 @@ def trade_preview_page_submit(
         "draft_setup_id": draft_setup_id,
     }
 
-    symbols, symbol_message = _load_synced_symbols(db, current_user, trading_account_id)
+    _, symbols, symbol_message, preview_defaults = _get_preview_context(db, current_user, trading_account_id)
 
     try:
         payload = TradePreviewRequest(**form_data)
@@ -223,6 +322,7 @@ def trade_preview_page_submit(
             current_user,
             accounts,
             form_data=form_data,
+            preview_defaults=preview_defaults,
             error=exc.errors()[0]["msg"],
             symbols=symbols,
             symbol_message=symbol_message,
@@ -234,6 +334,7 @@ def trade_preview_page_submit(
             current_user,
             accounts,
             form_data=form_data,
+            preview_defaults=preview_defaults,
             error=str(exc),
             symbols=symbols,
             symbol_message=symbol_message,
@@ -269,6 +370,7 @@ def trade_preview_page_submit(
             current_user,
             accounts,
             form_data=form_data,
+            preview_defaults=preview_defaults,
             preview=preview,
             error=str(exc),
             symbols=symbols,
@@ -282,6 +384,7 @@ def trade_preview_page_submit(
         current_user,
         accounts,
         form_data=form_data,
+        preview_defaults=preview_defaults,
         preview=preview,
         setup=setup,
         symbols=symbols,
@@ -498,41 +601,250 @@ def add_trading_account_page(
     request: Request,
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
-    return templates.TemplateResponse(
+    return _render_trading_account_form_page(
         request,
-        "trading_account_form.html",
-        {"request": request, "user": current_user},
+        current_user,
+        form_action="/trading-accounts/create",
+        heading="Add Trading Account",
+        submit_label="Save Account",
     )
 
 
 @router.post("/trading-accounts/create")
 def create_trading_account_from_form(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
     broker_name: str = Form(...),
     account_number: str = Form(...),
     server_name: str = Form(...),
+    platform: str = Form("mt5"),
     terminal_path: str = Form(""),
     password: str = Form(...),
     telegram_enabled: bool = Form(False),
     telegram_chat_id: str = Form(""),
     telegram_bot_token: str = Form(""),
-) -> RedirectResponse:
-    create_trading_account(
-        db,
-        current_user.id,
-        TradingAccountCreate(
+    max_total_setup_volume: str = Form(""),
+    default_symbol: str = Form(""),
+    default_side: str = Form("buy"),
+    default_risk_mode: str = Form("fixed_money"),
+    default_risk_value: str = Form("100"),
+    default_rr_order_2: str = Form("2"),
+) -> Response:
+    form_data = {
+        "broker_name": broker_name,
+        "account_number": account_number,
+        "server_name": server_name,
+        "platform": platform,
+        "terminal_path": terminal_path,
+        "telegram_enabled": telegram_enabled,
+        "telegram_chat_id": telegram_chat_id,
+        "max_total_setup_volume": max_total_setup_volume,
+        "default_symbol": default_symbol,
+        "default_side": default_side,
+        "default_risk_mode": default_risk_mode,
+        "default_risk_value": default_risk_value,
+        "default_rr_order_2": default_rr_order_2,
+    }
+    try:
+        payload = TradingAccountCreate(
             broker_name=broker_name,
             account_number=account_number,
             server_name=server_name,
+            platform=platform,
             terminal_path=terminal_path or None,
             telegram_enabled=telegram_enabled,
             telegram_chat_id=telegram_chat_id or None,
             telegram_bot_token=telegram_bot_token or None,
+            max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
+            default_symbol=default_symbol or None,
+            default_side=default_side or None,
+            default_risk_mode=default_risk_mode or None,
+            default_risk_value=float(default_risk_value) if default_risk_value else None,
+            default_rr_order_2=float(default_rr_order_2) if default_rr_order_2 else None,
             password=password,
-        ),
-    )
+        )
+        create_trading_account(db, current_user.id, payload)
+    except ValidationError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action="/trading-accounts/create",
+            heading="Add Trading Account",
+            submit_label="Save Account",
+            form_data=form_data,
+            error=exc.errors()[0]["msg"],
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except DuplicateTradingAccountError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action="/trading-accounts/create",
+            heading="Add Trading Account",
+            submit_label="Save Account",
+            form_data=form_data,
+            error=str(exc),
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    except ValueError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action="/trading-accounts/create",
+            heading="Add Trading Account",
+            submit_label="Save Account",
+            form_data=form_data,
+            error=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     return RedirectResponse(url="/trading-accounts", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/trading-accounts/id/{account_id}/edit", response_class=HTMLResponse)
+def edit_trading_account_page(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    return _render_trading_account_form_page(
+        request,
+        current_user,
+        form_action=f"/trading-accounts/id/{account.id}/edit",
+        heading=f"Edit Trading Account {account.account_number}",
+        submit_label="Update Account",
+        form_data={
+            "broker_name": account.broker_name,
+            "account_number": account.account_number,
+            "server_name": account.server_name,
+            "platform": account.platform,
+            "terminal_path": account.terminal_path or "",
+            "telegram_enabled": account.telegram_enabled,
+            "telegram_chat_id": account.telegram_chat_id or "",
+            "max_total_setup_volume": account.max_total_setup_volume or "",
+            "default_symbol": account.default_symbol or "",
+            "default_side": account.default_side or "buy",
+            "default_risk_mode": account.default_risk_mode or "fixed_money",
+            "default_risk_value": account.default_risk_value or 100,
+            "default_rr_order_2": account.default_rr_order_2 or 2,
+        },
+        account=account,
+    )
+
+
+@router.post("/trading-accounts/id/{account_id}/edit", response_class=HTMLResponse)
+def update_trading_account_from_form(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    broker_name: str = Form(...),
+    account_number: str = Form(...),
+    server_name: str = Form(...),
+    platform: str = Form("mt5"),
+    terminal_path: str = Form(""),
+    password: str = Form(""),
+    telegram_enabled: bool = Form(False),
+    telegram_chat_id: str = Form(""),
+    telegram_bot_token: str = Form(""),
+    max_total_setup_volume: str = Form(""),
+    default_symbol: str = Form(""),
+    default_side: str = Form("buy"),
+    default_risk_mode: str = Form("fixed_money"),
+    default_risk_value: str = Form("100"),
+    default_rr_order_2: str = Form("2"),
+) -> HTMLResponse:
+    account = get_trading_account(db, account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    form_data = {
+        "broker_name": broker_name,
+        "account_number": account_number,
+        "server_name": server_name,
+        "platform": platform,
+        "terminal_path": terminal_path,
+        "telegram_enabled": telegram_enabled,
+        "telegram_chat_id": telegram_chat_id,
+        "max_total_setup_volume": max_total_setup_volume,
+        "default_symbol": default_symbol,
+        "default_side": default_side,
+        "default_risk_mode": default_risk_mode,
+        "default_risk_value": default_risk_value,
+        "default_rr_order_2": default_rr_order_2,
+    }
+    try:
+        payload_kwargs = {
+            "broker_name": broker_name,
+            "account_number": account_number,
+            "server_name": server_name,
+            "platform": platform,
+            "terminal_path": terminal_path or None,
+            "telegram_enabled": telegram_enabled,
+            "telegram_chat_id": telegram_chat_id or None,
+            "max_total_setup_volume": float(max_total_setup_volume) if max_total_setup_volume else None,
+            "default_symbol": default_symbol or None,
+            "default_side": default_side or None,
+            "default_risk_mode": default_risk_mode or None,
+            "default_risk_value": float(default_risk_value) if default_risk_value else None,
+            "default_rr_order_2": float(default_rr_order_2) if default_rr_order_2 else None,
+        }
+        if password:
+            payload_kwargs["password"] = password
+        if telegram_bot_token:
+            payload_kwargs["telegram_bot_token"] = telegram_bot_token
+        account = update_trading_account(db, account_id, current_user.id, TradingAccountUpdate(**payload_kwargs))
+    except ValidationError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action=f"/trading-accounts/id/{account_id}/edit",
+            heading=f"Edit Trading Account {account.account_number}",
+            submit_label="Update Account",
+            form_data=form_data,
+            account=account,
+            error=exc.errors()[0]["msg"],
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except DuplicateTradingAccountError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action=f"/trading-accounts/id/{account_id}/edit",
+            heading=f"Edit Trading Account {account.account_number}",
+            submit_label="Update Account",
+            form_data=form_data,
+            account=account,
+            error=str(exc),
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    except ValueError as exc:
+        return _render_trading_account_form_page(
+            request,
+            current_user,
+            form_action=f"/trading-accounts/id/{account_id}/edit",
+            heading=f"Edit Trading Account {account.account_number}",
+            submit_label="Update Account",
+            form_data=form_data,
+            account=account,
+            error=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    symbols, symbol_message = _load_synced_symbols(db, current_user, account_id)
+    return _render_trading_account_detail_page(
+        request,
+        current_user,
+        account,
+        message="Trading account updated.",
+        symbols=symbols,
+        symbol_message=symbol_message,
+    )
 
 
 @router.post("/trading-accounts/id/{account_id}/telegram", response_class=HTMLResponse)
@@ -664,15 +976,81 @@ def get_trading_account_symbols_page(
 
     try:
         service = TradingAccountSymbolService(db)
+        symbols = service.list_synced_symbols(account_id=account_id, user_id=current_user.id)
+        defaults, message = _resolve_account_preview_defaults(
+            account,
+            symbols,
+            service.get_symbol_message(account_id=account_id, user_id=current_user.id),
+        )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "symbols": service.list_synced_symbols(account_id=account_id, user_id=current_user.id),
-                "message": service.get_symbol_message(account_id=account_id, user_id=current_user.id),
+                "symbols": symbols,
+                "message": message,
+                "preview_defaults": defaults,
             },
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/trade-setups/preview/defaults")
+def save_trade_preview_defaults(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    trading_account_id: int = Form(...),
+    symbol: str = Form(""),
+    side: str = Form(...),
+    risk_mode: str = Form(...),
+    risk_value: float = Form(...),
+    rr_order2: float = Form(...),
+) -> JSONResponse:
+    account = get_trading_account(db, trading_account_id, current_user.id)
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    symbols_service = TradingAccountSymbolService(db)
+    if symbol:
+        try:
+            symbols_service.assert_symbol_synced(account_id=trading_account_id, user_id=current_user.id, symbol=symbol)
+        except ValueError as exc:
+            return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": {"message": str(exc)}})
+
+    try:
+        updated = update_trading_account(
+            db,
+            trading_account_id,
+            current_user.id,
+            TradingAccountUpdate(
+                default_symbol=symbol or None,
+                default_side=side,
+                default_risk_mode=risk_mode,
+                default_risk_value=risk_value,
+                default_rr_order_2=rr_order2,
+            ),
+        )
+    except ValidationError as exc:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": {"message": exc.errors()[0]["msg"]}})
+
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    symbols = symbols_service.list_synced_symbols(account_id=trading_account_id, user_id=current_user.id)
+    defaults, message = _resolve_account_preview_defaults(
+        updated,
+        symbols,
+        symbols_service.get_symbol_message(account_id=trading_account_id, user_id=current_user.id),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "message": "Trade Preview defaults saved for this account.",
+            "preview_defaults": defaults,
+            "symbols": symbols,
+            "symbol_message": message,
+        },
+    )
 
 
 @router.post("/trading-accounts/id/{account_id}/refresh-symbols")

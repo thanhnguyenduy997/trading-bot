@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,6 +13,7 @@ from app.schemas.user import UserCreate, UserUpdate
 from app.services.admin_audit import log_admin_action
 from app.services.risk_management import RiskManagementService
 from app.services.trading_accounts import (
+    DuplicateTradingAccountError,
     create_trading_account,
     delete_trading_account,
     get_trading_account,
@@ -23,6 +25,39 @@ from app.services.users import create_user, get_user, list_users, set_user_passw
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _render_admin_user_detail_page(
+    request: Request,
+    *,
+    current_user: User,
+    admin_user: User,
+    target: User,
+    accounts: list,
+    daily_risk_state: object,
+    message: str | None = None,
+    error: str | None = None,
+    create_account_form: dict[str, object] | None = None,
+    edit_account_forms: dict[int, dict[str, object]] | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "admin_user_detail.html",
+        {
+            "request": request,
+            "user": current_user,
+            "admin_user": admin_user,
+            "target": target,
+            "accounts": accounts,
+            "daily_risk_state": daily_risk_state,
+            "message": message,
+            "error": error,
+            "create_account_form": create_account_form or {},
+            "edit_account_forms": edit_account_forms or {},
+        },
+        status_code=status_code,
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -101,17 +136,13 @@ def admin_user_detail_page(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     accounts = list_trading_accounts(db, target.id)
     daily_risk_state = RiskManagementService(db).get_daily_state(target.id)
-    return templates.TemplateResponse(
+    return _render_admin_user_detail_page(
         request,
-        "admin_user_detail.html",
-        {
-            "request": request,
-            "user": current_user,
-            "admin_user": admin_user,
-            "target": target,
-            "accounts": accounts,
-            "daily_risk_state": daily_risk_state,
-        },
+        current_user=current_user,
+        admin_user=admin_user,
+        target=target,
+        accounts=accounts,
+        daily_risk_state=daily_risk_state,
     )
 
 
@@ -220,30 +251,63 @@ def admin_stop_impersonation(
 @router.post("/users/{user_id}/trading-accounts")
 def admin_create_trading_account(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
     broker_name: str = Form(...),
     account_number: str = Form(...),
     server_name: str = Form(...),
+    platform: str = Form("mt5"),
     terminal_path: str = Form(""),
     password: str = Form(...),
+    telegram_enabled: bool = Form(False),
+    telegram_chat_id: str = Form(""),
+    telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
-) -> RedirectResponse:
+) -> Response:
     target = get_user(db, user_id)
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    account = create_trading_account(
-        db,
-        target.id,
-        TradingAccountCreate(
-            broker_name=broker_name,
-            account_number=account_number,
-            server_name=server_name,
-            terminal_path=terminal_path or None,
-            max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
-            password=password,
-        ),
-    )
+    form_data = {
+        "broker_name": broker_name,
+        "account_number": account_number,
+        "server_name": server_name,
+        "platform": platform,
+        "terminal_path": terminal_path,
+        "telegram_enabled": telegram_enabled,
+        "telegram_chat_id": telegram_chat_id,
+        "max_total_setup_volume": max_total_setup_volume,
+    }
+    try:
+        account = create_trading_account(
+            db,
+            target.id,
+            TradingAccountCreate(
+                broker_name=broker_name,
+                account_number=account_number,
+                server_name=server_name,
+                platform=platform,
+                terminal_path=terminal_path or None,
+                telegram_enabled=telegram_enabled,
+                telegram_chat_id=telegram_chat_id or None,
+                telegram_bot_token=telegram_bot_token or None,
+                max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
+                password=password,
+            ),
+        )
+    except (ValidationError, DuplicateTradingAccountError) as exc:
+        return _render_admin_user_detail_page(
+            request,
+            current_user=current_user,
+            admin_user=admin_user,
+            target=target,
+            accounts=list_trading_accounts(db, target.id),
+            daily_risk_state=RiskManagementService(db).get_daily_state(target.id),
+            error=exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc),
+            create_account_form=form_data,
+            status_code=status.HTTP_409_CONFLICT if isinstance(exc, DuplicateTradingAccountError) else status.HTTP_400_BAD_REQUEST,
+        )
     log_admin_action(
         db,
         admin_user_id=admin_user.id,
@@ -259,24 +323,68 @@ def admin_create_trading_account(
 def admin_update_trading_account(
     user_id: int,
     account_id: int,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
     broker_name: str = Form(...),
     account_number: str = Form(...),
     server_name: str = Form(...),
+    platform: str = Form("mt5"),
     terminal_path: str = Form(""),
     password: str = Form(""),
+    telegram_enabled: bool = Form(False),
+    telegram_chat_id: str = Form(""),
+    telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
-) -> RedirectResponse:
-    payload = TradingAccountUpdate(
-        broker_name=broker_name,
-        account_number=account_number,
-        server_name=server_name,
-        terminal_path=terminal_path or None,
-        max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
-        **({"password": password} if password else {}),
-    )
-    account = update_trading_account(db, account_id, user_id, payload)
+) -> Response:
+    target = get_user(db, user_id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    existing_account = get_trading_account(db, account_id, user_id)
+    if not existing_account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+
+    edit_form = {
+        "broker_name": broker_name,
+        "account_number": account_number,
+        "server_name": server_name,
+        "platform": platform,
+        "terminal_path": terminal_path,
+        "telegram_enabled": telegram_enabled,
+        "telegram_chat_id": telegram_chat_id,
+        "max_total_setup_volume": max_total_setup_volume,
+    }
+    try:
+        payload_kwargs = {
+            "broker_name": broker_name,
+            "account_number": account_number,
+            "server_name": server_name,
+            "platform": platform,
+            "terminal_path": terminal_path or None,
+            "telegram_enabled": telegram_enabled,
+            "telegram_chat_id": telegram_chat_id or None,
+            "max_total_setup_volume": float(max_total_setup_volume) if max_total_setup_volume else None,
+        }
+        if password:
+            payload_kwargs["password"] = password
+        if telegram_bot_token:
+            payload_kwargs["telegram_bot_token"] = telegram_bot_token
+        payload = TradingAccountUpdate(**payload_kwargs)
+        account = update_trading_account(db, account_id, user_id, payload)
+    except (ValidationError, DuplicateTradingAccountError) as exc:
+        edit_account_forms = {account_id: edit_form}
+        return _render_admin_user_detail_page(
+            request,
+            current_user=current_user,
+            admin_user=admin_user,
+            target=target,
+            accounts=list_trading_accounts(db, target.id),
+            daily_risk_state=RiskManagementService(db).get_daily_state(target.id),
+            error=exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc),
+            edit_account_forms=edit_account_forms,
+            status_code=status.HTTP_409_CONFLICT if isinstance(exc, DuplicateTradingAccountError) else status.HTTP_400_BAD_REQUEST,
+        )
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
     log_admin_action(

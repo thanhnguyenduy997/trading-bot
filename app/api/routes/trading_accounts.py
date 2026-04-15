@@ -19,6 +19,7 @@ from app.services.account_symbols import TradingAccountSymbolService
 from app.services.execution import TradingAccountExecutionService
 from app.services.notifications import send_trading_account_test_notification
 from app.services.trading_accounts import (
+    DuplicateTradingAccountError,
     create_trading_account,
     delete_trading_account,
     get_trading_account,
@@ -45,7 +46,12 @@ def create_trading_account_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TradingAccountRead:
-    account = create_trading_account(db, current_user.id, payload)
+    try:
+        account = create_trading_account(db, current_user.id, payload)
+    except DuplicateTradingAccountError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return TradingAccountRead.model_validate(account)
 
 
@@ -68,7 +74,12 @@ def update_trading_account_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TradingAccountRead:
-    account = update_trading_account(db, account_id, current_user.id, payload)
+    try:
+        account = update_trading_account(db, account_id, current_user.id, payload)
+    except DuplicateTradingAccountError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
     return TradingAccountRead.model_validate(account)

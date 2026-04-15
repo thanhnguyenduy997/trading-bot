@@ -9,6 +9,13 @@
         <a class="button-link" href="/admin/users">Back to Users</a>
     </div>
 
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+    {% endif %}
+
     <div class="detail-section-grid">
         <section class="detail-panel">
             <h2>User Info</h2>
@@ -73,16 +80,28 @@
         <tbody>
             {% for account in accounts %}
             <tr>
+                {% set account_form = edit_account_forms.get(account.id, {}) %}
                 <td data-label="Broker">{{ account.broker_name }}</td>
                 <td data-label="Account">{{ account.account_number }}</td>
                 <td data-label="Server">{{ account.server_name }}</td>
                 <td data-label="Actions">
                     <form action="/admin/users/{{ target.id }}/trading-accounts/{{ account.id }}/edit" method="post" class="stack">
-                        <input type="text" name="broker_name" value="{{ account.broker_name }}" required>
-                        <input type="text" name="account_number" value="{{ account.account_number }}" required>
-                        <input type="text" name="server_name" value="{{ account.server_name }}" required>
-                        <input type="text" name="terminal_path" value="{{ account.terminal_path or '' }}" placeholder="Terminal path">
-                        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ account.max_total_setup_volume or '' }}" placeholder="Max total setup volume">
+                        <input type="text" name="broker_name" value="{{ account_form.get('broker_name', account.broker_name) }}" required>
+                        <input type="text" name="account_number" value="{{ account_form.get('account_number', account.account_number) }}" required>
+                        <input type="text" name="server_name" value="{{ account_form.get('server_name', account.server_name) }}" required>
+                        <select name="platform">
+                            {% set selected_platform = account_form.get('platform', account.platform) %}
+                            <option value="mt5" {% if selected_platform == "mt5" %}selected{% endif %}>mt5</option>
+                            <option value="mt4" {% if selected_platform == "mt4" %}selected{% endif %}>mt4</option>
+                        </select>
+                        <input type="text" name="terminal_path" value="{{ account_form.get('terminal_path', account.terminal_path or '') }}" placeholder="Terminal path">
+                        <label>
+                            <input type="checkbox" name="telegram_enabled" value="true" {% if account_form.get('telegram_enabled', account.telegram_enabled) %}checked{% endif %}>
+                            Enable Telegram notifications
+                        </label>
+                        <input type="text" name="telegram_chat_id" value="{{ account_form.get('telegram_chat_id', account.telegram_chat_id or '') }}" placeholder="Telegram chat ID">
+                        <input type="password" name="telegram_bot_token" placeholder="New Telegram bot token optional">
+                        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ account_form.get('max_total_setup_volume', account.max_total_setup_volume or '') }}" placeholder="Max total setup volume">
                         <input type="password" name="password" placeholder="New password optional">
                         <button type="submit" class="secondary-button">Update Account</button>
                     </form>
@@ -101,17 +120,32 @@
 
 <section class="card results-card">
     <h2>Create Trading Account For User</h2>
+    {% set create_form = create_account_form %}
     <form action="/admin/users/{{ target.id }}/trading-accounts" method="post" class="stack">
         <label>Broker Name</label>
-        <input type="text" name="broker_name" required>
+        <input type="text" name="broker_name" value="{{ create_form.get('broker_name', '') }}" required>
         <label>Account Number</label>
-        <input type="text" name="account_number" required>
+        <input type="text" name="account_number" value="{{ create_form.get('account_number', '') }}" required>
         <label>Server Name</label>
-        <input type="text" name="server_name" required>
+        <input type="text" name="server_name" value="{{ create_form.get('server_name', '') }}" required>
+        <label>Platform</label>
+        <select name="platform">
+            {% set selected_platform = create_form.get('platform', 'mt5') %}
+            <option value="mt5" {% if selected_platform == "mt5" %}selected{% endif %}>mt5</option>
+            <option value="mt4" {% if selected_platform == "mt4" %}selected{% endif %}>mt4</option>
+        </select>
         <label>Terminal Path</label>
-        <input type="text" name="terminal_path">
+        <input type="text" name="terminal_path" value="{{ create_form.get('terminal_path', '') }}">
+        <label>
+            <input type="checkbox" name="telegram_enabled" value="true" {% if create_form.get('telegram_enabled', False) %}checked{% endif %}>
+            Enable Telegram notifications
+        </label>
+        <label>Telegram Chat ID</label>
+        <input type="text" name="telegram_chat_id" value="{{ create_form.get('telegram_chat_id', '') }}">
+        <label>Telegram Bot Token Override</label>
+        <input type="password" name="telegram_bot_token">
         <label>Max Total Setup Volume</label>
-        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume">
+        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ create_form.get('max_total_setup_volume', '') }}">
         <label>Password</label>
         <input type="password" name="password" required>
         <button type="submit">Create Trading Account</button>

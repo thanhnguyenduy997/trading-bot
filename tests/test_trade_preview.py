@@ -5,16 +5,18 @@ from app.services.preview_service import PreviewService
 from app.services.trading_accounts import create_trading_account
 
 
-def _create_account(db_session, created_user):
+def _create_account(db_session, created_user, **overrides):
+    payload = {
+        "broker_name": "Demo Broker",
+        "account_number": "ACC-100",
+        "server_name": "demo-server",
+        "password": "secret-pass",
+    }
+    payload.update(overrides)
     return create_trading_account(
         db_session,
         created_user.id,
-        TradingAccountCreate(
-            broker_name="Demo Broker",
-            account_number="ACC-100",
-            server_name="demo-server",
-            password="secret-pass",
-        ),
+        TradingAccountCreate(**payload),
     )
 
 
@@ -391,6 +393,83 @@ def test_preview_page_empty_synced_symbol_list_shows_clear_message(client, db_se
     assert "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." in response.text
 
 
+def test_preview_page_uses_account_defaults_on_initial_load(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "EURUSD", "XAUUSD")
+    account.default_symbol = "EURUSD"
+    account.default_side = "sell"
+    account.default_risk_mode = "balance_percent"
+    account.default_risk_value = 2.5
+    account.default_rr_order_2 = 3
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.get("/trade-setups/preview")
+
+    assert response.status_code == 200
+    assert '<option value="EURUSD" selected>' in response.text
+    assert '<option value="sell" selected>' in response.text
+    assert '<option value="balance_percent" selected>' in response.text
+    assert 'name="risk_value" step="0.01" min="0.01" value="2.5"' in response.text
+    assert 'name="rr_order2" step="0.1" min="0.1" value="3.0"' in response.text
+    assert 'name="sl_price" step="0.0001" min="0" value=""' in response.text
+
+
+def test_preview_submit_allows_user_to_override_account_defaults(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "EURUSD", "XAUUSD")
+    account.default_symbol = "EURUSD"
+    account.default_side = "sell"
+    account.default_risk_mode = "balance_percent"
+    account.default_risk_value = 2.5
+    account.default_rr_order_2 = 3
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        "/trade-setups/preview",
+        data={
+            "trading_account_id": str(account.id),
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "sl_price": "2319.2",
+            "risk_mode": "fixed_money",
+            "risk_value": "150",
+            "rr_order2": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Review Setup" in response.text
+    assert "XAUUSD" in response.text
+    assert "BUY" in response.text
+    assert "2322.2" in response.text
+
+
 def test_preview_uses_only_synced_symbols_for_selected_account(
     client,
     db_session,
@@ -421,3 +500,70 @@ def test_preview_uses_only_synced_symbols_for_selected_account(
 
     assert response.status_code == 200
     assert response.json()["symbols"] == [{"symbol_name": "EURUSD"}]
+
+
+def test_invalid_default_symbol_falls_back_to_first_synced_symbol(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user, account_number="ACC-201")
+    sync_account_symbols(account, "EURUSD", "XAUUSD")
+    account.default_symbol = "BTCUSD"
+    account.default_side = "sell"
+    account.default_risk_mode = "fixed_money"
+    account.default_risk_value = 75
+    account.default_rr_order_2 = 2.5
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.get(f"/trading-accounts/id/{account.id}/symbols")
+
+    assert response.status_code == 200
+    assert response.json()["preview_defaults"]["symbol"] == "EURUSD"
+    assert response.json()["message"] == "Saved default symbol is no longer synced for this account. Using the first available synced symbol instead."
+
+
+def test_save_preview_defaults_updates_account_correctly(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user, account_number="ACC-202")
+    sync_account_symbols(account, "EURUSD", "XAUUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        "/trade-setups/preview/defaults",
+        data={
+            "trading_account_id": str(account.id),
+            "symbol": "XAUUSD",
+            "side": "sell",
+            "risk_mode": "balance_percent",
+            "risk_value": "1.75",
+            "rr_order2": "2.8",
+        },
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(account)
+    assert account.default_symbol == "XAUUSD"
+    assert account.default_side == "sell"
+    assert account.default_risk_mode == "balance_percent"
+    assert float(account.default_risk_value) == 1.75
+    assert float(account.default_rr_order_2) == 2.8
+    assert response.json()["preview_defaults"]["symbol"] == "XAUUSD"

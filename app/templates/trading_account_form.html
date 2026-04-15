@@ -1,31 +1,92 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card">
-    <h1>Add Trading Account</h1>
-    <form action="/trading-accounts/create" method="post" class="stack">
+    <div class="section-header">
+        <div>
+            <h1>{{ heading }}</h1>
+            <p class="muted">
+                {% if account %}
+                Update broker connection, platform, credential, and Telegram settings.
+                {% else %}
+                Add a trading account for connection checks, Telegram alerts, and setup limits.
+                {% endif %}
+            </p>
+        </div>
+        <a class="button-link" href="{% if account %}/trading-accounts/id/{{ account.id }}{% else %}/trading-accounts{% endif %}">
+            {% if account %}Back to Account{% else %}Back to Accounts{% endif %}
+        </a>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+    {% endif %}
+
+    <form action="{{ form_action }}" method="post" class="stack">
         <label>Broker Name</label>
-        <input type="text" name="broker_name" required>
+        <input type="text" name="broker_name" value="{{ form_data.get('broker_name', '') }}" required>
+
         <label>Account Number</label>
-        <input type="text" name="account_number" required>
+        <input type="text" name="account_number" value="{{ form_data.get('account_number', '') }}" required>
+
         <label>Server Name</label>
-        <input type="text" name="server_name" required>
+        <input type="text" name="server_name" value="{{ form_data.get('server_name', '') }}" required>
+
+        <label>Platform</label>
+        <select name="platform">
+            {% set selected_platform = form_data.get('platform', 'mt5') %}
+            <option value="mt5" {% if selected_platform == "mt5" %}selected{% endif %}>mt5</option>
+            <option value="mt4" {% if selected_platform == "mt4" %}selected{% endif %}>mt4</option>
+        </select>
+
         <label>Terminal Path (optional)</label>
-        <input type="text" name="terminal_path" placeholder="C:\\Program Files\\MetaTrader 5\\terminal64.exe">
-        <label>Password</label>
-        <input type="password" name="password" required>
+        <input type="text" name="terminal_path" value="{{ form_data.get('terminal_path', '') }}" placeholder="C:\\Program Files\\MetaTrader 5\\terminal64.exe">
+
+        <label>{% if account %}New Password{% else %}Password{% endif %}</label>
+        <input type="password" name="password" {% if not account %}required{% endif %} placeholder="{% if account %}Leave blank to keep the current password{% endif %}">
+
+        <label>Max Total Setup Volume</label>
+        <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ form_data.get('max_total_setup_volume', '') }}" placeholder="Optional limit per setup batch">
+
+        <section class="detail-panel">
+            <h2>Default Trade Preview Settings</h2>
+            <label>Default Symbol</label>
+            <input type="text" name="default_symbol" value="{{ form_data.get('default_symbol', '') }}" placeholder="Must match a synced MT5 Market Watch symbol">
+            <label>Default Side</label>
+            <select name="default_side">
+                {% set selected_default_side = form_data.get('default_side', 'buy') %}
+                <option value="buy" {% if selected_default_side == "buy" %}selected{% endif %}>BUY</option>
+                <option value="sell" {% if selected_default_side == "sell" %}selected{% endif %}>SELL</option>
+            </select>
+            <label>Default Risk Mode</label>
+            <select name="default_risk_mode">
+                {% set selected_default_risk_mode = form_data.get('default_risk_mode', 'fixed_money') %}
+                <option value="fixed_money" {% if selected_default_risk_mode == "fixed_money" %}selected{% endif %}>fixed_money</option>
+                <option value="balance_percent" {% if selected_default_risk_mode == "balance_percent" %}selected{% endif %}>balance_percent</option>
+            </select>
+            <label>Default Risk Value</label>
+            <input type="number" step="0.01" min="0.01" name="default_risk_value" value="{{ form_data.get('default_risk_value', '') }}">
+            <label>Default RR Order 2</label>
+            <input type="number" step="0.1" min="0.1" name="default_rr_order_2" value="{{ form_data.get('default_rr_order_2', '') }}">
+            <p class="muted">Stop loss is always entered manually in Trade Preview. Entry still comes from the live MT5 quote.</p>
+        </section>
+
         <section class="detail-panel">
             <h2>Telegram Notifications</h2>
             <label>
-                <input type="checkbox" name="telegram_enabled" value="true" checked>
+                <input type="checkbox" name="telegram_enabled" value="true" {% if form_data.get('telegram_enabled', True) %}checked{% endif %}>
                 Enable Telegram notifications for this account
             </label>
             <label>Telegram Chat ID (optional)</label>
-            <input type="text" name="telegram_chat_id" placeholder="Falls back to global TELEGRAM_CHAT_ID">
+            <input type="text" name="telegram_chat_id" value="{{ form_data.get('telegram_chat_id', '') }}" placeholder="Falls back to global TELEGRAM_CHAT_ID">
             <label>Bot Token Override (optional)</label>
-            <input type="password" name="telegram_bot_token" placeholder="Falls back to global TELEGRAM_BOT_TOKEN">
-            <p class="muted">Bot token overrides are encrypted before storage and are never shown again.</p>
+            <input type="password" name="telegram_bot_token" placeholder="{% if account %}Leave blank to keep the current encrypted override{% else %}Falls back to global TELEGRAM_BOT_TOKEN{% endif %}">
+            <p class="muted">Password and bot token values are encrypted before storage and are never shown again.</p>
         </section>
-        <button type="submit">Save Account</button>
+
+        <button type="submit">{{ submit_label }}</button>
     </form>
 </section>
 {% endblock %}
