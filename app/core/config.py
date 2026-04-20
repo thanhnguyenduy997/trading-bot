@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = Field(None, alias="TELEGRAM_CHAT_ID")
     telegram_timeout_seconds: int = Field(5, alias="TELEGRAM_TIMEOUT_SECONDS")
+    max_preview_drift_percent: float = Field(25.0, alias="MAX_PREVIEW_DRIFT_PERCENT")
 
     model_config = SettingsConfigDict(
         env_file=".env",

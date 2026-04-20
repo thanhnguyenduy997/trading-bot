@@ -11,6 +11,11 @@ from app.models.user import User
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.schemas.user import UserCreate, UserUpdate
 from app.services.admin_audit import log_admin_action
+from app.services.app_settings import (
+    get_app_settings_record,
+    get_global_max_preview_drift_percent,
+    update_global_max_preview_drift_percent,
+)
 from app.services.risk_management import RiskManagementService
 from app.services.trading_accounts import (
     DuplicateTradingAccountError,
@@ -63,6 +68,45 @@ def _render_admin_user_detail_page(
 @router.get("", response_class=HTMLResponse)
 def admin_home() -> RedirectResponse:
     return RedirectResponse(url="/admin/users", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def admin_settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    admin_user: User = Depends(get_current_admin_user_from_cookie),
+) -> HTMLResponse:
+    record = get_app_settings_record(db)
+    return templates.TemplateResponse(
+        request,
+        "admin_settings.html",
+        {
+            "request": request,
+            "user": current_user,
+            "admin_user": admin_user,
+            "settings_record": record,
+            "effective_max_preview_drift_percent": get_global_max_preview_drift_percent(db),
+        },
+    )
+
+
+@router.post("/settings")
+def admin_update_settings(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin_user_from_cookie),
+    max_preview_drift_percent: float = Form(...),
+) -> RedirectResponse:
+    update_global_max_preview_drift_percent(db, max_preview_drift_percent)
+    log_admin_action(
+        db,
+        admin_user_id=admin_user.id,
+        target_user_id=None,
+        action="settings_updated",
+        message=f"Updated global max preview drift percent to {max_preview_drift_percent:.2f}%.",
+    )
+    db.commit()
+    return RedirectResponse(url="/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/users", response_class=HTMLResponse)
@@ -265,6 +309,7 @@ def admin_create_trading_account(
     telegram_chat_id: str = Form(""),
     telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
+    max_preview_drift_percent_override: str = Form(""),
 ) -> Response:
     target = get_user(db, user_id)
     if not target:
@@ -278,6 +323,7 @@ def admin_create_trading_account(
         "telegram_enabled": telegram_enabled,
         "telegram_chat_id": telegram_chat_id,
         "max_total_setup_volume": max_total_setup_volume,
+        "max_preview_drift_percent_override": max_preview_drift_percent_override,
     }
     try:
         account = create_trading_account(
@@ -293,10 +339,11 @@ def admin_create_trading_account(
                 telegram_chat_id=telegram_chat_id or None,
                 telegram_bot_token=telegram_bot_token or None,
                 max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
+                max_preview_drift_percent_override=float(max_preview_drift_percent_override) if max_preview_drift_percent_override else None,
                 password=password,
             ),
         )
-    except (ValidationError, DuplicateTradingAccountError) as exc:
+    except (ValidationError, DuplicateTradingAccountError, ValueError) as exc:
         return _render_admin_user_detail_page(
             request,
             current_user=current_user,
@@ -337,6 +384,7 @@ def admin_update_trading_account(
     telegram_chat_id: str = Form(""),
     telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
+    max_preview_drift_percent_override: str = Form(""),
 ) -> Response:
     target = get_user(db, user_id)
     if not target:
@@ -354,6 +402,7 @@ def admin_update_trading_account(
         "telegram_enabled": telegram_enabled,
         "telegram_chat_id": telegram_chat_id,
         "max_total_setup_volume": max_total_setup_volume,
+        "max_preview_drift_percent_override": max_preview_drift_percent_override,
     }
     try:
         payload_kwargs = {
@@ -365,6 +414,7 @@ def admin_update_trading_account(
             "telegram_enabled": telegram_enabled,
             "telegram_chat_id": telegram_chat_id or None,
             "max_total_setup_volume": float(max_total_setup_volume) if max_total_setup_volume else None,
+            "max_preview_drift_percent_override": float(max_preview_drift_percent_override) if max_preview_drift_percent_override else None,
         }
         if password:
             payload_kwargs["password"] = password
@@ -372,7 +422,7 @@ def admin_update_trading_account(
             payload_kwargs["telegram_bot_token"] = telegram_bot_token
         payload = TradingAccountUpdate(**payload_kwargs)
         account = update_trading_account(db, account_id, user_id, payload)
-    except (ValidationError, DuplicateTradingAccountError) as exc:
+    except (ValidationError, DuplicateTradingAccountError, ValueError) as exc:
         edit_account_forms = {account_id: edit_form}
         return _render_admin_user_detail_page(
             request,

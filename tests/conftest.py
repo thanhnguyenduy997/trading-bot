@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.trading_account_symbol import TradingAccountSymbol
-from app.models import admin_audit_log, risk_control_log, trade_event, trade_setup, trading_account, trading_account_symbol, user, user_daily_risk_state  # noqa: F401
+from app.models import app_setting, admin_audit_log, risk_control_log, trade_event, trade_setup, trading_account, trading_account_symbol, user, user_daily_risk_state  # noqa: F401
 from app.schemas.user import UserCreate
 from app.services.users import create_user
 

@@ -56,6 +56,7 @@ def create_trading_account(db: Session, user_id: int, payload: TradingAccountCre
         default_risk_mode=payload.default_risk_mode,
         default_risk_value=payload.default_risk_value,
         default_rr_order_2=payload.default_rr_order_2,
+        max_preview_drift_percent_override=payload.max_preview_drift_percent_override,
     )
     db.add(account)
     try:

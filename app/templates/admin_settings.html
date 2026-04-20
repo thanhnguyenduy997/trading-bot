@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <div class="section-header">
+        <div>
+            <h1>Admin Settings</h1>
+            <p class="muted">Global execution safety thresholds.</p>
+        </div>
+        <a class="button-link" href="/admin/users">Back to Users</a>
+    </div>
+
+    <form action="/admin/settings" method="post" class="stack">
+        <label>Global Max Preview Drift Percent</label>
+        <input type="number" name="max_preview_drift_percent" step="0.01" min="0" value="{{ settings_record.max_preview_drift_percent if settings_record.max_preview_drift_percent is not none else effective_max_preview_drift_percent }}" required>
+        <p class="muted">Execution is blocked if recalculated live conditions drift beyond this percent, unless the trading account has an override.</p>
+        <button type="submit">Save Settings</button>
+    </form>
+</section>
+{% endblock %}

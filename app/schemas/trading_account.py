@@ -19,6 +19,7 @@ class TradingAccountBase(BaseModel):
     default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
     default_risk_value: float | None = Field(default=None, gt=0)
     default_rr_order_2: float | None = Field(default=None, gt=0)
+    max_preview_drift_percent_override: float | None = Field(default=None, ge=0)
 
 
 class TradingAccountCreate(TradingAccountBase):
@@ -45,6 +46,7 @@ class TradingAccountUpdate(BaseModel):
     default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
     default_risk_value: float | None = Field(default=None, gt=0)
     default_rr_order_2: float | None = Field(default=None, gt=0)
+    max_preview_drift_percent_override: float | None = Field(default=None, ge=0)
     password: str | None = Field(default=None, min_length=1, max_length=255)
     telegram_bot_token: str | None = Field(default=None, min_length=1, max_length=255)
 

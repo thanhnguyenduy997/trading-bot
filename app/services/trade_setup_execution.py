@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
 from app.services.account_symbols import TradingAccountSymbolService
+from app.services.app_settings import get_effective_max_preview_drift_percent
+from app.services.execution import TradingAccountExecutionService
+from app.services.preview_service import PreviewService
 from app.services.execution import default_adapter_factory
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event
@@ -14,6 +17,10 @@ from app.services.trading_accounts import get_trading_account
 
 class TradeSetupExecutionService:
     preview_ttl = timedelta(minutes=5)
+    PREVIEW_DRIFT_REJECT_MESSAGE = (
+        "Market conditions have changed beyond the allowed threshold. "
+        "Please preview again before executing."
+    )
 
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
@@ -40,7 +47,7 @@ class TradeSetupExecutionService:
         adapter = self.adapter_factory(account)
         try:
             self.risk_management.assert_execute_allowed(setup=setup, account=account)
-            self._validate_quote_snapshot(adapter, setup)
+            self._validate_preview_drift(setup=setup, account=account, user_id=user_id)
             create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
             setup.status = "queued"
             setup.execution_error = None
@@ -145,6 +152,16 @@ class TradeSetupExecutionService:
             self.db.commit()
             self.db.refresh(setup)
             raise
+        except ValueError as exc:
+            setup.status = "draft"
+            setup.execution_error = str(exc)
+            setup.execution_details = None
+            setup.monitoring_status = None
+            setup.executed_at = None
+            self.db.add(setup)
+            self.db.commit()
+            self.db.refresh(setup)
+            raise
         finally:
             close = getattr(adapter, "close", None)
             if callable(close):
@@ -214,17 +231,82 @@ class TradeSetupExecutionService:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - updated_at > self.preview_ttl
 
-    def _validate_quote_snapshot(self, adapter, setup) -> None:
-        quote = adapter.get_quote(setup.symbol)
-        quote_price = quote.get("ask") if setup.side == "buy" else quote.get("bid")
-        if quote_price is None:
+    def _validate_preview_drift(self, *, setup, account, user_id: int) -> None:
+        execution_service = TradingAccountExecutionService(self.db, adapter_factory=self.adapter_factory)
+        live_preview = PreviewService(self.db, execution_service=execution_service).build_preview(
+            user_id,
+            payload=self._preview_request_from_setup(setup),
+        )
+
+        saved_stop_distance = float(setup.r_value)
+        live_stop_distance = float(live_preview.r_value)
+        saved_total_volume = float(setup.order1_volume) + float(setup.order2_volume)
+        live_total_volume = float(live_preview.order1_volume) + float(live_preview.order2_volume)
+
+        stop_distance_drift_percent = self._percent_drift(saved_stop_distance, live_stop_distance)
+        total_setup_volume_drift_percent = self._percent_drift(saved_total_volume, live_total_volume)
+        detected_drift_percent = max(stop_distance_drift_percent, total_setup_volume_drift_percent)
+        threshold_percent = get_effective_max_preview_drift_percent(self.db, account)
+
+        if detected_drift_percent <= threshold_percent:
             return
 
-        current_entry = float(quote_price)
-        saved_entry = float(setup.estimated_entry)
-        r_value = float(setup.r_value)
-        max_allowed_move = max(r_value * 0.25, abs(saved_entry) * 0.0001)
-        if abs(current_entry - saved_entry) > max_allowed_move:
-            raise ValueError(
-                "Live quote has moved materially since preview. Refresh the preview before execution."
-            )
+        details = {
+            "setup_id": setup.id,
+            "account_id": account.id,
+            "user_id": user_id,
+            "configured_threshold_percent": round(threshold_percent, 4),
+            "detected_drift_percent": round(detected_drift_percent, 4),
+            "comparison_basis": "max(stop_distance_drift_percent, total_setup_volume_drift_percent)",
+            "preview": {
+                "estimated_entry": float(setup.estimated_entry),
+                "stop_distance": saved_stop_distance,
+                "total_risk_money": float(setup.total_risk_money),
+                "total_setup_volume": saved_total_volume,
+            },
+            "live": {
+                "estimated_entry": float(live_preview.estimated_entry),
+                "stop_distance": live_stop_distance,
+                "total_risk_money": float(live_preview.total_risk_money),
+                "total_setup_volume": live_total_volume,
+            },
+            "drift_components": {
+                "stop_distance_drift_percent": round(stop_distance_drift_percent, 4),
+                "total_setup_volume_drift_percent": round(total_setup_volume_drift_percent, 4),
+            },
+        }
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "preview_drift_reject",
+            self._format_preview_drift_reject_message(detected_drift_percent, threshold_percent),
+            details=json.dumps(details, indent=2, sort_keys=True),
+        )
+        raise ValueError(self._format_preview_drift_reject_message(detected_drift_percent, threshold_percent))
+
+    def _preview_request_from_setup(self, setup):
+        from app.schemas.trade_preview import TradePreviewRequest
+
+        return TradePreviewRequest(
+            trading_account_id=setup.trading_account_id,
+            symbol=setup.symbol,
+            side=setup.side,
+            sl_price=float(setup.sl_price),
+            risk_mode=setup.risk_mode,
+            risk_value=float(setup.risk_value),
+            rr_order2=float(setup.rr_order2),
+        )
+
+    def _percent_drift(self, saved_value: float, live_value: float) -> float:
+        baseline = abs(saved_value)
+        if baseline == 0:
+            return 0.0 if live_value == 0 else 100.0
+        return abs(live_value - saved_value) / baseline * 100
+
+    def _format_preview_drift_reject_message(self, detected_drift_percent: float, threshold_percent: float) -> str:
+        return (
+            f"{self.PREVIEW_DRIFT_REJECT_MESSAGE} "
+            f"Detected drift: {detected_drift_percent:.2f}% "
+            f"(allowed: {threshold_percent:.2f}%)."
+        )

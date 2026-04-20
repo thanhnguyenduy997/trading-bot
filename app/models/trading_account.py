@@ -33,6 +33,7 @@ class TradingAccount(Base):
     default_risk_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
     default_risk_value: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     default_rr_order_2: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    max_preview_drift_percent_override: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -1,4 +1,5 @@
 from app.execution.base import AdapterError
+from app.models.app_setting import AppSetting
 from app.models.trade_event import TradeEvent
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
@@ -60,10 +61,18 @@ class SuccessfulExecutionAdapter:
         return {}
 
     def get_quote(self, symbol: str):
-        return {}
+        return {"symbol": symbol, "bid": 2320.0, "ask": 2320.2}
 
     def get_symbol_info(self, symbol: str):
-        return {}
+        return {
+            "symbol": symbol,
+            "point": 0.01,
+            "digits": 2,
+            "trade_contract_size": 100.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+        }
 
     def list_symbols(self):
         return [{"symbol": "XAUUSD", "visible": True}]
@@ -109,6 +118,21 @@ class PartialFailureExecutionAdapter(SuccessfulExecutionAdapter):
             message="Order placement rejected for XAUUSD.",
             details={"order": 2},
         )
+
+
+class HighDriftExecutionAdapter(SuccessfulExecutionAdapter):
+    def get_quote(self, symbol: str):
+        return {"symbol": symbol, "bid": 2329.0, "ask": 2329.2}
+
+
+class LowDriftExecutionAdapter(SuccessfulExecutionAdapter):
+    def get_quote(self, symbol: str):
+        return {"symbol": symbol, "bid": 2320.05, "ask": 2320.25}
+
+
+class MediumDriftExecutionAdapter(SuccessfulExecutionAdapter):
+    def get_quote(self, symbol: str):
+        return {"symbol": symbol, "bid": 2320.10, "ask": 2320.30}
 
 
 def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
@@ -225,3 +249,137 @@ def test_order1_succeeds_order2_fails_and_rollback_happens(
     assert "rollback_started" in event_types
     assert "rollback_completed" in event_types
     assert "execute_failed" in event_types
+
+
+def test_execute_succeeds_when_drift_is_within_threshold(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: LowDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=25))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123460")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 200
+    stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored is not None
+    assert stored.status == "executed"
+
+
+def test_execute_is_rejected_when_drift_exceeds_threshold(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: HighDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123461")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 409
+    assert "Market conditions have changed beyond the allowed threshold. Please preview again before executing." in response.json()["detail"]
+    assert "Detected drift:" in response.json()["detail"]
+
+
+def test_per_account_drift_override_takes_precedence_over_global_default(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: MediumDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123462")
+    account.max_preview_drift_percent_override = 15
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 200
+
+
+def test_preview_drift_reject_event_is_logged(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: HighDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123463")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 409
+    event = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id, TradeEvent.event_type == "preview_drift_reject")
+        .first()
+    )
+    assert event is not None
+    assert '"account_id": {}'.format(account.id) in (event.details or "")
+    assert '"configured_threshold_percent": 5.0' in (event.details or "")
+
+
+def test_preview_drift_rejection_message_is_shown_on_html_execute_flow(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: HighDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123464")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(f"/trade-setups/{setup.id}/execute")
+
+    assert response.status_code == 409
+    assert "Market conditions have changed beyond the allowed threshold. Please preview again before executing." in response.text
+    assert "Preview Again" in response.text
