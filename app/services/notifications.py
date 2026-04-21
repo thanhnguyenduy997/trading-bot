@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.models.trade_event import TradeEvent
 from app.models.trade_setup import TradeSetup
 from app.models.trading_account import TradingAccount
+from app.services.notification_templates import format_trade_event_notification
 
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,9 @@ NOTIFIABLE_EVENT_TYPES = {
     "tp1_hit",
     "be_move_completed",
     "be_move_failed",
+    "preview_drift_reject",
+    "risk_limit_execute_rejected",
+    "daily_lock_execute_rejected",
 }
 
 
@@ -75,7 +79,7 @@ def send_trading_account_test_notification(
         return False, "No usable Telegram bot token/chat id is configured for this account."
     try:
         sent = notifier.send_message(
-            f"Telegram test\nAccount {account.account_number} ({account.broker_name})",
+            f"Thông báo test Telegram\nTài khoản: {account.account_number} ({account.broker_name})",
             account=account,
         )
     except Exception:
@@ -122,24 +126,4 @@ def notify_pending_trade_events(
 
 
 def _format_trade_event_message(event: TradeEvent, setup: TradeSetup | None) -> str:
-    prefix = {
-        "execute_completed": "Execution completed",
-        "execute_failed": "Execution failed",
-        "tp1_hit": "TP1 hit",
-        "be_move_completed": "Breakeven SL moved",
-        "be_move_failed": "Breakeven SL move failed",
-    }.get(event.event_type, event.event_type)
-
-    if setup is None:
-        return f"{prefix}\nSetup #{event.setup_id}\n{event.message or ''}".strip()
-
-    lines = [
-        prefix,
-        f"Setup #{setup.id}: {setup.symbol} {setup.side.upper()}",
-        f"Status: {setup.status}",
-    ]
-    if setup.order1_ticket or setup.order2_ticket:
-        lines.append(f"Tickets: {setup.order1_ticket or '-'} / {setup.order2_ticket or '-'}")
-    if event.message:
-        lines.append(event.message)
-    return "\n".join(lines)
+    return format_trade_event_notification(event, setup)
