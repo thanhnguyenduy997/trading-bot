@@ -207,6 +207,7 @@ def test_reconcile_breakeven_when_order2_closes_at_be(client, db_session, create
     }
     assert "order2_closed_at_be" in event_types
     assert "setup_breakeven_recorded" in event_types
+    assert stored.result_status == "non_stoploss"
 
 
 def test_reconcile_stoploss_when_both_orders_hit_sl(client, db_session, created_user, auth_headers, monkeypatch):
@@ -306,3 +307,118 @@ def test_execute_failure_is_distinguished_from_stoploss(client, db_session, crea
     assert stored is not None
     assert stored.setup_outcome == "execution_failed"
     assert stored.result_status is None
+
+
+def test_tp1_then_be_with_tiny_negative_pnl_is_still_breakeven(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                537841502: _history(2320.2, 2321.18, "sl", 48.0, close_time=1713771200),
+                537841506: _history(2320.2, 2320.17, "sl", -0.45, close_time=1713771800),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-107")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 537841502
+    setup.order2_ticket = 537841506
+    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order1_outcome"] == "tp_hit"
+    assert data["order2_outcome"] == "closed_at_be"
+    assert data["setup_outcome"] == "breakeven"
+
+    stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored is not None
+    assert stored.result_status == "non_stoploss"
+    assert float(stored.order1_close_price) == 2321.18
+    assert float(stored.order2_close_price) == 2320.17
+    assert float(stored.order2_realized_pnl) == -0.45
+
+
+def test_reconciliation_does_not_leak_close_data_between_setups(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9101: _history(2320.2, 2321.2, "tp", 50.0, close_time=1713771000),
+                9102: _history(2320.2, 2320.18, "sl", -0.35, close_time=1713771600),
+                9201: _history(2320.2, 2319.2, "sl", -50.0, close_time=1713772200),
+                9202: _history(2320.2, 2319.2, "sl", -50.0, close_time=1713772260),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-108")
+    setup1 = _create_setup(db_session, created_user, account)
+    setup1.order1_ticket = 9101
+    setup1.order2_ticket = 9102
+    setup1.order2_be_moved_at = datetime.now(timezone.utc)
+    setup2 = _create_setup(db_session, created_user, account)
+    setup2.order1_ticket = 9201
+    setup2.order2_ticket = 9202
+    db_session.add_all([setup1, setup2])
+    db_session.commit()
+
+    response1 = client.post(f"/api/trade-setups/{setup1.id}/reconcile", headers=auth_headers)
+    response2 = client.post(f"/api/trade-setups/{setup2.id}/reconcile", headers=auth_headers)
+
+    assert response1.status_code == 200
+    assert response2.status_code == 200
+
+    stored1 = db_session.query(TradeSetup).filter(TradeSetup.id == setup1.id).first()
+    stored2 = db_session.query(TradeSetup).filter(TradeSetup.id == setup2.id).first()
+    assert stored1 is not None and stored2 is not None
+    assert stored1.setup_outcome == "breakeven"
+    assert stored2.setup_outcome == "stoploss"
+    assert float(stored1.order1_close_price) == 2321.2
+    assert float(stored1.order2_close_price) == 2320.18
+    assert float(stored2.order1_close_price) == 2319.2
+    assert float(stored2.order2_close_price) == 2319.2
+    assert stored1.order1_closed_at != stored2.order1_closed_at
+    assert stored1.order2_closed_at != stored2.order2_closed_at
+
+
+def test_reconciliation_corrects_contradictory_stoploss_result_to_non_stoploss(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9301: _history(2320.2, 2321.2, "tp", 50.0, close_time=1713772400),
+                9302: _history(2320.2, 2320.19, "sl", -0.25, close_time=1713772600),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-109")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9301
+    setup.order2_ticket = 9302
+    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.result_status = "stoploss"
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored is not None
+    assert stored.order1_outcome == "tp_hit"
+    assert stored.order2_outcome == "closed_at_be"
+    assert stored.setup_outcome == "breakeven"
+    assert stored.result_status == "non_stoploss"

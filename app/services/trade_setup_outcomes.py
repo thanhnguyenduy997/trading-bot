@@ -40,6 +40,10 @@ TERMINAL_SETUP_OUTCOMES = {
 
 
 class TradeSetupOutcomeService:
+    be_price_tolerance_points = 3
+    be_pnl_tolerance_floor = 1.0
+    be_pnl_tolerance_risk_fraction = 0.05
+
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
@@ -129,7 +133,10 @@ class TradeSetupOutcomeService:
                 },
             }
 
-        history = adapter.get_position_history(position_ticket=int(ticket))
+        history = self._filter_history_for_ticket(
+            adapter.get_position_history(position_ticket=int(ticket)),
+            ticket=int(ticket),
+        )
         close_deal = self._latest_close_deal(history)
         if close_deal is None:
             return {
@@ -150,6 +157,15 @@ class TradeSetupOutcomeService:
         closed_at = self._coerce_datetime(close_deal)
 
         if self._matches_target(close_deal, close_price, reference_tp, point, reasons={"tp", "take_profit", 5}):
+            outcome = "tp_hit"
+        elif self._looks_like_tp_hit_from_price_and_pnl(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=reference_sl,
+            point=point,
+        ):
             outcome = "tp_hit"
         elif self._is_closed_at_be(setup, order_index, close_deal, close_price, reference_be, point, realized_pnl):
             outcome = "closed_at_be"
@@ -267,12 +283,24 @@ class TradeSetupOutcomeService:
         )
 
     def _record_result_status_if_needed(self, setup) -> None:
-        if setup.result_status is not None:
-            return
+        target_result_status = None
         if setup.setup_outcome == "stoploss":
-            self.risk_management.record_setup_result(setup=setup, result_status="stoploss")
+            target_result_status = "stoploss"
         elif setup.setup_outcome in TERMINAL_SETUP_OUTCOMES:
-            self.risk_management.record_setup_result(setup=setup, result_status="non_stoploss")
+            target_result_status = "non_stoploss"
+
+        if target_result_status is None:
+            return
+        if setup.result_status is None:
+            self.risk_management.record_setup_result(setup=setup, result_status=target_result_status)
+            return
+        if setup.result_status == target_result_status:
+            return
+
+        setup.result_status = target_result_status
+        setup.result_recorded_at = datetime.now(timezone.utc)
+        self.db.add(setup)
+        self.db.flush()
 
     def _matches_target(
         self,
@@ -301,14 +329,53 @@ class TradeSetupOutcomeService:
         point: float,
         realized_pnl: float | None,
     ) -> bool:
-        tolerance = max(point, abs(reference_be) * 1e-6, 1e-6)
+        if order_index != 2 or setup.order2_be_moved_at is None:
+            return False
+        tolerance = self._be_price_tolerance(reference_be, point)
+        pnl_tolerance = self._be_pnl_tolerance(setup)
         if close_price is not None and abs(close_price - reference_be) <= tolerance:
             return True
-        if realized_pnl is not None and abs(realized_pnl) <= max(tolerance, 0.01):
+        if realized_pnl is not None and abs(realized_pnl) <= pnl_tolerance:
             reason = close_deal.get("reason")
-            if reason in {"sl", "stop_loss", 4} or order_index == 2 or setup.order2_be_moved_at is not None:
+            if reason in {"sl", "stop_loss", 4, "client", "expert", "mobile"}:
                 return True
         return False
+
+    def _looks_like_tp_hit_from_price_and_pnl(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_tp: float,
+        reference_sl: float,
+        point: float,
+    ) -> bool:
+        tp_profit_threshold = max(self._be_pnl_tolerance(setup), abs(float(setup.risk_per_order)) * 0.5)
+        if close_price is None or realized_pnl is None or realized_pnl < tp_profit_threshold:
+            return False
+        tp_tolerance = self._be_price_tolerance(reference_tp, point)
+        if abs(close_price - reference_tp) <= tp_tolerance:
+            return True
+        return abs(close_price - reference_tp) < abs(close_price - reference_sl)
+
+    def _be_price_tolerance(self, reference_price: float, point: float) -> float:
+        return max(point * self.be_price_tolerance_points, abs(reference_price) * 1e-6, 1e-6)
+
+    def _be_pnl_tolerance(self, setup) -> float:
+        return max(
+            self.be_pnl_tolerance_floor,
+            abs(float(setup.risk_per_order)) * self.be_pnl_tolerance_risk_fraction,
+        )
+
+    def _filter_history_for_ticket(self, history: list[dict[str, object]], *, ticket: int) -> list[dict[str, object]]:
+        matching = [
+            deal
+            for deal in history
+            if deal.get("position_id") in {None, ticket}
+            and deal.get("position") in {None, ticket}
+        ]
+        return matching or history
 
     def _latest_close_deal(self, history: list[dict[str, object]]) -> dict[str, object] | None:
         close_entries = []
