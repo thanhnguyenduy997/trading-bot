@@ -1,27 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card stack">
-    <div class="section-header">
-        <div>
-            <h1>Trading Dashboard</h1>
-            <p class="muted">Analyze MT5 trade history across app-linked and manual trades.</p>
-            <p class="muted">User: {{ user.full_name or user.email }}</p>
-        </div>
-        <div class="dashboard-actions">
-            <form action="/dashboard/sync" method="post" class="inline-form">
-                <input type="hidden" name="range" value="{{ dashboard.filters.range_key }}">
-                <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
-                <input type="hidden" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
-                <input type="hidden" name="trading_account_id" value="{{ dashboard.filters.trading_account_id or '' }}">
-                <input type="hidden" name="user_id" value="{{ dashboard.filters.user_id or '' }}">
-                <input type="hidden" name="symbol" value="{{ dashboard.filters.symbol or '' }}">
-                <input type="hidden" name="trade_source" value="{{ dashboard.filters.trade_source or '' }}">
-                <input type="hidden" name="outcome" value="{{ dashboard.filters.outcome or '' }}">
-                <button type="submit">Sync MT5 History</button>
-            </form>
-        </div>
-    </div>
-
+<section class="card stack dashboard-shell">
     {% if message %}
     <div class="banner banner-success">{{ message }}</div>
     {% endif %}
@@ -29,7 +8,53 @@
     <div class="banner banner-danger">{{ error }}</div>
     {% endif %}
 
-    <form action="/dashboard" method="get" class="dashboard-filter-grid">
+    {% if dashboard.selected_account %}
+    <section class="dashboard-hero">
+        <div>
+            <p class="eyebrow">Owner Context</p>
+            <h1>Trading Dashboard</h1>
+            <p class="muted">Focused on the currently selected trading account only.</p>
+            <div class="dashboard-hero-divider"></div>
+            <h2>{{ dashboard.selected_account.broker_name }} · {{ dashboard.selected_account.account_number }}</h2>
+            <p class="muted">
+                {{ user.full_name or user.email }}
+                {% if user.impersonator is defined %}
+                · effective dashboard scope
+                {% endif %}
+            </p>
+        </div>
+        <div class="dashboard-hero-actions">
+            <span class="status-pill status-pill-{{ dashboard.session_badge.tone }}">{{ dashboard.session_badge.label }}</span>
+            <form action="/dashboard/sync" method="post" class="inline-form">
+                <input type="hidden" name="range" value="{{ dashboard.filters.range_key }}">
+                <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
+                <input type="hidden" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
+                <input type="hidden" name="account_id" value="{{ dashboard.selected_account.id }}">
+                <button type="submit">Sync MT5 History</button>
+            </form>
+        </div>
+    </section>
+
+    {% if dashboard.account_warning %}
+    <div class="banner banner-warning">{{ dashboard.account_warning }}</div>
+    {% endif %}
+
+    <section class="detail-panel dashboard-meta-panel">
+        <div><span class="muted">Trading Account</span><strong>{{ dashboard.selected_account.account_number }}</strong></div>
+        <div><span class="muted">Server</span><strong>{{ dashboard.selected_account.server_name }}</strong></div>
+        <div><span class="muted">Current MT5 Login</span><strong>{{ dashboard.selected_account.current_mt5_login or "Unknown" }}</strong></div>
+        <div><span class="muted">Time Window</span><strong>{{ dashboard.range_start.strftime("%Y-%m-%d") }} to {{ dashboard.range_end.strftime("%Y-%m-%d") }}</strong></div>
+    </section>
+
+    <form action="/dashboard" method="get" class="dashboard-compact-filters">
+        <div>
+            <label for="dashboard-account-id">Trading Account</label>
+            <select id="dashboard-account-id" name="account_id">
+                {% for account in dashboard.accounts %}
+                <option value="{{ account.id }}" {% if dashboard.selected_account.id == account.id %}selected{% endif %}>{{ account.account_number }} · {{ account.broker_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div>
             <label for="dashboard-range">Time Range</label>
             <select id="dashboard-range" name="range">
@@ -46,77 +71,25 @@
             <label for="dashboard-end-date">End Date</label>
             <input id="dashboard-end-date" type="date" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
         </div>
-        {% if user.role == "admin" %}
-        <div>
-            <label for="dashboard-user-id">User</label>
-            <select id="dashboard-user-id" name="user_id">
-                <option value="">All Users</option>
-                {% for option_user in dashboard.users %}
-                <option value="{{ option_user.id }}" {% if dashboard.filters.user_id == option_user.id %}selected{% endif %}>{{ option_user.email }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        {% endif %}
-        <div>
-            <label for="dashboard-account-id">Trading Account</label>
-            <select id="dashboard-account-id" name="trading_account_id">
-                <option value="">All Accounts</option>
-                {% for account in dashboard.accounts %}
-                <option value="{{ account.id }}" {% if dashboard.filters.trading_account_id == account.id %}selected{% endif %}>{{ account.account_number }} · {{ account.broker_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div>
-            <label for="dashboard-symbol">Symbol</label>
-            <input id="dashboard-symbol" type="text" name="symbol" value="{{ dashboard.filters.symbol or '' }}" placeholder="XAUUSD">
-        </div>
-        <div>
-            <label for="dashboard-source">Trade Source</label>
-            <select id="dashboard-source" name="trade_source">
-                <option value="">All Sources</option>
-                <option value="system" {% if dashboard.filters.trade_source == 'system' %}selected{% endif %}>System</option>
-                <option value="manual" {% if dashboard.filters.trade_source == 'manual' %}selected{% endif %}>Manual</option>
-                <option value="unknown" {% if dashboard.filters.trade_source == 'unknown' %}selected{% endif %}>Unknown</option>
-            </select>
-        </div>
-        <div>
-            <label for="dashboard-outcome">Outcome</label>
-            <select id="dashboard-outcome" name="outcome">
-                <option value="">All Outcomes</option>
-                <option value="stoploss" {% if dashboard.filters.outcome == 'stoploss' %}selected{% endif %}>Stoploss</option>
-                <option value="breakeven" {% if dashboard.filters.outcome == 'breakeven' %}selected{% endif %}>Breakeven</option>
-                <option value="tp2_hit" {% if dashboard.filters.outcome == 'tp2_hit' %}selected{% endif %}>TP2 Hit</option>
-                <option value="take_profit" {% if dashboard.filters.outcome == 'take_profit' %}selected{% endif %}>Take Profit</option>
-                <option value="manual_close" {% if dashboard.filters.outcome == 'manual_close' %}selected{% endif %}>Manual Close</option>
-                <option value="mixed" {% if dashboard.filters.outcome == 'mixed' %}selected{% endif %}>Mixed</option>
-                <option value="unknown" {% if dashboard.filters.outcome == 'unknown' %}selected{% endif %}>Unknown</option>
-            </select>
-        </div>
         <div class="filter-actions">
-            <button type="submit">Apply Filters</button>
+            <button type="submit">Apply</button>
         </div>
     </form>
 
-    <p class="muted">
-        Window: {{ dashboard.range_start.strftime("%Y-%m-%d %H:%M") }} to {{ dashboard.range_end.strftime("%Y-%m-%d %H:%M") }}
-    </p>
-
     <section class="dashboard-summary-grid">
-        <article class="summary-card"><span>Total Trades</span><strong>{{ dashboard.summary.total_trades }}</strong></article>
-        <article class="summary-card"><span>Total Setups</span><strong>{{ dashboard.summary.total_setups }}</strong></article>
-        <article class="summary-card"><span>Total Realized PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
+        <article class="summary-card"><span>Total PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
+        <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
         <article class="summary-card"><span>Win Rate</span><strong>{{ "%.2f"|format(dashboard.summary.win_rate) }}%</strong></article>
-        <article class="summary-card"><span>Total Volume</span><strong>{{ "%.2f"|format(dashboard.summary.total_volume) }}</strong></article>
-        <article class="summary-card"><span>System Trades</span><strong>{{ dashboard.summary.system_trades }}</strong></article>
         <article class="summary-card"><span>Manual Trades</span><strong>{{ dashboard.summary.manual_trades }}</strong></article>
-        <article class="summary-card"><span>Stoploss Count</span><strong>{{ dashboard.summary.stoploss_count }}</strong></article>
-        <article class="summary-card"><span>Breakeven Count</span><strong>{{ dashboard.summary.breakeven_count }}</strong></article>
-        <article class="summary-card"><span>Take Profit Count</span><strong>{{ dashboard.summary.take_profit_count }}</strong></article>
+        <article class="summary-card"><span>System Trades</span><strong>{{ dashboard.summary.system_trades }}</strong></article>
+        <article class="summary-card"><span>Stoploss</span><strong>{{ dashboard.summary.stoploss_count }}</strong></article>
+        <article class="summary-card"><span>Breakeven</span><strong>{{ dashboard.summary.breakeven_count }}</strong></article>
+        <article class="summary-card"><span>Take Profit</span><strong>{{ dashboard.summary.take_profit_count }}</strong></article>
     </section>
 
     <section class="dashboard-chart-grid">
         <article class="detail-panel">
-            <h2>Realized PnL Over Time</h2>
+            <h2>Realized PnL</h2>
             <div class="mini-chart">
                 {% for item in dashboard.pnl_chart %}
                 <div class="chart-row">
@@ -127,12 +100,12 @@
                     <span class="chart-value">{{ "%.2f"|format(item.value) }}</span>
                 </div>
                 {% else %}
-                <p class="muted">No trade history in the selected range yet.</p>
+                <p class="muted">No trade history for this account in the selected range.</p>
                 {% endfor %}
             </div>
         </article>
         <article class="detail-panel">
-            <h2>Trade Count Over Time</h2>
+            <h2>Trade Count</h2>
             <div class="mini-chart">
                 {% for item in dashboard.trade_count_chart %}
                 <div class="chart-row">
@@ -143,7 +116,7 @@
                     <span class="chart-value">{{ item.value }}</span>
                 </div>
                 {% else %}
-                <p class="muted">No trade counts available.</p>
+                <p class="muted">No closed trades yet.</p>
                 {% endfor %}
             </div>
         </article>
@@ -163,33 +136,16 @@
                 {% endfor %}
             </div>
         </article>
-        <article class="detail-panel">
-            <h2>Symbol Breakdown</h2>
-            <div class="mini-chart">
-                {% for item in dashboard.symbol_breakdown %}
-                <div class="chart-row">
-                    <span class="chart-label">{{ item.label }}</span>
-                    <div class="chart-bar-shell">
-                        <div class="chart-bar neutral" style="width: {{ item.width_percent }}%;"></div>
-                    </div>
-                    <span class="chart-value">{{ item.value }}</span>
-                </div>
-                {% else %}
-                <p class="muted">No symbol data available.</p>
-                {% endfor %}
-            </div>
-        </article>
     </section>
 
     <section class="detail-panel results-card">
-        <h2>Trade List</h2>
+        <h2>Trades</h2>
         <div class="table-wrap">
             <table class="accounts-table">
                 <thead>
                     <tr>
                         <th>Open Time</th>
                         <th>Close Time</th>
-                        <th>Account</th>
                         <th>Symbol</th>
                         <th>Side</th>
                         <th>Volume</th>
@@ -207,7 +163,6 @@
                     <tr>
                         <td>{{ row.open_time.strftime("%Y-%m-%d %H:%M") if row.open_time else "-" }}</td>
                         <td>{{ row.close_time.strftime("%Y-%m-%d %H:%M") if row.close_time else "-" }}</td>
-                        <td>{{ row.account_display }}</td>
                         <td>{{ row.symbol }}</td>
                         <td>{{ row.side }}</td>
                         <td>{{ "%.2f"|format(row.volume) }}</td>
@@ -227,13 +182,21 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="13" class="muted">No normalized MT5 trades matched the selected filters.</td>
+                        <td colspan="12" class="muted">No normalized MT5 trades matched this account and time range.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </section>
+    {% else %}
+    <section class="dashboard-empty-state">
+        <h1>Trading Dashboard</h1>
+        <p class="muted">{{ user.full_name or user.email }}</p>
+        <p class="muted">No trading accounts are available for the current signed-in owner.</p>
+        <a class="button-link secondary-button" href="/trading-accounts/create">Add Trading Account</a>
+    </section>
+    {% endif %}
 
     {% if daily_risk_state %}
     <section class="detail-panel results-card">

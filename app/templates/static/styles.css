@@ -917,6 +917,91 @@ button:hover {
     color: var(--danger);
 }
 
+.banner-warning {
+    background: #fffaeb;
+    border-color: #fedf89;
+    color: var(--warning);
+}
+
+.eyebrow {
+    margin: 0 0 0.35rem;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.dashboard-shell {
+    gap: 1rem;
+}
+
+.dashboard-hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 1.2rem;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at top right, rgba(18, 103, 214, 0.12), transparent 16rem),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.dashboard-hero-actions {
+    display: grid;
+    gap: 0.75rem;
+    justify-items: end;
+}
+
+.dashboard-meta-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.9rem;
+}
+
+.dashboard-meta-panel div {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 110px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 750;
+    border: 1px solid transparent;
+}
+
+.status-pill-success {
+    color: var(--success);
+    background: #edfdf3;
+    border-color: #abefc6;
+}
+
+.status-pill-warning {
+    color: var(--warning);
+    background: #fffaeb;
+    border-color: #fedf89;
+}
+
+.status-pill-danger {
+    color: var(--danger);
+    background: #fef3f2;
+    border-color: #fecdca;
+}
+
+.status-pill-muted {
+    color: var(--muted);
+    background: #f2f4f7;
+    border-color: var(--line);
+}
+
 .dashboard-actions,
 .inline-form {
     display: flex;
@@ -924,7 +1009,8 @@ button:hover {
     align-items: center;
 }
 
-.dashboard-filter-grid {
+.dashboard-filter-grid,
+.dashboard-compact-filters {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 0.9rem;
@@ -1008,11 +1094,27 @@ button:hover {
     overflow-x: auto;
 }
 
+.dashboard-empty-state {
+    display: grid;
+    gap: 0.8rem;
+    justify-items: start;
+}
+
 @media (max-width: 720px) {
     .dashboard-actions,
     .inline-form,
-    .filter-actions {
+    .filter-actions,
+    .dashboard-hero {
         width: 100%;
+    }
+
+    .dashboard-hero {
+        grid-template-columns: 1fr;
+        display: grid;
+    }
+
+    .dashboard-hero-actions {
+        justify-items: stretch;
     }
 
     .chart-row {

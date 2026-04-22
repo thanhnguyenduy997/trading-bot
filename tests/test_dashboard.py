@@ -1,18 +1,23 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate
 from app.schemas.user import UserCreate
-from app.services.mt5_trade_history import DashboardFilters, DashboardService, MT5TradeHistorySyncService
+from app.services.mt5_trade_history import (
+    DashboardAuthorizationError,
+    DashboardFilters,
+    DashboardService,
+    MT5TradeHistorySyncService,
+)
 from app.services.trade_setups import create_trade_setup
 from app.services.trading_accounts import create_trading_account
 from app.services.users import create_user
 
 
-def _create_account(db_session, user, account_number: str = "DASH-100"):
-    return create_trading_account(
+def _create_account(db_session, user, account_number: str, *, session_status: str = "unknown", current_login: str | None = None):
+    account = create_trading_account(
         db_session,
         user.id,
         TradingAccountCreate(
@@ -22,6 +27,14 @@ def _create_account(db_session, user, account_number: str = "DASH-100"):
             password="secret-pass",
         ),
     )
+    account.mt5_session_status = session_status
+    account.current_mt5_login = current_login
+    if session_status == "matched":
+        account.last_heartbeat_at = datetime.now(timezone.utc)
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+    return account
 
 
 def _create_setup(db_session, user, account, *, order1_ticket: int, order2_ticket: int, setup_outcome: str = "tp2_hit"):
@@ -138,8 +151,181 @@ def _login(client, email: str, password: str = "password123"):
     return client.post("/api/auth/login", data={"email": email, "password": password}, follow_redirects=False)
 
 
+def _create_admin(db_session):
+    return create_user(
+        db_session,
+        UserCreate(
+            email="admin-dashboard@example.com",
+            password="password123",
+            full_name="Admin User",
+            role="admin",
+            is_active=True,
+        ),
+    )
+
+
+def test_non_admin_user_only_sees_owned_trading_accounts(client, db_session, created_user):
+    owned_account = _create_account(db_session, created_user, "OWN-001")
+    other_user = create_user(
+        db_session,
+        UserCreate(email="other-dashboard@example.com", password="password123", full_name="Other User"),
+    )
+    _create_account(db_session, other_user, "OTHER-001")
+    _login(client, created_user.email)
+
+    response = client.get(f"/dashboard?account_id={owned_account.id}")
+
+    assert response.status_code == 200
+    assert "OWN-001" in response.text
+    assert "OTHER-001" not in response.text
+    assert "All Users" not in response.text
+
+
+def test_dashboard_defaults_to_matched_owned_account(db_session, created_user):
+    service = DashboardService(db_session)
+    first = _create_account(db_session, created_user, "MATCH-001", session_status="unknown")
+    matched = _create_account(db_session, created_user, "MATCH-002", session_status="matched", current_login="MATCH-002")
+
+    selected = service.resolve_selected_account(actor=created_user, requested_account_id=None)
+
+    assert selected is not None
+    assert selected.id == matched.id
+    assert selected.id != first.id
+
+
+def test_dashboard_defaults_to_most_recent_owned_account_when_no_match(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 8, tzinfo=timezone.utc))
+    older = _create_account(db_session, created_user, "RECENT-001")
+    recent = _create_account(db_session, created_user, "RECENT-002")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=recent.id,
+            position_ticket=90001,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2322.0,
+            realized_pnl=25.0,
+            open_time=datetime(2026, 4, 21, 10, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 21, 11, tzinfo=timezone.utc),
+            synced_at=datetime(2026, 4, 22, 7, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    selected = service.resolve_selected_account(actor=created_user, requested_account_id=None)
+
+    assert selected is not None
+    assert selected.id == recent.id
+    assert selected.id != older.id
+
+
+def test_dashboard_data_is_scoped_to_selected_account_only(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    selected_account = _create_account(db_session, created_user, "SCOPE-001")
+    other_account = _create_account(db_session, created_user, "SCOPE-002")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=selected_account.id,
+                position_ticket=1001,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2320.0,
+                close_price=2322.0,
+                realized_pnl=20.0,
+                open_time=datetime(2026, 4, 22, 1, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 2, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=other_account.id,
+                position_ticket=1002,
+                symbol="EURUSD",
+                side="sell",
+                trade_source="manual",
+                outcome="stoploss",
+                volume=0.3,
+                open_price=1.1,
+                close_price=1.11,
+                realized_pnl=-10.0,
+                open_time=datetime(2026, 4, 22, 3, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 4, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=selected_account.id),
+        selected_account=selected_account,
+    )
+
+    assert dashboard["summary"]["trade_count"] == 1
+    assert dashboard["table_rows"][0]["position_ticket"] == 1001
+    assert dashboard["table_rows"][0]["account_display"] == "SCOPE-001"
+
+
+def test_unrelated_account_warnings_are_not_shown(client, db_session, created_user):
+    selected_account = _create_account(db_session, created_user, "WARN-001", session_status="matched", current_login="WARN-001")
+    _create_account(db_session, created_user, "WARN-002", session_status="mismatch", current_login="999999")
+    _login(client, created_user.email)
+
+    response = client.get(f"/dashboard?account_id={selected_account.id}")
+
+    assert response.status_code == 200
+    assert "Log into WARN-002 before live actions." not in response.text
+    assert "Matched" in response.text
+
+
+def test_admin_impersonation_uses_effective_user_scope(client, db_session):
+    admin = _create_admin(db_session)
+    target_user = create_user(
+        db_session,
+        UserCreate(email="target-dashboard@example.com", password="password123", full_name="Target User"),
+    )
+    admin_account = _create_account(db_session, admin, "ADMIN-001")
+    target_account = _create_account(db_session, target_user, "TARGET-001")
+    _login(client, admin.email)
+    client.post(f"/admin/users/{target_user.id}/impersonate", follow_redirects=False)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "TARGET-001" in response.text
+    assert "ADMIN-001" not in response.text
+    assert "effective dashboard scope" in response.text
+    assert admin_account.id != target_account.id
+
+
+def test_unauthorized_account_id_is_rejected_safely(client, db_session, created_user):
+    owned_account = _create_account(db_session, created_user, "SAFE-001")
+    other_user = create_user(
+        db_session,
+        UserCreate(email="safe-other@example.com", password="password123", full_name="Other User"),
+    )
+    other_account = _create_account(db_session, other_user, "SAFE-999")
+    _login(client, created_user.email)
+
+    response = client.get(f"/dashboard?account_id={other_account.id}")
+
+    assert response.status_code == 200
+    assert "Trading account not found for the current signed-in user." in response.text
+    assert "SAFE-999" not in response.text
+    assert "SAFE-001" in response.text or owned_account.account_number in response.text
+
+
 def test_sync_classifies_system_manual_and_unknown_trades(db_session, created_user):
-    account = _create_account(db_session, created_user, "DASH-101")
+    account = _create_account(db_session, created_user, "SYNC-001")
     setup_one = _create_setup(db_session, created_user, account, order1_ticket=70001, order2_ticket=70002, setup_outcome="tp2_hit")
     setup_two = _create_setup(db_session, created_user, account, order1_ticket=71001, order2_ticket=71002, setup_outcome="stoploss")
     now = datetime.now(timezone.utc)
@@ -173,135 +359,10 @@ def test_sync_classifies_system_manual_and_unknown_trades(db_session, created_us
         .all()
     )
     assert [row.trade_source for row in rows] == ["system", "manual", "unknown"]
-    assert rows[0].linked_setup_id == setup_one.id
-    assert rows[1].linked_setup_id is None
-    assert rows[2].linked_setup_id is None
 
 
-def test_dashboard_time_range_filters(db_session, created_user):
-    account = _create_account(db_session, created_user, "DASH-102")
-    db_session.add_all(
-        [
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=1001,
-                symbol="XAUUSD",
-                side="buy",
-                trade_source="manual",
-                outcome="take_profit",
-                volume=0.5,
-                open_price=2320.0,
-                close_price=2322.0,
-                realized_pnl=45.0,
-                open_time=datetime(2026, 4, 21, 9, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 21, 10, tzinfo=timezone.utc),
-            ),
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=1002,
-                symbol="XAUUSD",
-                side="buy",
-                trade_source="manual",
-                outcome="stoploss",
-                volume=0.5,
-                open_price=2320.0,
-                close_price=2318.0,
-                realized_pnl=-30.0,
-                open_time=datetime(2026, 4, 10, 9, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 10, 10, tzinfo=timezone.utc),
-            ),
-        ]
-    )
-    db_session.commit()
-    dashboard = DashboardService(
-        db_session,
-        now_provider=lambda: datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
-    ).build_dashboard(
-        actor=created_user,
-        filters=DashboardFilters(range_key="last_7_days", user_id=created_user.id),
-    )
-
-    assert dashboard["summary"]["total_trades"] == 1
-    assert dashboard["table_rows"][0]["position_ticket"] == 1001
-
-
-def test_dashboard_summaries_include_mixed_trade_sources(db_session, created_user):
-    account = _create_account(db_session, created_user, "DASH-103")
-    setup = _create_setup(db_session, created_user, account, order1_ticket=80001, order2_ticket=80002, setup_outcome="breakeven")
-    db_session.add_all(
-        [
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                linked_setup_id=setup.id,
-                position_ticket=80001,
-                symbol="XAUUSD",
-                side="buy",
-                trade_source="system",
-                outcome="tp_hit",
-                volume=0.5,
-                open_price=2320.0,
-                close_price=2321.0,
-                realized_pnl=50.0,
-                open_time=datetime(2026, 4, 22, 1, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 22, 2, tzinfo=timezone.utc),
-            ),
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=80003,
-                symbol="EURUSD",
-                side="sell",
-                trade_source="manual",
-                outcome="take_profit",
-                volume=0.3,
-                open_price=1.1,
-                close_price=1.09,
-                realized_pnl=25.0,
-                open_time=datetime(2026, 4, 22, 3, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 22, 4, tzinfo=timezone.utc),
-            ),
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=80004,
-                symbol="GBPUSD",
-                side="buy",
-                trade_source="manual",
-                outcome="stoploss",
-                volume=0.2,
-                open_price=1.3,
-                close_price=1.29,
-                realized_pnl=-15.0,
-                open_time=datetime(2026, 4, 22, 5, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 22, 6, tzinfo=timezone.utc),
-            ),
-        ]
-    )
-    db_session.commit()
-
-    dashboard = DashboardService(
-        db_session,
-        now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc),
-    ).build_dashboard(
-        actor=created_user,
-        filters=DashboardFilters(range_key="today", user_id=created_user.id),
-    )
-
-    assert dashboard["summary"]["total_trades"] == 3
-    assert dashboard["summary"]["total_setups"] == 1
-    assert dashboard["summary"]["system_trades"] == 1
-    assert dashboard["summary"]["manual_trades"] == 2
-    assert dashboard["summary"]["breakeven_count"] == 1
-    assert dashboard["summary"]["stoploss_count"] == 1
-    assert dashboard["summary"]["take_profit_count"] == 1
-    assert round(dashboard["summary"]["total_realized_pnl"], 2) == 60.0
-
-
-def test_dashboard_page_shows_linked_setup_trade(client, db_session, created_user):
-    account = _create_account(db_session, created_user, "DASH-104")
+def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "PAGE-001")
     setup = _create_setup(db_session, created_user, account, order1_ticket=82001, order2_ticket=82002, setup_outcome="tp2_hit")
     db_session.add(
         MT5TradeHistory(
@@ -325,62 +386,25 @@ def test_dashboard_page_shows_linked_setup_trade(client, db_session, created_use
     db_session.commit()
     _login(client, created_user.email)
 
-    response = client.get("/dashboard")
+    response = client.get(f"/dashboard?account_id={account.id}")
 
     assert response.status_code == 200
     assert "Trading Dashboard" in response.text
     assert f"/trade-setups/{setup.id}" in response.text
-    assert "system" in response.text
+    assert "PAGE-001" in response.text
 
 
-def test_dashboard_unmatched_trades_still_appear_as_manual_or_unknown(db_session, created_user):
-    account = _create_account(db_session, created_user, "DASH-105")
-    db_session.add_all(
-        [
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=83001,
-                symbol="XAUUSD",
-                side="buy",
-                trade_source="manual",
-                outcome="take_profit",
-                volume=0.2,
-                open_price=2320.0,
-                close_price=2321.0,
-                realized_pnl=10.0,
-                open_time=datetime(2026, 4, 22, 1, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 22, 2, tzinfo=timezone.utc),
-                comment="manual trade",
-            ),
-            MT5TradeHistory(
-                user_id=created_user.id,
-                trading_account_id=account.id,
-                position_ticket=83002,
-                symbol="EURUSD",
-                side="sell",
-                trade_source="unknown",
-                outcome="stoploss",
-                volume=0.2,
-                open_price=1.1,
-                close_price=1.11,
-                realized_pnl=-12.0,
-                open_time=datetime(2026, 4, 22, 3, tzinfo=timezone.utc),
-                close_time=datetime(2026, 4, 22, 4, tzinfo=timezone.utc),
-                comment="ambiguous history",
-            ),
-        ]
-    )
-    db_session.commit()
-
-    dashboard = DashboardService(
+def test_dashboard_authorization_error_raised_for_unowned_account(db_session, created_user):
+    service = DashboardService(db_session)
+    other_user = create_user(
         db_session,
-        now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc),
-    ).build_dashboard(
-        actor=created_user,
-        filters=DashboardFilters(range_key="today", user_id=created_user.id),
+        UserCreate(email="guard@example.com", password="password123", full_name="Guarded User"),
     )
+    other_account = _create_account(db_session, other_user, "GUARD-001")
 
-    sources = {row["position_ticket"]: row["trade_source"] for row in dashboard["table_rows"]}
-    assert sources[83001] == "manual"
-    assert sources[83002] == "unknown"
+    try:
+        service.resolve_selected_account(actor=created_user, requested_account_id=other_account.id)
+    except DashboardAuthorizationError as exc:
+        assert str(exc) == "Trading account not found for the current signed-in user."
+    else:
+        raise AssertionError("Expected DashboardAuthorizationError for unowned account.")

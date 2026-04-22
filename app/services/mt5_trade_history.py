@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 import re
 
-from sqlalchemy import or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
@@ -29,48 +29,16 @@ class DashboardFilters:
     start_date: date | None = None
     end_date: date | None = None
     trading_account_id: int | None = None
-    user_id: int | None = None
-    symbol: str | None = None
-    trade_source: str | None = None
-    outcome: str | None = None
+
+
+class DashboardAuthorizationError(PermissionError):
+    pass
 
 
 class MT5TradeHistorySyncService:
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
-
-    def sync_accounts_for_filters(
-        self,
-        *,
-        actor: User,
-        filters: DashboardFilters,
-        range_start: datetime,
-        range_end: datetime,
-    ) -> dict[str, object]:
-        accounts = self._resolve_accounts(actor=actor, filters=filters)
-        synced_accounts = 0
-        synced_trades = 0
-        errors: list[str] = []
-
-        for account in accounts:
-            try:
-                result = self.sync_account_history(
-                    account_id=account.id,
-                    user_id=account.user_id,
-                    range_start=range_start,
-                    range_end=range_end,
-                )
-                synced_accounts += 1
-                synced_trades += int(result["synced_count"])
-            except (LookupError, AdapterError, ValueError) as exc:
-                errors.append(f"{account.account_number}: {str(exc)}")
-
-        return {
-            "synced_accounts": synced_accounts,
-            "synced_trades": synced_trades,
-            "errors": errors,
-        }
 
     def sync_account_history(
         self,
@@ -107,7 +75,6 @@ class MT5TradeHistorySyncService:
 
         for position_ticket, trade_deals in grouped.items():
             normalized = self._normalize_trade(
-                account=account,
                 position_ticket=position_ticket,
                 deals=trade_deals,
                 setup_index=setup_index,
@@ -119,26 +86,6 @@ class MT5TradeHistorySyncService:
 
         self.db.commit()
         return {"synced_count": synced_count}
-
-    def _resolve_accounts(self, *, actor: User, filters: DashboardFilters) -> list[TradingAccount]:
-        if filters.trading_account_id:
-            if actor.role == "admin" and filters.user_id and filters.user_id != actor.id:
-                account = (
-                    self.db.query(TradingAccount)
-                    .filter(
-                        TradingAccount.id == filters.trading_account_id,
-                        TradingAccount.user_id == filters.user_id,
-                    )
-                    .first()
-                )
-                return [account] if account else []
-            account = get_trading_account(self.db, filters.trading_account_id, actor.id)
-            return [account] if account else []
-
-        target_user_id = filters.user_id if actor.role == "admin" and filters.user_id else actor.id
-        if actor.role == "admin" and filters.user_id is None:
-            return self.db.query(TradingAccount).order_by(TradingAccount.id.asc()).all()
-        return list_trading_accounts(self.db, target_user_id)
 
     def _build_setup_index(self, account: TradingAccount) -> dict[str, object]:
         setups = (
@@ -155,10 +102,7 @@ class MT5TradeHistorySyncService:
             if setup.order2_ticket:
                 ticket_to_setup[int(setup.order2_ticket)] = (setup, 2)
             comment_setup_ids[setup.id] = setup
-        return {
-            "ticket_to_setup": ticket_to_setup,
-            "comment_setup_ids": comment_setup_ids,
-        }
+        return {"ticket_to_setup": ticket_to_setup, "comment_setup_ids": comment_setup_ids}
 
     def _group_deals_by_position(self, deals: list[dict[str, object]]) -> dict[int, list[dict[str, object]]]:
         grouped: dict[int, list[dict[str, object]]] = defaultdict(list)
@@ -176,7 +120,6 @@ class MT5TradeHistorySyncService:
     def _normalize_trade(
         self,
         *,
-        account: TradingAccount,
         position_ticket: int,
         deals: list[dict[str, object]],
         setup_index: dict[str, object],
@@ -193,7 +136,6 @@ class MT5TradeHistorySyncService:
         last_close = close_deals[-1]
         comments = [str(deal.get("comment")).strip() for deal in deals if deal.get("comment")]
         linked_setup, linked_order_index, trade_source = self._classify_source(
-            account=account,
             position_ticket=position_ticket,
             open_deal_ticket=self._coerce_int(first_open.get("ticket")),
             close_deal_ticket=self._coerce_int(last_close.get("ticket")),
@@ -207,8 +149,8 @@ class MT5TradeHistorySyncService:
             + self._coerce_float(deal.get("commission"))
             for deal in close_deals
         )
-        effective_comment = comments[0] if comments else None
         outcome = self._derive_trade_outcome(linked_setup, linked_order_index, trade_source, realized_pnl)
+        effective_comment = comments[0] if comments else None
 
         return {
             "linked_setup_id": linked_setup.id if linked_setup else None,
@@ -231,7 +173,6 @@ class MT5TradeHistorySyncService:
     def _classify_source(
         self,
         *,
-        account: TradingAccount,
         position_ticket: int,
         open_deal_ticket: int | None,
         close_deal_ticket: int | None,
@@ -260,8 +201,7 @@ class MT5TradeHistorySyncService:
             match = SETUP_COMMENT_RE.search(comment)
             if not match:
                 continue
-            setup_id = int(match.group(1))
-            setup = comment_setup_ids.get(setup_id)
+            setup = comment_setup_ids.get(int(match.group(1)))
             if setup and setup not in comment_matches:
                 comment_matches.append(setup)
 
@@ -284,7 +224,6 @@ class MT5TradeHistorySyncService:
             if linked_order_index == 2 and linked_setup.order2_outcome:
                 return linked_setup.order2_outcome
             return linked_setup.setup_outcome
-
         if realized_pnl > MANUAL_BREAKEVEN_PNL_TOLERANCE:
             return "take_profit"
         if realized_pnl < -MANUAL_BREAKEVEN_PNL_TOLERANCE:
@@ -369,96 +308,149 @@ class DashboardService:
         self.db = db
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
-    def build_dashboard(self, *, actor: User, filters: DashboardFilters) -> dict[str, object]:
+    def resolve_selected_account(self, *, actor: User, requested_account_id: int | None) -> TradingAccount | None:
+        accounts = list_trading_accounts(self.db, actor.id)
+        owned_accounts = {account.id: account for account in accounts}
+
+        if requested_account_id is not None:
+            selected = owned_accounts.get(requested_account_id)
+            if not selected:
+                raise DashboardAuthorizationError("Trading account not found for the current signed-in user.")
+            return selected
+        if not accounts:
+            return None
+
+        matched_accounts = [account for account in accounts if account.mt5_session_status == "matched"]
+        if matched_accounts:
+            matched_accounts.sort(
+                key=lambda account: (
+                    self._normalize_datetime(account.last_heartbeat_at),
+                    self._normalize_datetime(account.updated_at),
+                    account.id,
+                ),
+                reverse=True,
+            )
+            return matched_accounts[0]
+
+        activity = self._account_activity_map(actor.id)
+        scored_accounts = sorted(
+            accounts,
+            key=lambda account: (
+                self._normalize_datetime(activity.get(account.id)),
+                self._normalize_datetime(account.updated_at),
+                self._normalize_datetime(account.created_at),
+                account.id,
+            ),
+            reverse=True,
+        )
+        return scored_accounts[0]
+
+    def build_dashboard(
+        self,
+        *,
+        actor: User,
+        filters: DashboardFilters,
+        selected_account: TradingAccount,
+    ) -> dict[str, object]:
         range_start, range_end = self.resolve_time_range(filters)
         query = (
-            self.db.query(MT5TradeHistory, TradingAccount, TradeSetup)
-            .join(TradingAccount, TradingAccount.id == MT5TradeHistory.trading_account_id)
+            self.db.query(MT5TradeHistory, TradeSetup)
             .outerjoin(TradeSetup, TradeSetup.id == MT5TradeHistory.linked_setup_id)
             .filter(
+                MT5TradeHistory.user_id == actor.id,
+                MT5TradeHistory.trading_account_id == selected_account.id,
                 MT5TradeHistory.close_time.isnot(None),
                 MT5TradeHistory.close_time >= range_start,
                 MT5TradeHistory.close_time <= range_end,
             )
         )
-
-        if actor.role != "admin":
-            query = query.filter(MT5TradeHistory.user_id == actor.id)
-        elif filters.user_id:
-            query = query.filter(MT5TradeHistory.user_id == filters.user_id)
-
-        if filters.trading_account_id:
-            query = query.filter(MT5TradeHistory.trading_account_id == filters.trading_account_id)
-        if filters.symbol:
-            query = query.filter(MT5TradeHistory.symbol == filters.symbol.upper())
-        if filters.trade_source:
-            query = query.filter(MT5TradeHistory.trade_source == filters.trade_source)
-
         rows = query.order_by(MT5TradeHistory.close_time.desc(), MT5TradeHistory.id.desc()).all()
-        items = [self._row_to_item(trade, account, setup) for trade, account, setup in rows]
-        if filters.outcome:
-            items = [item for item in items if item["effective_outcome"] == filters.outcome]
-
-        available_accounts = self._available_accounts(actor=actor, filters=filters)
-        available_users = self._available_users(actor=actor)
-
-        summary = self._build_summary(items)
+        items = [self._row_to_item(trade, setup, selected_account) for trade, setup in rows]
         return {
             "filters": filters,
+            "selected_account": selected_account,
             "range_start": range_start,
             "range_end": range_end,
-            "summary": summary,
+            "summary": self._build_summary(items),
             "pnl_chart": self._series(items, "close_date", "realized_pnl"),
             "trade_count_chart": self._count_series(items, "close_date"),
             "source_breakdown": self._count_series(items, "trade_source"),
-            "symbol_breakdown": self._count_series(items, "symbol"),
             "table_rows": items,
-            "accounts": available_accounts,
-            "users": available_users,
-            "symbols": sorted({item["symbol"] for item in items if item["symbol"]}),
+            "accounts": list_trading_accounts(self.db, actor.id),
+            "session_badge": self._session_badge(selected_account),
+            "account_warning": self._account_warning(selected_account),
         }
 
     def resolve_time_range(self, filters: DashboardFilters) -> tuple[datetime, datetime]:
         now = self.now_provider()
-        start_of_today = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo or timezone.utc)
-        end_of_today = datetime.combine(now.date(), time.max, tzinfo=now.tzinfo or timezone.utc)
+        tz = now.tzinfo or timezone.utc
+        start_of_today = datetime.combine(now.date(), time.min, tzinfo=tz)
+        end_of_today = datetime.combine(now.date(), time.max, tzinfo=tz)
 
         if filters.range_key == "yesterday":
             day = now.date() - timedelta(days=1)
-            return (
-                datetime.combine(day, time.min, tzinfo=now.tzinfo or timezone.utc),
-                datetime.combine(day, time.max, tzinfo=now.tzinfo or timezone.utc),
-            )
+            return datetime.combine(day, time.min, tzinfo=tz), datetime.combine(day, time.max, tzinfo=tz)
         if filters.range_key == "last_7_days":
             return start_of_today - timedelta(days=6), end_of_today
         if filters.range_key == "last_30_days":
             return start_of_today - timedelta(days=29), end_of_today
         if filters.range_key == "this_month":
             first_day = now.date().replace(day=1)
-            return (
-                datetime.combine(first_day, time.min, tzinfo=now.tzinfo or timezone.utc),
-                end_of_today,
-            )
+            return datetime.combine(first_day, time.min, tzinfo=tz), end_of_today
         if filters.range_key == "custom" and filters.start_date and filters.end_date:
             if filters.end_date < filters.start_date:
                 raise ValueError("Custom date range end date must be on or after the start date.")
             return (
-                datetime.combine(filters.start_date, time.min, tzinfo=now.tzinfo or timezone.utc),
-                datetime.combine(filters.end_date, time.max, tzinfo=now.tzinfo or timezone.utc),
+                datetime.combine(filters.start_date, time.min, tzinfo=tz),
+                datetime.combine(filters.end_date, time.max, tzinfo=tz),
             )
         return start_of_today, end_of_today
 
-    def _row_to_item(self, trade: MT5TradeHistory, account: TradingAccount, setup: TradeSetup | None) -> dict[str, object]:
-        effective_outcome = self._effective_outcome(trade, setup)
+    def _account_activity_map(self, user_id: int) -> dict[int, datetime]:
+        activity: dict[int, datetime] = {}
+        trade_rows = (
+            self.db.query(
+                MT5TradeHistory.trading_account_id,
+                func.max(func.coalesce(MT5TradeHistory.synced_at, MT5TradeHistory.close_time)),
+            )
+            .filter(MT5TradeHistory.user_id == user_id)
+            .group_by(MT5TradeHistory.trading_account_id)
+            .all()
+        )
+        for account_id, last_seen in trade_rows:
+            if account_id is not None and last_seen is not None:
+                activity[int(account_id)] = last_seen
+
+        setup_rows = (
+            self.db.query(
+                TradeSetup.trading_account_id,
+                func.max(func.coalesce(TradeSetup.executed_at, TradeSetup.updated_at, TradeSetup.created_at)),
+            )
+            .filter(TradeSetup.user_id == user_id)
+            .group_by(TradeSetup.trading_account_id)
+            .all()
+        )
+        for account_id, last_seen in setup_rows:
+            if account_id is None or last_seen is None:
+                continue
+            previous = activity.get(int(account_id))
+            if previous is None or last_seen > previous:
+                activity[int(account_id)] = last_seen
+        return activity
+
+    def _row_to_item(
+        self,
+        trade: MT5TradeHistory,
+        setup: TradeSetup | None,
+        selected_account: TradingAccount,
+    ) -> dict[str, object]:
+        effective_outcome = setup.setup_outcome if trade.trade_source == "system" and setup else trade.outcome
         return {
-            "id": trade.id,
             "position_ticket": trade.position_ticket,
             "open_time": trade.open_time,
             "close_time": trade.close_time,
             "close_date": trade.close_time.date().isoformat() if trade.close_time else "unknown",
-            "account_id": account.id,
-            "account_display": account.account_number,
-            "user_id": trade.user_id,
+            "account_display": selected_account.account_number,
             "symbol": trade.symbol,
             "side": trade.side,
             "volume": float(trade.volume),
@@ -469,50 +461,21 @@ class DashboardService:
             "linked_setup_id": trade.linked_setup_id,
             "comment": trade.comment,
             "effective_outcome": effective_outcome,
-            "setup_outcome": setup.setup_outcome if setup else None,
         }
-
-    def _effective_outcome(self, trade: MT5TradeHistory, setup: TradeSetup | None) -> str | None:
-        if trade.trade_source == "system" and setup is not None:
-            return setup.setup_outcome or trade.outcome
-        return trade.outcome
 
     def _build_summary(self, items: list[dict[str, object]]) -> dict[str, object]:
         total_trades = len(items)
-        total_setups = len({item["linked_setup_id"] for item in items if item["linked_setup_id"] is not None})
-        total_realized_pnl = sum(item["realized_pnl"] for item in items)
-        total_volume = sum(item["volume"] for item in items)
-        wins = sum(1 for item in items if item["realized_pnl"] > MANUAL_BREAKEVEN_PNL_TOLERANCE)
-        system_trades = sum(1 for item in items if item["trade_source"] == "system")
-        manual_trades = sum(1 for item in items if item["trade_source"] == "manual")
-
-        system_setup_outcomes = {
-            item["linked_setup_id"]: item["setup_outcome"]
-            for item in items
-            if item["trade_source"] == "system" and item["linked_setup_id"] is not None and item["setup_outcome"]
-        }
-        manual_like_items = [item for item in items if item["trade_source"] != "system"]
-        stoploss_count = sum(1 for outcome in system_setup_outcomes.values() if outcome == "stoploss") + sum(
-            1 for item in manual_like_items if item["effective_outcome"] == "stoploss"
-        )
-        breakeven_count = sum(1 for outcome in system_setup_outcomes.values() if outcome == "breakeven") + sum(
-            1 for item in manual_like_items if item["effective_outcome"] == "breakeven"
-        )
-        take_profit_count = sum(1 for outcome in system_setup_outcomes.values() if outcome == "tp2_hit") + sum(
-            1 for item in manual_like_items if item["effective_outcome"] == "take_profit"
-        )
-
+        total_pnl = sum(item["realized_pnl"] for item in items)
+        win_trades = sum(1 for item in items if item["realized_pnl"] > MANUAL_BREAKEVEN_PNL_TOLERANCE)
         return {
-            "total_trades": total_trades,
-            "total_setups": total_setups,
-            "total_realized_pnl": total_realized_pnl,
-            "win_rate": round((wins / total_trades * 100), 2) if total_trades else 0.0,
-            "total_volume": total_volume,
-            "system_trades": system_trades,
-            "manual_trades": manual_trades,
-            "stoploss_count": stoploss_count,
-            "breakeven_count": breakeven_count,
-            "take_profit_count": take_profit_count,
+            "total_realized_pnl": total_pnl,
+            "trade_count": total_trades,
+            "win_rate": round((win_trades / total_trades * 100), 2) if total_trades else 0.0,
+            "manual_trades": sum(1 for item in items if item["trade_source"] == "manual"),
+            "system_trades": sum(1 for item in items if item["trade_source"] == "system"),
+            "stoploss_count": sum(1 for item in items if item["effective_outcome"] == "stoploss"),
+            "breakeven_count": sum(1 for item in items if item["effective_outcome"] == "breakeven"),
+            "take_profit_count": sum(1 for item in items if item["effective_outcome"] in {"tp2_hit", "take_profit"}),
         }
 
     def _series(self, items: list[dict[str, object]], key: str, metric: str) -> list[dict[str, object]]:
@@ -536,15 +499,39 @@ class DashboardService:
             item["width_percent"] = 0 if max_value == 0 else round(item["value"] / max_value * 100, 2)
         return values
 
-    def _available_accounts(self, *, actor: User, filters: DashboardFilters) -> list[TradingAccount]:
-        query = self.db.query(TradingAccount)
-        if actor.role != "admin":
-            query = query.filter(TradingAccount.user_id == actor.id)
-        elif filters.user_id:
-            query = query.filter(TradingAccount.user_id == filters.user_id)
-        return query.order_by(TradingAccount.account_number.asc()).all()
+    def _session_badge(self, account: TradingAccount) -> dict[str, str]:
+        status = account.mt5_session_status or "unknown"
+        labels = {
+            "matched": "Matched",
+            "mismatch": "Mismatch",
+            "disconnected": "Disconnected",
+            "unknown": "Unknown",
+        }
+        tones = {
+            "matched": "success",
+            "mismatch": "warning",
+            "disconnected": "danger",
+            "unknown": "muted",
+        }
+        return {"status": status, "label": labels.get(status, status.title()), "tone": tones.get(status, "muted")}
 
-    def _available_users(self, *, actor: User) -> list[User]:
-        if actor.role != "admin":
-            return []
-        return self.db.query(User).order_by(User.email.asc()).all()
+    def _account_warning(self, account: TradingAccount) -> str | None:
+        if not account.terminal_path:
+            return "Terminal path is not configured for this trading account."
+        if account.mt5_session_status == "mismatch":
+            return (
+                f"MT5 terminal is currently logged into {account.current_mt5_login or 'another account'}. "
+                f"Log into {account.account_number} before live actions."
+            )
+        if account.mt5_session_status == "disconnected":
+            return "MT5 terminal is disconnected. Log into the selected account before syncing or running live actions."
+        if account.last_error:
+            return account.last_error
+        return None
+
+    def _normalize_datetime(self, value: datetime | None) -> datetime:
+        if value is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
