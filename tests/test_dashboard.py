@@ -364,6 +364,7 @@ def test_sync_classifies_system_manual_and_unknown_trades(db_session, created_us
 def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db_session, created_user):
     account = _create_account(db_session, created_user, "PAGE-001")
     setup = _create_setup(db_session, created_user, account, order1_ticket=82001, order2_ticket=82002, setup_outcome="tp2_hit")
+    long_comment = "System trade comment that is intentionally long to verify truncation and tooltip behavior in the dashboard trade table."
     db_session.add(
         MT5TradeHistory(
             user_id=created_user.id,
@@ -380,7 +381,7 @@ def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db
             realized_pnl=50.0,
             open_time=datetime.now(timezone.utc) - timedelta(hours=2),
             close_time=datetime.now(timezone.utc) - timedelta(hours=1),
-            comment=f"setup-{setup.id}-o1",
+            comment=long_comment,
         )
     )
     db_session.commit()
@@ -392,6 +393,10 @@ def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db
     assert "Trading Dashboard" in response.text
     assert f"/trade-setups/{setup.id}" in response.text
     assert "PAGE-001" in response.text
+    assert "dashboard-trade-table" in response.text
+    assert "trade-pill trade-pill-source trade-pill-source-system" in response.text
+    assert "trade-pill trade-pill-outcome trade-pill-outcome-tp2-hit" in response.text
+    assert long_comment in response.text
 
 
 def test_dashboard_authorization_error_raised_for_unowned_account(db_session, created_user):

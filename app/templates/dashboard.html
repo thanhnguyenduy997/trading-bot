@@ -140,8 +140,22 @@
 
     <section class="detail-panel results-card">
         <h2>Trades</h2>
-        <div class="table-wrap">
-            <table class="accounts-table">
+        <div class="table-wrap dashboard-trade-table-wrap">
+            <table class="accounts-table dashboard-trade-table">
+                <colgroup>
+                    <col class="col-time">
+                    <col class="col-time">
+                    <col class="col-symbol">
+                    <col class="col-side">
+                    <col class="col-number">
+                    <col class="col-number">
+                    <col class="col-number">
+                    <col class="col-number">
+                    <col class="col-pill">
+                    <col class="col-pill">
+                    <col class="col-setup">
+                    <col class="col-comment">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Open Time</th>
@@ -160,25 +174,49 @@
                 </thead>
                 <tbody>
                     {% for row in dashboard.table_rows %}
-                    <tr>
-                        <td>{{ row.open_time.strftime("%Y-%m-%d %H:%M") if row.open_time else "-" }}</td>
-                        <td>{{ row.close_time.strftime("%Y-%m-%d %H:%M") if row.close_time else "-" }}</td>
-                        <td>{{ row.symbol }}</td>
-                        <td>{{ row.side }}</td>
-                        <td>{{ "%.2f"|format(row.volume) }}</td>
-                        <td>{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</td>
-                        <td>{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</td>
-                        <td>{{ "%.2f"|format(row.realized_pnl) }}</td>
-                        <td>{{ row.trade_source }}</td>
-                        <td>{{ row.effective_outcome or "-" }}</td>
-                        <td>
-                            {% if row.linked_setup_id %}
-                            <a href="/trade-setups/{{ row.linked_setup_id }}">#{{ row.linked_setup_id }}</a>
+                    <tr class="trade-row">
+                        <td data-label="Open Time" class="time-cell">
+                            {% if row.open_time %}
+                            <span class="time-date">{{ row.open_time.strftime("%d/%m") }}</span>
+                            <span class="time-clock">{{ row.open_time.strftime("%H:%M") }}</span>
                             {% else %}
-                            -
+                            <span class="placeholder-dash">-</span>
                             {% endif %}
                         </td>
-                        <td>{{ row.comment or "-" }}</td>
+                        <td data-label="Close Time" class="time-cell">
+                            {% if row.close_time %}
+                            <span class="time-date">{{ row.close_time.strftime("%d/%m") }}</span>
+                            <span class="time-clock">{{ row.close_time.strftime("%H:%M") }}</span>
+                            {% else %}
+                            <span class="placeholder-dash">-</span>
+                            {% endif %}
+                        </td>
+                        <td data-label="Symbol" class="symbol-cell">{{ row.symbol }}</td>
+                        <td data-label="Side">
+                            <span class="trade-pill trade-pill-side trade-pill-side-{{ row.side|lower }}">{{ row.side|upper }}</span>
+                        </td>
+                        <td data-label="Volume" class="numeric-cell">{{ "%.2f"|format(row.volume) }}</td>
+                        <td data-label="Open Price" class="numeric-cell">{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</td>
+                        <td data-label="Close Price" class="numeric-cell">{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</td>
+                        <td data-label="Realized PnL" class="numeric-cell pnl-cell {% if row.realized_pnl > 1 %}pnl-profit{% elif row.realized_pnl < -1 %}pnl-loss{% else %}pnl-flat{% endif %}">
+                            {{ "%.2f"|format(row.realized_pnl) }}
+                        </td>
+                        <td data-label="Source">
+                            <span class="trade-pill trade-pill-source trade-pill-source-{{ row.trade_source|lower }}">{{ row.trade_source }}</span>
+                        </td>
+                        <td data-label="Outcome">
+                            <span class="trade-pill trade-pill-outcome trade-pill-outcome-{{ (row.effective_outcome or 'unknown')|lower|replace('_', '-') }}">{{ row.effective_outcome or "-" }}</span>
+                        </td>
+                        <td data-label="Linked Setup" class="setup-link-cell">
+                            {% if row.linked_setup_id %}
+                            <a class="setup-link-pill" href="/trade-setups/{{ row.linked_setup_id }}">#{{ row.linked_setup_id }}</a>
+                            {% else %}
+                            <span class="placeholder-dash">-</span>
+                            {% endif %}
+                        </td>
+                        <td data-label="Comment" class="comment-cell" title="{{ row.comment or '' }}">
+                            <span class="comment-text">{{ row.comment or "-" }}</span>
+                        </td>
                     </tr>
                     {% else %}
                     <tr>
