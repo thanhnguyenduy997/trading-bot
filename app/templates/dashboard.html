@@ -1,9 +1,240 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
-    <h1>Dashboard</h1>
-    <p>Welcome, {{ user.full_name or user.email }}.</p>
-    <p>This foundation is ready for account management, authentication, and future trading integrations.</p>
+<section class="card stack">
+    <div class="section-header">
+        <div>
+            <h1>Trading Dashboard</h1>
+            <p class="muted">Analyze MT5 trade history across app-linked and manual trades.</p>
+            <p class="muted">User: {{ user.full_name or user.email }}</p>
+        </div>
+        <div class="dashboard-actions">
+            <form action="/dashboard/sync" method="post" class="inline-form">
+                <input type="hidden" name="range" value="{{ dashboard.filters.range_key }}">
+                <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
+                <input type="hidden" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
+                <input type="hidden" name="trading_account_id" value="{{ dashboard.filters.trading_account_id or '' }}">
+                <input type="hidden" name="user_id" value="{{ dashboard.filters.user_id or '' }}">
+                <input type="hidden" name="symbol" value="{{ dashboard.filters.symbol or '' }}">
+                <input type="hidden" name="trade_source" value="{{ dashboard.filters.trade_source or '' }}">
+                <input type="hidden" name="outcome" value="{{ dashboard.filters.outcome or '' }}">
+                <button type="submit">Sync MT5 History</button>
+            </form>
+        </div>
+    </div>
+
+    {% if message %}
+    <div class="banner banner-success">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="banner banner-danger">{{ error }}</div>
+    {% endif %}
+
+    <form action="/dashboard" method="get" class="dashboard-filter-grid">
+        <div>
+            <label for="dashboard-range">Time Range</label>
+            <select id="dashboard-range" name="range">
+                {% for value, label in time_range_options %}
+                <option value="{{ value }}" {% if dashboard.filters.range_key == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="dashboard-start-date">Start Date</label>
+            <input id="dashboard-start-date" type="date" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
+        </div>
+        <div>
+            <label for="dashboard-end-date">End Date</label>
+            <input id="dashboard-end-date" type="date" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
+        </div>
+        {% if user.role == "admin" %}
+        <div>
+            <label for="dashboard-user-id">User</label>
+            <select id="dashboard-user-id" name="user_id">
+                <option value="">All Users</option>
+                {% for option_user in dashboard.users %}
+                <option value="{{ option_user.id }}" {% if dashboard.filters.user_id == option_user.id %}selected{% endif %}>{{ option_user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+        <div>
+            <label for="dashboard-account-id">Trading Account</label>
+            <select id="dashboard-account-id" name="trading_account_id">
+                <option value="">All Accounts</option>
+                {% for account in dashboard.accounts %}
+                <option value="{{ account.id }}" {% if dashboard.filters.trading_account_id == account.id %}selected{% endif %}>{{ account.account_number }} · {{ account.broker_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="dashboard-symbol">Symbol</label>
+            <input id="dashboard-symbol" type="text" name="symbol" value="{{ dashboard.filters.symbol or '' }}" placeholder="XAUUSD">
+        </div>
+        <div>
+            <label for="dashboard-source">Trade Source</label>
+            <select id="dashboard-source" name="trade_source">
+                <option value="">All Sources</option>
+                <option value="system" {% if dashboard.filters.trade_source == 'system' %}selected{% endif %}>System</option>
+                <option value="manual" {% if dashboard.filters.trade_source == 'manual' %}selected{% endif %}>Manual</option>
+                <option value="unknown" {% if dashboard.filters.trade_source == 'unknown' %}selected{% endif %}>Unknown</option>
+            </select>
+        </div>
+        <div>
+            <label for="dashboard-outcome">Outcome</label>
+            <select id="dashboard-outcome" name="outcome">
+                <option value="">All Outcomes</option>
+                <option value="stoploss" {% if dashboard.filters.outcome == 'stoploss' %}selected{% endif %}>Stoploss</option>
+                <option value="breakeven" {% if dashboard.filters.outcome == 'breakeven' %}selected{% endif %}>Breakeven</option>
+                <option value="tp2_hit" {% if dashboard.filters.outcome == 'tp2_hit' %}selected{% endif %}>TP2 Hit</option>
+                <option value="take_profit" {% if dashboard.filters.outcome == 'take_profit' %}selected{% endif %}>Take Profit</option>
+                <option value="manual_close" {% if dashboard.filters.outcome == 'manual_close' %}selected{% endif %}>Manual Close</option>
+                <option value="mixed" {% if dashboard.filters.outcome == 'mixed' %}selected{% endif %}>Mixed</option>
+                <option value="unknown" {% if dashboard.filters.outcome == 'unknown' %}selected{% endif %}>Unknown</option>
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button type="submit">Apply Filters</button>
+        </div>
+    </form>
+
+    <p class="muted">
+        Window: {{ dashboard.range_start.strftime("%Y-%m-%d %H:%M") }} to {{ dashboard.range_end.strftime("%Y-%m-%d %H:%M") }}
+    </p>
+
+    <section class="dashboard-summary-grid">
+        <article class="summary-card"><span>Total Trades</span><strong>{{ dashboard.summary.total_trades }}</strong></article>
+        <article class="summary-card"><span>Total Setups</span><strong>{{ dashboard.summary.total_setups }}</strong></article>
+        <article class="summary-card"><span>Total Realized PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
+        <article class="summary-card"><span>Win Rate</span><strong>{{ "%.2f"|format(dashboard.summary.win_rate) }}%</strong></article>
+        <article class="summary-card"><span>Total Volume</span><strong>{{ "%.2f"|format(dashboard.summary.total_volume) }}</strong></article>
+        <article class="summary-card"><span>System Trades</span><strong>{{ dashboard.summary.system_trades }}</strong></article>
+        <article class="summary-card"><span>Manual Trades</span><strong>{{ dashboard.summary.manual_trades }}</strong></article>
+        <article class="summary-card"><span>Stoploss Count</span><strong>{{ dashboard.summary.stoploss_count }}</strong></article>
+        <article class="summary-card"><span>Breakeven Count</span><strong>{{ dashboard.summary.breakeven_count }}</strong></article>
+        <article class="summary-card"><span>Take Profit Count</span><strong>{{ dashboard.summary.take_profit_count }}</strong></article>
+    </section>
+
+    <section class="dashboard-chart-grid">
+        <article class="detail-panel">
+            <h2>Realized PnL Over Time</h2>
+            <div class="mini-chart">
+                {% for item in dashboard.pnl_chart %}
+                <div class="chart-row">
+                    <span class="chart-label">{{ item.label }}</span>
+                    <div class="chart-bar-shell">
+                        <div class="chart-bar {% if item.direction == 'negative' %}negative{% endif %}" style="width: {{ item.width_percent }}%;"></div>
+                    </div>
+                    <span class="chart-value">{{ "%.2f"|format(item.value) }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No trade history in the selected range yet.</p>
+                {% endfor %}
+            </div>
+        </article>
+        <article class="detail-panel">
+            <h2>Trade Count Over Time</h2>
+            <div class="mini-chart">
+                {% for item in dashboard.trade_count_chart %}
+                <div class="chart-row">
+                    <span class="chart-label">{{ item.label }}</span>
+                    <div class="chart-bar-shell">
+                        <div class="chart-bar neutral" style="width: {{ item.width_percent }}%;"></div>
+                    </div>
+                    <span class="chart-value">{{ item.value }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No trade counts available.</p>
+                {% endfor %}
+            </div>
+        </article>
+        <article class="detail-panel">
+            <h2>Source Breakdown</h2>
+            <div class="mini-chart">
+                {% for item in dashboard.source_breakdown %}
+                <div class="chart-row">
+                    <span class="chart-label">{{ item.label }}</span>
+                    <div class="chart-bar-shell">
+                        <div class="chart-bar neutral" style="width: {{ item.width_percent }}%;"></div>
+                    </div>
+                    <span class="chart-value">{{ item.value }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No source data available.</p>
+                {% endfor %}
+            </div>
+        </article>
+        <article class="detail-panel">
+            <h2>Symbol Breakdown</h2>
+            <div class="mini-chart">
+                {% for item in dashboard.symbol_breakdown %}
+                <div class="chart-row">
+                    <span class="chart-label">{{ item.label }}</span>
+                    <div class="chart-bar-shell">
+                        <div class="chart-bar neutral" style="width: {{ item.width_percent }}%;"></div>
+                    </div>
+                    <span class="chart-value">{{ item.value }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No symbol data available.</p>
+                {% endfor %}
+            </div>
+        </article>
+    </section>
+
+    <section class="detail-panel results-card">
+        <h2>Trade List</h2>
+        <div class="table-wrap">
+            <table class="accounts-table">
+                <thead>
+                    <tr>
+                        <th>Open Time</th>
+                        <th>Close Time</th>
+                        <th>Account</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Volume</th>
+                        <th>Open Price</th>
+                        <th>Close Price</th>
+                        <th>Realized PnL</th>
+                        <th>Source</th>
+                        <th>Outcome</th>
+                        <th>Linked Setup</th>
+                        <th>Comment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in dashboard.table_rows %}
+                    <tr>
+                        <td>{{ row.open_time.strftime("%Y-%m-%d %H:%M") if row.open_time else "-" }}</td>
+                        <td>{{ row.close_time.strftime("%Y-%m-%d %H:%M") if row.close_time else "-" }}</td>
+                        <td>{{ row.account_display }}</td>
+                        <td>{{ row.symbol }}</td>
+                        <td>{{ row.side }}</td>
+                        <td>{{ "%.2f"|format(row.volume) }}</td>
+                        <td>{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</td>
+                        <td>{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</td>
+                        <td>{{ "%.2f"|format(row.realized_pnl) }}</td>
+                        <td>{{ row.trade_source }}</td>
+                        <td>{{ row.effective_outcome or "-" }}</td>
+                        <td>
+                            {% if row.linked_setup_id %}
+                            <a href="/trade-setups/{{ row.linked_setup_id }}">#{{ row.linked_setup_id }}</a>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>{{ row.comment or "-" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="13" class="muted">No normalized MT5 trades matched the selected filters.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
     {% if daily_risk_state %}
     <section class="detail-panel results-card">
         <h2>Daily Risk State</h2>

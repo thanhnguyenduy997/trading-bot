@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -71,6 +72,10 @@ class ExecutionAdapter(ABC):
 
     @abstractmethod
     def get_position_history(self, *, position_ticket: int) -> list[dict[str, object]]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_trade_history(self, *, date_from: datetime, date_to: datetime) -> list[dict[str, object]]:
         raise NotImplementedError
 
     @abstractmethod

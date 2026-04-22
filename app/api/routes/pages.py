@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from datetime import date
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -18,6 +20,7 @@ from app.services.account_symbols import (
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.notifications import send_trading_account_test_notification
+from app.services.mt5_trade_history import DashboardFilters, DashboardService, MT5TradeHistorySyncService
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
@@ -43,6 +46,15 @@ INVALID_DEFAULT_SYMBOL_MESSAGE = (
 MISSING_DEFAULT_SYMBOL_MESSAGE = (
     "Saved default symbol is no longer synced for this account. "
     "No synced symbols are currently available."
+)
+
+TIME_RANGE_OPTIONS = (
+    ("today", "Today"),
+    ("yesterday", "Yesterday"),
+    ("last_7_days", "Last 7 Days"),
+    ("last_30_days", "Last 30 Days"),
+    ("this_month", "This Month"),
+    ("custom", "Custom Range"),
 )
 
 
@@ -84,6 +96,34 @@ def _render_trade_preview_page(
             "preview_defaults": resolved_preview_defaults,
         },
         status_code=status_code,
+    )
+
+
+def _parse_dashboard_filters(
+    *,
+    range_key: str,
+    start_date: str | None,
+    end_date: str | None,
+    trading_account_id: str | None,
+    user_id: str | None,
+    symbol: str | None,
+    trade_source: str | None,
+    outcome: str | None,
+    current_user: User,
+) -> DashboardFilters:
+    parsed_account_id = int(trading_account_id) if trading_account_id else None
+    parsed_user_id = int(user_id) if user_id else None
+    parsed_start = date.fromisoformat(start_date) if start_date else None
+    parsed_end = date.fromisoformat(end_date) if end_date else None
+    return DashboardFilters(
+        range_key=range_key,
+        start_date=parsed_start,
+        end_date=parsed_end,
+        trading_account_id=parsed_account_id,
+        user_id=parsed_user_id if current_user.role == "admin" else current_user.id,
+        symbol=symbol.upper() if symbol else None,
+        trade_source=trade_source or None,
+        outcome=outcome or None,
     )
 
 
@@ -267,14 +307,112 @@ def login_page(
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(
     request: Request,
+    range_key: str = Query("today", alias="range"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    trading_account_id: str | None = Query(None),
+    user_id: str | None = Query(None),
+    symbol: str | None = Query(None),
+    trade_source: str | None = Query(None),
+    outcome: str | None = Query(None),
+    message: str | None = Query(None),
+    error: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     daily_risk_state = RiskManagementService(db).get_daily_state(current_user.id)
+    try:
+        filters = _parse_dashboard_filters(
+            range_key=range_key,
+            start_date=start_date,
+            end_date=end_date,
+            trading_account_id=trading_account_id,
+            user_id=user_id,
+            symbol=symbol,
+            trade_source=trade_source,
+            outcome=outcome,
+            current_user=current_user,
+        )
+        dashboard = DashboardService(db).build_dashboard(actor=current_user, filters=filters)
+    except ValueError as exc:
+        filters = DashboardFilters(user_id=current_user.id if current_user.role != "admin" else user_id)
+        dashboard = DashboardService(db).build_dashboard(actor=current_user, filters=filters)
+        error = str(exc)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"request": request, "user": current_user, "daily_risk_state": daily_risk_state},
+        {
+            "request": request,
+            "user": current_user,
+            "daily_risk_state": daily_risk_state,
+            "dashboard": dashboard,
+            "time_range_options": TIME_RANGE_OPTIONS,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@router.post("/dashboard/sync", response_class=HTMLResponse)
+def dashboard_sync_page(
+    request: Request,
+    range_key: str = Form("today", alias="range"),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    trading_account_id: str = Form(""),
+    user_id: str = Form(""),
+    symbol: str = Form(""),
+    trade_source: str = Form(""),
+    outcome: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    daily_risk_state = RiskManagementService(db).get_daily_state(current_user.id)
+    message = None
+    error = None
+    try:
+        filters = _parse_dashboard_filters(
+            range_key=range_key,
+            start_date=start_date or None,
+            end_date=end_date or None,
+            trading_account_id=trading_account_id,
+            user_id=user_id,
+            symbol=symbol or None,
+            trade_source=trade_source or None,
+            outcome=outcome or None,
+            current_user=current_user,
+        )
+        dashboard_service = DashboardService(db)
+        range_start, range_end = dashboard_service.resolve_time_range(filters)
+        result = MT5TradeHistorySyncService(db).sync_accounts_for_filters(
+            actor=current_user,
+            filters=filters,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        dashboard = dashboard_service.build_dashboard(actor=current_user, filters=filters)
+        message = (
+            f"Synced {result['synced_trades']} MT5 trades across "
+            f"{result['synced_accounts']} trading accounts."
+        )
+        if result["errors"]:
+            error = " ; ".join(result["errors"])
+    except ValueError as exc:
+        filters = DashboardFilters(user_id=current_user.id if current_user.role != "admin" else user_id)
+        dashboard = DashboardService(db).build_dashboard(actor=current_user, filters=filters)
+        error = str(exc)
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "request": request,
+            "user": current_user,
+            "daily_risk_state": daily_risk_state,
+            "dashboard": dashboard,
+            "time_range_options": TIME_RANGE_OPTIONS,
+            "message": message,
+            "error": error,
+        },
     )
 
 

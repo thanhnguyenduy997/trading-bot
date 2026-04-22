@@ -303,6 +303,20 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             )
         return [self._deal_to_dict(deal) for deal in deals]
 
+    def get_trade_history(self, *, date_from: datetime, date_to: datetime) -> list[dict[str, object]]:
+        self._ensure_connected()
+        deals = self._mt5.history_deals_get(date_from, date_to)
+        if deals is None:
+            raise AdapterError(
+                code="mt5_history_unavailable",
+                message="Unable to inspect MT5 account trade history.",
+                details=self._error_details(
+                    date_from=date_from.isoformat(),
+                    date_to=date_to.isoformat(),
+                ),
+            )
+        return [self._deal_to_dict(deal) for deal in deals]
+
     def modify_position_sl(
         self,
         *,

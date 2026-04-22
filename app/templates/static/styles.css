@@ -897,3 +897,125 @@ button:hover {
         gap: 0.12rem;
     }
 }
+
+.banner {
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    font-weight: 650;
+}
+
+.banner-success {
+    background: #edfdf3;
+    border-color: #abefc6;
+    color: var(--success);
+}
+
+.banner-danger {
+    background: #fef3f2;
+    border-color: #fecdca;
+    color: var(--danger);
+}
+
+.dashboard-actions,
+.inline-form {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.dashboard-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.9rem;
+}
+
+.filter-actions {
+    display: flex;
+    align-items: end;
+}
+
+.dashboard-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.85rem;
+}
+
+.summary-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.summary-card span {
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.summary-card strong {
+    font-size: 1.2rem;
+    line-height: 1.1;
+}
+
+.dashboard-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.mini-chart {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: minmax(88px, 1fr) 2fr minmax(60px, auto);
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.chart-label,
+.chart-value {
+    font-size: 0.88rem;
+}
+
+.chart-bar-shell {
+    height: 0.8rem;
+    border-radius: 999px;
+    background: #edf2f7;
+    overflow: hidden;
+}
+
+.chart-bar {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #13a56b 0%, #0f7a4f 100%);
+}
+
+.chart-bar.negative {
+    background: linear-gradient(90deg, #f97066 0%, #b42318 100%);
+}
+
+.chart-bar.neutral {
+    background: linear-gradient(90deg, #7cc4fa 0%, #1267d6 100%);
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+    .dashboard-actions,
+    .inline-form,
+    .filter-actions {
+        width: 100%;
+    }
+
+    .chart-row {
+        grid-template-columns: 1fr;
+    }
+}
