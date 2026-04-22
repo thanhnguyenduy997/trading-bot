@@ -137,6 +137,7 @@ body {
     max-width: 1040px;
     margin: 1.5rem auto;
     padding: 0 1rem;
+    min-width: 0;
 }
 
 .card {
@@ -146,6 +147,8 @@ body {
     padding: 1.45rem;
     box-shadow: 0 14px 38px rgba(16, 24, 40, 0.06);
     overflow-wrap: anywhere;
+    min-width: 0;
+    max-width: 100%;
 }
 
 h1,
@@ -451,6 +454,8 @@ button:hover {
     border: 1px solid var(--line);
     border-radius: 16px;
     background: #fff;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .detail-panel h2 {
@@ -934,6 +939,8 @@ button:hover {
 
 .dashboard-shell {
     gap: 1rem;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .dashboard-hero {
@@ -947,23 +954,33 @@ button:hover {
     background:
         radial-gradient(circle at top right, rgba(18, 103, 214, 0.12), transparent 16rem),
         linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    min-width: 0;
+    max-width: 100%;
+}
+
+.dashboard-hero > * {
+    min-width: 0;
 }
 
 .dashboard-hero-actions {
     display: grid;
     gap: 0.75rem;
     justify-items: end;
+    min-width: 0;
 }
 
 .dashboard-meta-panel {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 0.9rem;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .dashboard-meta-panel div {
     display: grid;
     gap: 0.25rem;
+    min-width: 0;
 }
 
 .status-pill {
@@ -1014,17 +1031,27 @@ button:hover {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 0.9rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.dashboard-filter-grid > *,
+.dashboard-compact-filters > * {
+    min-width: 0;
 }
 
 .filter-actions {
     display: flex;
     align-items: end;
+    min-width: 0;
 }
 
 .dashboard-summary-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.85rem;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .summary-card {
@@ -1034,6 +1061,8 @@ button:hover {
     border: 1px solid var(--line);
     border-radius: 14px;
     background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    min-width: 0;
+    max-width: 100%;
 }
 
 .summary-card span {
@@ -1048,25 +1077,30 @@ button:hover {
 
 .dashboard-chart-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 1rem;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .mini-chart {
     display: grid;
     gap: 0.65rem;
+    min-width: 0;
 }
 
 .chart-row {
     display: grid;
-    grid-template-columns: minmax(88px, 1fr) 2fr minmax(60px, auto);
+    grid-template-columns: minmax(72px, auto) minmax(0, 1fr) minmax(56px, auto);
     align-items: center;
     gap: 0.7rem;
+    min-width: 0;
 }
 
 .chart-label,
 .chart-value {
     font-size: 0.88rem;
+    min-width: 0;
 }
 
 .chart-bar-shell {
@@ -1074,6 +1108,7 @@ button:hover {
     border-radius: 999px;
     background: #edf2f7;
     overflow: hidden;
+    min-width: 0;
 }
 
 .chart-bar {
@@ -1092,19 +1127,26 @@ button:hover {
 
 .table-wrap {
     overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .dashboard-trade-table-wrap {
     overflow-x: auto;
     overflow-y: auto;
+    width: 100%;
     max-width: 100%;
+    min-width: 0;
     border: 1px solid var(--line);
     border-radius: 16px;
     background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    -webkit-overflow-scrolling: touch;
 }
 
 .dashboard-trade-table {
     min-width: 1160px;
+    width: max-content;
+    max-width: none;
     table-layout: fixed;
 }
 
@@ -1334,6 +1376,8 @@ button:hover {
     display: grid;
     gap: 0.8rem;
     justify-items: start;
+    min-width: 0;
+    max-width: 100%;
 }
 
 @media (max-width: 720px) {
@@ -1360,7 +1404,7 @@ button:hover {
 
 @media (max-width: 640px) {
     .dashboard-trade-table {
-        min-width: 100%;
+        min-width: 980px;
     }
 
     .dashboard-trade-table,
