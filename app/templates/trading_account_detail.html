@@ -182,7 +182,11 @@
         const response = await fetch(event.currentTarget.action, {
             method: "POST",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
 
         if (!response.ok) {
@@ -214,7 +218,11 @@
         const response = await fetch(requestUrl, {
             method: "GET",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
 
         if (!response.ok) {
@@ -251,7 +259,11 @@
         const response = await fetch(event.currentTarget.action, {
             method: "POST",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
 
         if (!response.ok) {
@@ -270,7 +282,11 @@
         const response = await fetch("/trading-accounts/id/{{ account.id }}/symbols", {
             method: "GET",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
         const quoteSymbol = document.getElementById("quote-symbol");
         const quoteSymbolHelp = document.getElementById("quote-symbol-help");
@@ -306,7 +322,11 @@
         const response = await fetch("/trading-accounts/id/{{ account.id }}/test-telegram", {
             method: "POST",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
         if (!response.ok) {
             showError(data.message || data.detail || "Telegram test failed.");

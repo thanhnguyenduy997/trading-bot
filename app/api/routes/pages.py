@@ -247,8 +247,20 @@ def root() -> RedirectResponse:
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "login.html", {"request": request})
+def login_page(
+    request: Request,
+    next: str | None = None,
+    message: str | None = None,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "request": request,
+            "next": next if next and next.startswith("/") and not next.startswith("//") else None,
+            "message": message,
+        },
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

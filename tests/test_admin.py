@@ -111,3 +111,12 @@ def test_impersonation_start_stop_preserves_admin_identity(client, db_session):
     dashboard_after = client.get("/dashboard")
     assert "You are acting as" not in dashboard_after.text
     assert "Admin User" in dashboard_after.text
+
+
+def test_expired_session_on_admin_page_redirects_to_login(client):
+    client.cookies.set("access_token", "expired-token")
+
+    response = client.get("/admin/users", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("&next=/admin/users")

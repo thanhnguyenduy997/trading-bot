@@ -199,7 +199,11 @@
         const response = await fetch(`/trading-accounts/id/${accountId}/symbols`, {
             method: "GET",
             credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
 
         if (!response.ok) {
@@ -264,9 +268,15 @@
         const response = await fetch("/trade-setups/preview/defaults", {
             method: "POST",
             credentials: "same-origin",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-Requested-With": "XMLHttpRequest",
+            },
             body: payload.toString(),
         });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
         const data = await response.json();
 
         if (!response.ok) {

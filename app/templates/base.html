@@ -50,5 +50,21 @@
     <main class="page-shell">
         {% block content %}{% endblock %}
     </main>
+    <script>
+        window.handleExpiredSessionResponse = async function(response) {
+            if (!response || response.status !== 401) {
+                return false;
+            }
+            let payload = null;
+            try {
+                payload = await response.clone().json();
+            } catch (error) {
+                payload = null;
+            }
+            const loginUrl = payload?.login_url || `/login?message=${encodeURIComponent("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.")}&next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+            window.location.href = loginUrl;
+            return true;
+        };
+    </script>
 </body>
 </html>

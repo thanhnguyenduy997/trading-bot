@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, sanitize_next_value
 from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.schemas.auth import Token
@@ -51,6 +51,7 @@ def login_for_access_token(
 def login_from_form(
     email: str = Form(...),
     password: str = Form(...),
+    next: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     user = db.query(User).filter(User.email == email).first()
@@ -60,7 +61,8 @@ def login_from_form(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
     access_token = create_access_token(subject=str(user.id))
-    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    redirect_target = sanitize_next_value(next) or "/dashboard"
+    response = RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(
         key="access_token",
         value=access_token,
