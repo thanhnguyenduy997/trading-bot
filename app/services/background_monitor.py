@@ -7,7 +7,8 @@ from app.core.database import SessionLocal
 from app.execution.base import AdapterError
 from app.services.notifications import notify_pending_trade_events
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
-from app.services.trade_setups import list_setups_requiring_monitoring
+from app.services.trade_setup_outcomes import TradeSetupOutcomeService
+from app.services.trade_setups import list_setups_requiring_monitoring, list_setups_requiring_outcome_reconciliation
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,15 @@ def run_monitoring_cycle() -> int:
                 logger.exception("Trade setup monitoring failed for setup %s", setup.id)
             except Exception:
                 logger.exception("Unexpected trade setup monitoring error for setup %s", setup.id)
+        for setup in list_setups_requiring_outcome_reconciliation(db):
+            service = TradeSetupOutcomeService(db)
+            try:
+                service.reconcile_setup(setup.id, setup.user_id)
+                processed_count += 1
+            except (AdapterError, LookupError, ValueError):
+                logger.exception("Trade setup outcome reconciliation failed for setup %s", setup.id)
+            except Exception:
+                logger.exception("Unexpected trade setup reconciliation error for setup %s", setup.id)
         notify_pending_trade_events(db)
     finally:
         db.close()

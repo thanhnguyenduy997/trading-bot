@@ -7,6 +7,7 @@ from app.execution.base import AdapterError
 from app.services.execution import default_adapter_factory
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event, event_exists
+from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
 
@@ -16,6 +17,7 @@ class TradeSetupMonitoringService:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
         self.risk_management = RiskManagementService(db)
+        self.outcomes = TradeSetupOutcomeService(db, adapter_factory=self.adapter_factory)
 
     def process_setup(self, setup_id: int, user_id: int):
         setup = get_trade_setup(self.db, setup_id, user_id)
@@ -39,6 +41,7 @@ class TradeSetupMonitoringService:
                 setup.monitoring_status = "waiting_tp1"
                 setup.order2_be_move_error = None
                 self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
                 return self._result(setup, order1_status="open", order2_status=self._position_status(order2_position))
 
             if order2_position is None:
@@ -51,6 +54,7 @@ class TradeSetupMonitoringService:
                         result_status="stoploss" if stoploss_hit else "non_stoploss",
                     )
                 self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
                 return self._result(setup, order1_status="closed", order2_status="closed")
 
             order1_history = adapter.get_position_history(position_ticket=int(setup.order1_ticket))
@@ -59,6 +63,7 @@ class TradeSetupMonitoringService:
                 setup.monitoring_status = "order1_closed_not_tp1"
                 setup.order2_be_move_error = None
                 self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             if not event_exists(self.db, setup.id, user_id, "tp1_hit"):
@@ -79,12 +84,14 @@ class TradeSetupMonitoringService:
                 setup.monitoring_status = "be_already_moved"
                 setup.order2_be_move_error = None
                 self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             if self._is_at_or_better_than_be(setup.side, current_sl, be_price, tp1_details["point"]):
                 setup.monitoring_status = "be_already_set"
                 setup.order2_be_move_error = None
                 self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             create_trade_event(
@@ -139,6 +146,7 @@ class TradeSetupMonitoringService:
                 f"Order 2 stop loss moved to breakeven at {be_price}.",
             )
             self._persist(setup)
+            self.outcomes.reconcile_setup(setup.id, user_id)
             return self._result(setup, order1_status="closed", order2_status="open", be_moved=True)
         finally:
             close = getattr(adapter, "close", None)

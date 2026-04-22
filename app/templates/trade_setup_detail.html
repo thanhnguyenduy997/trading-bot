@@ -68,32 +68,18 @@
             <dl class="compact-details">
                 <div><dt>Order 1</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
                 <div><dt>Order 2</dt><dd>{{ setup.order2_ticket or "Not opened" }}</dd></div>
-                <div>
-                    <dt>Order 1 state</dt>
-                    <dd>
-                        {% if setup.monitoring_status == "waiting_tp1" %}
-                        Open
-                        {% elif setup.monitoring_status in ["order1_closed_not_tp1", "be_already_set", "be_already_moved", "be_moved", "be_move_failed", "order2_closed"] %}
-                        Closed
-                        {% else %}
-                        Unknown
-                        {% endif %}
-                    </dd>
-                </div>
-                <div>
-                    <dt>Order 2 state</dt>
-                    <dd>
-                        {% if setup.monitoring_status == "order2_closed" %}
-                        Closed
-                        {% elif setup.order2_ticket %}
-                        Open or pending refresh
-                        {% else %}
-                        Unknown
-                        {% endif %}
-                    </dd>
-                </div>
+                <div><dt>Order 1 outcome</dt><dd>{{ setup.order1_outcome or "Unknown" }}</dd></div>
+                <div><dt>Order 1 close time</dt><dd>{{ setup.order1_closed_at if setup.order1_closed_at is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 1 close price</dt><dd>{{ setup.order1_close_price if setup.order1_close_price is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 1 realized PnL</dt><dd>{{ setup.order1_realized_pnl if setup.order1_realized_pnl is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 2 outcome</dt><dd>{{ setup.order2_outcome or "Unknown" }}</dd></div>
+                <div><dt>Order 2 close time</dt><dd>{{ setup.order2_closed_at if setup.order2_closed_at is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 2 close price</dt><dd>{{ setup.order2_close_price if setup.order2_close_price is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 2 realized PnL</dt><dd>{{ setup.order2_realized_pnl if setup.order2_realized_pnl is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
                 <div><dt>Setup result</dt><dd>{{ setup.result_status or "Pending" }}</dd></div>
+                <div><dt>Setup outcome</dt><dd>{{ setup.setup_outcome or "Unknown" }}</dd></div>
+                <div><dt>Outcome recorded</dt><dd>{{ setup.setup_outcome_recorded_at if setup.setup_outcome_recorded_at is not none else "Not recorded" }}</dd></div>
                 <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
             </dl>
         </section>
@@ -129,6 +115,9 @@
             </form>
             <form action="/trade-setups/{{ setup.id }}/monitor" method="post">
                 <button type="submit" class="secondary-button">Check TP1 / Move BE</button>
+            </form>
+            <form action="/trade-setups/{{ setup.id }}/reconcile" method="post">
+                <button type="submit" class="secondary-button">Reconcile Outcome</button>
             </form>
         </div>
         <p class="muted">Created {{ setup.created_at }} · Updated {{ setup.updated_at }}{% if setup.executed_at %} · Executed {{ setup.executed_at }}{% endif %}</p>

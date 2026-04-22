@@ -57,6 +57,18 @@ class TradeSetupExecutionService:
             setup.order2_be_move_error = None
             setup.order1_ticket = None
             setup.order2_ticket = None
+            setup.order1_outcome = None
+            setup.order2_outcome = None
+            setup.order1_closed_at = None
+            setup.order2_closed_at = None
+            setup.order1_close_price = None
+            setup.order2_close_price = None
+            setup.order1_realized_pnl = None
+            setup.order2_realized_pnl = None
+            setup.setup_outcome = None
+            setup.setup_outcome_recorded_at = None
+            setup.result_status = None
+            setup.result_recorded_at = None
             self.db.add(setup)
             self.db.flush()
 
@@ -127,6 +139,10 @@ class TradeSetupExecutionService:
             setup.execution_error = None
             setup.monitoring_status = "waiting_tp1"
             setup.executed_at = datetime.now(timezone.utc)
+            setup.order1_outcome = "open"
+            setup.order2_outcome = "open"
+            setup.setup_outcome = "open"
+            setup.setup_outcome_recorded_at = setup.executed_at
             create_trade_event(
                 self.db,
                 user_id,
@@ -139,6 +155,10 @@ class TradeSetupExecutionService:
             setup.execution_error = setup.execution_error or self._error_summary(exc)
             setup.execution_details = setup.execution_details or self._error_details(exc)
             setup.monitoring_status = "execution_failed"
+            setup.order1_outcome = None
+            setup.order2_outcome = None
+            setup.setup_outcome = "execution_failed"
+            setup.setup_outcome_recorded_at = datetime.now(timezone.utc)
             setup.executed_at = None
             create_trade_event(
                 self.db,

@@ -58,6 +58,16 @@ class TradeSetupRead(BaseModel):
     order2_be_move_error: str | None
     result_status: str | None
     result_recorded_at: datetime | None
+    order1_outcome: str | None
+    order2_outcome: str | None
+    order1_closed_at: datetime | None
+    order2_closed_at: datetime | None
+    order1_close_price: float | None
+    order2_close_price: float | None
+    order1_realized_pnl: float | None
+    order2_realized_pnl: float | None
+    setup_outcome: str | None
+    setup_outcome_recorded_at: datetime | None
     executed_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -93,3 +103,17 @@ class TradeSetupMonitoringRead(BaseModel):
     be_moved: bool
     order2_be_moved_at: datetime | None
     order2_be_move_error: str | None
+
+
+class TradeSetupReconciliationRead(BaseModel):
+    success: bool
+    setup_outcome: str
+    order1_outcome: str
+    order2_outcome: str
+    order1_closed_at: datetime | None
+    order2_closed_at: datetime | None
+    order1_close_price: float | None
+    order2_close_price: float | None
+    order1_realized_pnl: float | None
+    order2_realized_pnl: float | None
+    setup_outcome_recorded_at: datetime | None

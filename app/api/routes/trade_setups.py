@@ -13,12 +13,14 @@ from app.schemas.trade_setup import (
     TradeSetupCreate,
     TradeSetupExecutionRead,
     TradeSetupMonitoringRead,
+    TradeSetupReconciliationRead,
     TradeSetupRead,
 )
 from app.services.preview_service import PreviewService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
+from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups
 
 
@@ -116,6 +118,24 @@ def monitor_trade_setup(
     except AdapterError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.to_dict()) from exc
     return TradeSetupMonitoringRead.model_validate(result)
+
+
+@router.post("/{setup_id}/reconcile", response_model=TradeSetupReconciliationRead)
+def reconcile_trade_setup(
+    setup_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradeSetupReconciliationRead:
+    service = TradeSetupOutcomeService(db)
+    try:
+        result = service.reconcile_setup(setup_id, current_user.id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AdapterError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.to_dict()) from exc
+    return TradeSetupReconciliationRead.model_validate(result)
 
 
 @router.get("/{setup_id}/events", response_model=List[TradeEventRead])

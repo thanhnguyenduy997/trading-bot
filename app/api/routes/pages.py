@@ -22,6 +22,7 @@ from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
+from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups, update_draft_trade_setup
 from app.services.trading_accounts import (
     DuplicateTradingAccountError,
@@ -570,6 +571,57 @@ def monitor_trade_setup_page(
             setup,
             events,
             error=setup.order2_be_move_error or exc.message,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+
+@router.post("/trade-setups/{setup_id}/reconcile", response_class=HTMLResponse)
+def reconcile_trade_setup_page(
+    setup_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    service = TradeSetupOutcomeService(db)
+    try:
+        result = service.reconcile_setup(setup_id, current_user.id)
+        setup = get_trade_setup(db, setup_id, current_user.id)
+        if not setup:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
+        events = list_trade_events(db, setup_id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            events,
+            message=f"Outcome reconciled: {result['setup_outcome']}.",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        setup = get_trade_setup(db, setup_id, current_user.id)
+        if not setup:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found") from exc
+        events = list_trade_events(db, setup_id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            events,
+            error=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except AdapterError as exc:
+        setup = get_trade_setup(db, setup_id, current_user.id)
+        if not setup:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found") from exc
+        events = list_trade_events(db, setup_id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            events,
+            error=exc.message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
