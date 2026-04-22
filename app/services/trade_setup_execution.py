@@ -9,6 +9,7 @@ from app.services.app_settings import get_effective_max_preview_drift_percent
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.execution import default_adapter_factory
+from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event
 from app.services.trade_setups import get_trade_setup
@@ -48,6 +49,8 @@ class TradeSetupExecutionService:
         try:
             self.risk_management.assert_execute_allowed(setup=setup, account=account)
             self._validate_preview_drift(setup=setup, account=account, user_id=user_id)
+            account_info = adapter.get_account_info()
+            persist_session_matched(self.db, account, account_info=account_info)
             create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
             setup.status = "queued"
             setup.execution_error = None
@@ -151,6 +154,16 @@ class TradeSetupExecutionService:
                 f"Trade setup executed. Tickets: {setup.order1_ticket}, {setup.order2_ticket}.",
             )
         except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
+            if exc.code == "mt5_session_mismatch":
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "execute_blocked_account_mismatch",
+                    exc.message,
+                    details=self._error_details(exc),
+                )
             setup.status = "failed"
             setup.execution_error = setup.execution_error or self._error_summary(exc)
             setup.execution_details = setup.execution_details or self._error_details(exc)
@@ -253,10 +266,23 @@ class TradeSetupExecutionService:
 
     def _validate_preview_drift(self, *, setup, account, user_id: int) -> None:
         execution_service = TradingAccountExecutionService(self.db, adapter_factory=self.adapter_factory)
-        live_preview = PreviewService(self.db, execution_service=execution_service).build_preview(
-            user_id,
-            payload=self._preview_request_from_setup(setup),
-        )
+        try:
+            live_preview = PreviewService(self.db, execution_service=execution_service).build_preview(
+                user_id,
+                payload=self._preview_request_from_setup(setup),
+            )
+        except ValueError as exc:
+            self.db.refresh(account)
+            if account.mt5_session_status == "mismatch":
+                raise AdapterError(
+                    code="mt5_session_mismatch",
+                    message=account.last_error.split(": ", 1)[1] if account.last_error and ": " in account.last_error else str(exc),
+                    details={
+                        "expected_account": account.account_number,
+                        "current_login": account.current_mt5_login,
+                    },
+                ) from exc
+            raise
 
         saved_stop_distance = float(setup.r_value)
         live_stop_distance = float(live_preview.r_value)

@@ -19,6 +19,8 @@ class TradingAccount(Base):
     platform: Mapped[str] = mapped_column(String(20), nullable=False, default="mt5", server_default="mt5")
     terminal_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     connection_status: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown", server_default="unknown")
+    mt5_session_status: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown", server_default="unknown")
+    current_mt5_login: Mapped[str | None] = mapped_column(String(120), nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     symbols_last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

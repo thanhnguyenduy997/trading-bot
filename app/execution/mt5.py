@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
+import os
 from typing import Any
 
-from app.core.crypto import decrypt_value
 from app.execution.base import AdapterError, ExecutionAdapter
 from app.models.trading_account import TradingAccount
 
@@ -18,8 +18,18 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             return
         self._mt5 = self._load_mt5()
         initialize_kwargs: dict[str, str] = {}
-        if self.account.terminal_path:
-            initialize_kwargs["path"] = self.account.terminal_path
+        if not self.account.terminal_path:
+            raise AdapterError(
+                code="mt5_terminal_path_missing",
+                message="MT5 terminal path is required for live MT5 actions.",
+            )
+        if not os.path.exists(self.account.terminal_path):
+            raise AdapterError(
+                code="mt5_terminal_path_not_found",
+                message=f"MT5 terminal path does not exist: {self.account.terminal_path}",
+                details={"terminal_path": self.account.terminal_path},
+            )
+        initialize_kwargs["path"] = self.account.terminal_path
 
         if not self._mt5.initialize(**initialize_kwargs):
             raise AdapterError(
@@ -28,29 +38,35 @@ class MT5ExecutionAdapter(ExecutionAdapter):
                 details=self._error_details(terminal_path=self.account.terminal_path),
             )
 
-        try:
-            account_login = int(self.account.account_number)
-        except ValueError as exc:
+        account_info = self._mt5.account_info()
+        if account_info is None:
             self._mt5.shutdown()
             raise AdapterError(
-                code="invalid_account_number",
-                message="Trading account number must be numeric for MT5 login.",
-            ) from exc
-
-        logged_in = self._mt5.login(
-            login=account_login,
-            password=decrypt_value(self.account.password_encrypted),
-            server=self.account.server_name,
-        )
-        if not logged_in:
-            self._mt5.shutdown()
-            raise AdapterError(
-                code="mt5_login_failed",
-                message="MT5 login failed.",
+                code="mt5_session_disconnected",
+                message="MT5 terminal is not logged into any trading account.",
                 details=self._error_details(
-                    login=account_login,
-                    server=self.account.server_name,
                     terminal_path=self.account.terminal_path,
+                ),
+            )
+
+        current_login = getattr(account_info, "login", None)
+        expected_login = str(self.account.account_number).strip()
+        current_login_text = str(current_login).strip() if current_login is not None else None
+        if current_login_text != expected_login:
+            current_server = getattr(account_info, "server", None)
+            self._mt5.shutdown()
+            raise AdapterError(
+                code="mt5_session_mismatch",
+                message=(
+                    f"MT5 terminal is logged into account {current_login_text or 'unknown'}, "
+                    f"but this trading account expects {expected_login}. "
+                    "Log into the correct MT5 account in the terminal first."
+                ),
+                details=self._error_details(
+                    terminal_path=self.account.terminal_path,
+                    expected_account=expected_login,
+                    current_login=current_login_text,
+                    current_server=current_server,
                 ),
             )
         self._connected = True

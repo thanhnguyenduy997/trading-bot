@@ -973,6 +973,8 @@ def test_trading_account_connection_page(
                 "detail": {
                     **(result.error or {}),
                     "connection_status": result.connection_status,
+                    "mt5_session_status": result.mt5_session_status,
+                    "current_mt5_login": result.current_mt5_login,
                     "last_heartbeat_at": result.last_heartbeat_at.isoformat() if result.last_heartbeat_at else None,
                     "last_error": result.last_error,
                 }
@@ -1008,6 +1010,8 @@ def get_trading_account_quote_page(
                 "detail": {
                     "message": str(exc),
                     "connection_status": account.connection_status,
+                    "mt5_session_status": account.mt5_session_status,
+                    "current_mt5_login": account.current_mt5_login,
                     "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account.last_heartbeat_at else None,
                     "last_error": account.last_error,
                 }
@@ -1021,6 +1025,8 @@ def get_trading_account_quote_page(
                 "detail": {
                     **exc.to_dict(),
                     "connection_status": account.connection_status if account else "error",
+                    "mt5_session_status": account.mt5_session_status if account else "unknown",
+                    "current_mt5_login": account.current_mt5_login if account else None,
                     "last_heartbeat_at": account.last_heartbeat_at.isoformat() if account and account.last_heartbeat_at else None,
                     "last_error": account.last_error if account else str(exc),
                 }
@@ -1146,6 +1152,9 @@ def refresh_trading_account_symbols_page(
                 else None,
                 "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "unknown",
                 "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else None,
+                "connection_status": refreshed_account.connection_status if refreshed_account else "unknown",
+                "mt5_session_status": refreshed_account.mt5_session_status if refreshed_account else "unknown",
+                "current_mt5_login": refreshed_account.current_mt5_login if refreshed_account else None,
             },
         )
     except ValueError as exc:
@@ -1160,6 +1169,9 @@ def refresh_trading_account_symbols_page(
                     else None,
                     "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "failed",
                     "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else str(exc),
+                    "connection_status": refreshed_account.connection_status if refreshed_account else "unknown",
+                    "mt5_session_status": refreshed_account.mt5_session_status if refreshed_account else "unknown",
+                    "current_mt5_login": refreshed_account.current_mt5_login if refreshed_account else None,
                 }
             },
         )
@@ -1176,6 +1188,9 @@ def refresh_trading_account_symbols_page(
                     else None,
                     "symbols_sync_status": refreshed_account.symbols_sync_status if refreshed_account else "failed",
                     "symbols_sync_error": refreshed_account.symbols_sync_error if refreshed_account else exc.message,
+                    "connection_status": refreshed_account.connection_status if refreshed_account else "unknown",
+                    "mt5_session_status": refreshed_account.mt5_session_status if refreshed_account else "unknown",
+                    "current_mt5_login": refreshed_account.current_mt5_login if refreshed_account else None,
                 }
             },
         )

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.execution.base import AdapterError
 from app.models.trading_account_symbol import TradingAccountSymbol
 from app.services.execution import default_adapter_factory
+from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.trading_accounts import get_trading_account
 
 
@@ -82,6 +83,7 @@ class TradingAccountSymbolService:
             self._mark_sync_failed(account, SYNC_TIMEOUT_MESSAGE)
             raise ValueError(SYNC_TIMEOUT_MESSAGE) from exc
         except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
             error_message = exc.message or SYNC_FAILED_MESSAGE
             self._mark_sync_failed(account, error_message)
             raise
@@ -129,7 +131,9 @@ class TradingAccountSymbolService:
             adapter = self.adapter_factory(account)
             try:
                 adapter.connect()
-                return adapter.list_symbols()
+                symbols = adapter.list_symbols()
+                account_info = adapter.get_account_info()
+                return {"symbols": symbols, "account_info": account_info}
             finally:
                 close = getattr(adapter, "close", None)
                 if callable(close):
@@ -137,4 +141,6 @@ class TradingAccountSymbolService:
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(work)
-            return future.result(timeout=self.sync_timeout_seconds)
+            result = future.result(timeout=self.sync_timeout_seconds)
+            persist_session_matched(self.db, account, account_info=result["account_info"])
+            return result["symbols"]

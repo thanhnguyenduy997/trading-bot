@@ -91,6 +91,18 @@ class MissingSymbolPreviewAdapter(FakePreviewAdapter):
         )
 
 
+class SessionMismatchPreviewAdapter(FakePreviewAdapter):
+    def connect(self):
+        raise AdapterError(
+            code="mt5_session_mismatch",
+            message=(
+                f"MT5 terminal is logged into account 999999, but this trading account expects {self.account.account_number}. "
+                "Log into the correct MT5 account in the terminal first."
+            ),
+            details={"current_login": "999999", "expected_account": self.account.account_number},
+        )
+
+
 def test_valid_buy_preview(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
@@ -297,6 +309,35 @@ def test_preview_service_handles_live_quote_failure(db_session, created_user, sy
         assert str(exc) == "Live MT5 preview unavailable: Quote unavailable for XAUUSD."
     else:
         raise AssertionError("Expected preview service to raise ValueError for live quote failure")
+
+
+def test_preview_service_blocks_when_mt5_session_does_not_match(db_session, created_user, sync_account_symbols):
+    from app.services.execution import TradingAccountExecutionService
+
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
+    execution_service = TradingAccountExecutionService(
+        db_session,
+        adapter_factory=lambda adapter_account: SessionMismatchPreviewAdapter(adapter_account),
+    )
+
+    try:
+        PreviewService(db_session, execution_service=execution_service).build_preview(
+            created_user.id,
+            TradePreviewRequest(
+                trading_account_id=account.id,
+                symbol="XAUUSD",
+                side="buy",
+                sl_price=2319.2,
+                risk_mode="fixed_money",
+                risk_value=100,
+                rr_order2=2,
+            ),
+        )
+    except ValueError as exc:
+        assert "MT5 terminal is logged into account 999999" in str(exc)
+    else:
+        raise AssertionError("Expected preview service to block on MT5 session mismatch")
 
 
 def test_preview_rejects_symbol_not_allowed_by_admin_policy(client, db_session, created_user, auth_headers, monkeypatch):

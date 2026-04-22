@@ -138,6 +138,18 @@ class MissingSymbolAdapter(FakeExecutionAdapter):
         raise AdapterError(code="mt5_symbol_not_found", message=f"Symbol {symbol} is unavailable in MT5.")
 
 
+class SessionMismatchAdapter(FakeExecutionAdapter):
+    def connect(self) -> None:
+        raise AdapterError(
+            code="mt5_session_mismatch",
+            message=(
+                f"MT5 terminal is logged into account 999999, but this trading account expects {self.account.account_number}. "
+                "Log into the correct MT5 account in the terminal first."
+            ),
+            details={"current_login": "999999", "expected_account": self.account.account_number},
+        )
+
+
 def test_connection_failure_marks_account_disconnected(db_session, created_user):
     account = _create_account(db_session, created_user, "123458")
     service = TradingAccountExecutionService(db_session, adapter_factory=lambda current: FailingConnectAdapter(current))
@@ -167,6 +179,22 @@ def test_symbol_failure_preserves_connected_status_with_error(db_session, create
     assert stored is not None
     assert stored.connection_status == "connected"
     assert stored.last_error == "mt5_symbol_not_found: Symbol BTCUSD is unavailable in MT5."
+
+
+def test_connection_mismatch_marks_account_as_mismatch(db_session, created_user):
+    account = _create_account(db_session, created_user, "123470")
+    service = TradingAccountExecutionService(db_session, adapter_factory=lambda current: SessionMismatchAdapter(current))
+
+    result = service.test_connection(account.id, created_user.id)
+
+    assert result.success is False
+    assert result.connection_status == "connected"
+    assert result.mt5_session_status == "mismatch"
+    assert result.current_mt5_login == "999999"
+    stored = db_session.query(TradingAccount).filter(TradingAccount.id == account.id).first()
+    assert stored is not None
+    assert stored.mt5_session_status == "mismatch"
+    assert stored.current_mt5_login == "999999"
 
 
 def test_web_session_connection_route_uses_cookie_auth(client, db_session, created_user, monkeypatch):
@@ -301,6 +329,23 @@ def test_account_symbol_sync_stores_market_watch_symbols(client, db_session, cre
     assert data["symbols_sync_status"] == "synced"
 
 
+def test_account_symbol_sync_is_blocked_when_mt5_session_mismatches(client, db_session, created_user, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.account_symbols.default_adapter_factory",
+        lambda account: SessionMismatchAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123471")
+    _login_web_session(client, created_user.email)
+
+    response = client.post(f"/trading-accounts/id/{account.id}/refresh-symbols")
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["detail"]["message"].startswith("MT5 terminal is logged into account 999999")
+    assert data["detail"]["mt5_session_status"] == "mismatch"
+    assert data["detail"]["current_mt5_login"] == "999999"
+
+
 def test_empty_synced_symbol_list_shows_clear_message(client, db_session, created_user, monkeypatch):
     monkeypatch.setattr(
         "app.services.execution.default_adapter_factory",
@@ -313,3 +358,23 @@ def test_empty_synced_symbol_list_shows_clear_message(client, db_session, create
 
     assert response.status_code == 200
     assert "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." in response.text
+
+
+def test_trading_account_detail_page_shows_session_mismatch_warning(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "123472")
+    account.mt5_session_status = "mismatch"
+    account.current_mt5_login = "999999"
+    account.connection_status = "connected"
+    account.last_error = "mt5_session_mismatch: MT5 terminal is logged into account 999999."
+    db_session.add(account)
+    db_session.commit()
+    _login_web_session(client, created_user.email)
+
+    response = client.get(f"/trading-accounts/id/{account.id}")
+
+    assert response.status_code == 200
+    assert "Session status" in response.text
+    assert "mismatch" in response.text
+    assert "Current MT5 login" in response.text
+    assert "999999" in response.text
+    assert "Live MT5 actions are blocked." in response.text

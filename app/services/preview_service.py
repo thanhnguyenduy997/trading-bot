@@ -1,4 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,8 @@ from app.services.execution import TradingAccountExecutionService
 from app.services.risk_management import RiskManagementService
 from app.services.risk_service import RiskService
 from app.services.trading_accounts import get_trading_account
+
+logger = logging.getLogger(__name__)
 
 
 class PreviewService:
@@ -41,6 +44,14 @@ class PreviewService:
                 payload.symbol,
             )
         except AdapterError as exc:
+            if exc.code == "mt5_session_mismatch":
+                logger.warning(
+                    "preview_blocked_account_mismatch user_id=%s account_id=%s symbol=%s message=%s",
+                    user_id,
+                    payload.trading_account_id,
+                    payload.symbol,
+                    exc.message,
+                )
             message = exc.message
             raise ValueError(f"Live MT5 preview unavailable: {message}") from exc
 

@@ -14,6 +14,13 @@
 
     <div id="account-action-error" class="alert alert-error" {% if not error %}hidden{% endif %}>{{ error or "" }}</div>
     <div id="account-action-success" class="alert alert-success" {% if not message %}hidden{% endif %}>{{ message or "" }}</div>
+    <div
+        id="account-session-warning"
+        class="alert alert-error"
+        {% if account.mt5_session_status != "mismatch" %}hidden{% endif %}
+    >
+        Live MT5 actions are blocked. The terminal is logged into a different account. Log into account {{ account.account_number }} in this MT5 terminal first.
+    </div>
 
     <table class="accounts-table detail-table">
         <tbody>
@@ -21,6 +28,9 @@
             <tr><th>Platform</th><td>{{ account.platform }}</td></tr>
             <tr><th>Server</th><td>{{ account.server_name }}</td></tr>
             <tr><th>Terminal path</th><td>{{ account.terminal_path or "Not set" }}</td></tr>
+            <tr><th>Expected account</th><td>{{ account.account_number }}</td></tr>
+            <tr><th>Current MT5 login</th><td id="account-current-mt5-login">{{ account.current_mt5_login or "Unknown" }}</td></tr>
+            <tr><th>Session status</th><td id="account-session-status">{{ account.mt5_session_status }}</td></tr>
             <tr><th>Connection status</th><td id="account-connection-status">{{ account.connection_status }}</td></tr>
             <tr><th>Last heartbeat</th><td id="account-last-heartbeat">{{ account.last_heartbeat_at or "Never" }}</td></tr>
             <tr><th>Last error</th><td id="account-last-error">{{ account.last_error or "None" }}</td></tr>
@@ -95,6 +105,8 @@
     <table class="accounts-table detail-table">
         <tbody>
             <tr><th>Status</th><td id="connection-status">{{ connection_result.connection_status if connection_result else "" }}</td></tr>
+            <tr><th>Session status</th><td id="connection-session-status">{{ connection_result.mt5_session_status if connection_result else "" }}</td></tr>
+            <tr><th>Current MT5 login</th><td id="connection-current-login">{{ connection_result.current_mt5_login if connection_result else "" }}</td></tr>
             <tr><th>Last heartbeat</th><td id="connection-heartbeat">{{ connection_result.last_heartbeat_at if connection_result else "" }}</td></tr>
             <tr><th>Last error</th><td id="connection-error">{{ connection_result.last_error if connection_result else "" }}</td></tr>
             <tr><th>Login</th><td id="connection-login">{{ connection_result.account_info.login if connection_result and connection_result.account_info else "" }}</td></tr>
@@ -113,6 +125,8 @@
             <tr><th>Bid</th><td id="quote-bid">{{ quote_result.bid if quote_result else "" }}</td></tr>
             <tr><th>Ask</th><td id="quote-ask">{{ quote_result.ask if quote_result else "" }}</td></tr>
             <tr><th>Connection status</th><td id="quote-status">{{ quote_result.connection_status if quote_result else "" }}</td></tr>
+            <tr><th>Session status</th><td id="quote-session-status">{{ quote_result.mt5_session_status if quote_result else "" }}</td></tr>
+            <tr><th>Current MT5 login</th><td id="quote-current-login">{{ quote_result.current_mt5_login if quote_result else "" }}</td></tr>
             <tr><th>Last heartbeat</th><td id="quote-heartbeat">{{ quote_result.last_heartbeat_at if quote_result else "" }}</td></tr>
             <tr><th>Last error</th><td id="quote-error">{{ quote_result.last_error if quote_result else "" }}</td></tr>
         </tbody>
@@ -141,6 +155,7 @@
     const quoteCard = document.getElementById("quote-result-card");
     const symbolInfoCard = document.getElementById("symbol-info-card");
     const quoteSubmitButton = document.querySelector("#quote-form button[type='submit']");
+    const sessionWarning = document.getElementById("account-session-warning");
 
     function showError(message) {
         errorBox.textContent = message;
@@ -165,8 +180,11 @@
 
     function updateAccountHealth(data) {
         setText("account-connection-status", data.connection_status, "");
+        setText("account-session-status", data.mt5_session_status, "unknown");
+        setText("account-current-mt5-login", data.current_mt5_login, "Unknown");
         setText("account-last-heartbeat", data.last_heartbeat_at, "Never");
         setText("account-last-error", data.last_error, "None");
+        sessionWarning.hidden = data.mt5_session_status !== "mismatch";
     }
 
     function updateSymbolSync(data) {
@@ -192,6 +210,8 @@
         if (!response.ok) {
             updateAccountHealth(data.detail || {});
             setText("connection-status", data.detail?.connection_status, "");
+            setText("connection-session-status", data.detail?.mt5_session_status, "");
+            setText("connection-current-login", data.detail?.current_mt5_login, "");
             setText("connection-heartbeat", data.detail?.last_heartbeat_at, "");
             setText("connection-error", data.detail?.last_error, "");
             showError(data.detail?.message || data.detail?.last_error || "Connection test failed.");
@@ -200,6 +220,8 @@
 
         updateAccountHealth(data);
         setText("connection-status", data.connection_status, "");
+        setText("connection-session-status", data.mt5_session_status, "");
+        setText("connection-current-login", data.current_mt5_login, "");
         setText("connection-heartbeat", data.last_heartbeat_at, "");
         setText("connection-error", data.last_error, "");
         setText("connection-login", data.account_info?.login, "");
@@ -228,6 +250,8 @@
         if (!response.ok) {
             updateAccountHealth(data.detail || {});
             setText("quote-status", data.detail?.connection_status, "");
+            setText("quote-session-status", data.detail?.mt5_session_status, "");
+            setText("quote-current-login", data.detail?.current_mt5_login, "");
             setText("quote-heartbeat", data.detail?.last_heartbeat_at, "");
             setText("quote-error", data.detail?.last_error, "");
             showError(data.detail?.message || data.detail?.last_error || "Quote retrieval failed.");
@@ -239,6 +263,8 @@
         setText("quote-bid", data.bid, "");
         setText("quote-ask", data.ask, "");
         setText("quote-status", data.connection_status, "");
+        setText("quote-session-status", data.mt5_session_status, "");
+        setText("quote-current-login", data.current_mt5_login, "");
         setText("quote-heartbeat", data.last_heartbeat_at, "");
         setText("quote-error", data.last_error, "");
         setText("symbol-info-symbol", data.symbol_info?.symbol, "");
@@ -267,12 +293,14 @@
         const data = await response.json();
 
         if (!response.ok) {
+            updateAccountHealth(data.detail || {});
             updateSymbolSync(data.detail || {});
             showError(data.detail?.message || "Symbol sync failed.");
             await refreshQuoteSymbols();
             return;
         }
 
+        updateAccountHealth(data);
         updateSymbolSync(data);
         showSuccess(data.message || "Symbols refreshed from MT5.");
         await refreshQuoteSymbols();

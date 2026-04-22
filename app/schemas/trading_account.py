@@ -62,6 +62,8 @@ class TradingAccountRead(TradingAccountBase):
     id: int
     user_id: int
     connection_status: str
+    mt5_session_status: str
+    current_mt5_login: str | None
     last_heartbeat_at: datetime | None
     last_error: str | None
     telegram_enabled: bool
@@ -79,6 +81,8 @@ class TradingAccountTelegramTestRead(BaseModel):
 class TradingAccountConnectionTestRead(BaseModel):
     success: bool
     connection_status: str
+    mt5_session_status: str
+    current_mt5_login: str | None = None
     last_heartbeat_at: datetime | None
     last_error: str | None
     account_info: dict[str, object] | None = None
@@ -100,6 +104,8 @@ class TradingAccountQuoteRead(BaseModel):
     bid: float
     ask: float
     connection_status: str
+    mt5_session_status: str
+    current_mt5_login: str | None = None
     last_heartbeat_at: datetime | None
     last_error: str | None
     symbol_info: TradingAccountSymbolInfoRead | None = None

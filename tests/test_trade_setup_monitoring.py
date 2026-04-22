@@ -130,6 +130,18 @@ class MonitoringAdapter:
         return None
 
 
+class SessionMismatchMonitoringAdapter(MonitoringAdapter):
+    def get_account_info(self):
+        raise AdapterError(
+            code="mt5_session_mismatch",
+            message=(
+                f"MT5 terminal is logged into account 999999, but this trading account expects {self.account.account_number}. "
+                "Log into the correct MT5 account in the terminal first."
+            ),
+            details={"current_login": "999999", "expected_account": self.account.account_number},
+        )
+
+
 def test_tp1_hit_moves_order2_to_breakeven(client, db_session, created_user, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.services.trade_setup_monitoring.default_adapter_factory",
@@ -253,3 +265,24 @@ def test_reject_monitoring_another_users_setup(client, db_session, created_user,
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Trade setup not found"
+
+
+def test_monitoring_session_mismatch_creates_skip_event(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.trade_setup_monitoring.default_adapter_factory",
+        lambda account: SessionMismatchMonitoringAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "223461")
+    setup = _create_executed_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/monitor", headers=auth_headers)
+
+    assert response.status_code == 503
+    events = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id)
+        .order_by(TradeEvent.id.asc())
+        .all()
+    )
+    event_types = [event.event_type for event in events]
+    assert "monitor_skipped_account_mismatch" in event_types

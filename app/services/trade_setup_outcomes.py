@@ -6,6 +6,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.services.execution import default_adapter_factory
+from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event
 from app.services.trade_setups import get_trade_setup
@@ -71,8 +72,13 @@ class TradeSetupOutcomeService:
 
         adapter = self.adapter_factory(account)
         try:
+            account_info = adapter.get_account_info()
+            persist_session_matched(self.db, account, account_info=account_info)
             order1_snapshot = self._inspect_order(setup, order_index=1, adapter=adapter)
             order2_snapshot = self._inspect_order(setup, order_index=2, adapter=adapter)
+        except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
+            raise
         finally:
             close = getattr(adapter, "close", None)
             if callable(close):

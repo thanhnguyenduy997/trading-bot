@@ -6,6 +6,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.execution.base import AdapterError
 from app.services.notifications import notify_pending_trade_events
+from app.services.trade_events import create_trade_event, event_exists
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trade_setups import list_setups_requiring_monitoring, list_setups_requiring_outcome_reconciliation
@@ -61,7 +62,17 @@ def run_monitoring_cycle() -> int:
             try:
                 service.process_setup(setup.id, setup.user_id)
                 processed_count += 1
-            except (AdapterError, LookupError, ValueError):
+            except (AdapterError, LookupError, ValueError) as exc:
+                if isinstance(exc, AdapterError) and exc.code == "mt5_session_mismatch":
+                    if not event_exists(db, setup.id, setup.user_id, "monitor_skipped_account_mismatch"):
+                        create_trade_event(
+                            db,
+                            setup.user_id,
+                            setup.id,
+                            "monitor_skipped_account_mismatch",
+                            exc.message,
+                        )
+                        db.commit()
                 logger.exception("Trade setup monitoring failed for setup %s", setup.id)
             except Exception:
                 logger.exception("Unexpected trade setup monitoring error for setup %s", setup.id)
@@ -70,7 +81,17 @@ def run_monitoring_cycle() -> int:
             try:
                 service.reconcile_setup(setup.id, setup.user_id)
                 processed_count += 1
-            except (AdapterError, LookupError, ValueError):
+            except (AdapterError, LookupError, ValueError) as exc:
+                if isinstance(exc, AdapterError) and exc.code == "mt5_session_mismatch":
+                    if not event_exists(db, setup.id, setup.user_id, "monitor_skipped_account_mismatch"):
+                        create_trade_event(
+                            db,
+                            setup.user_id,
+                            setup.id,
+                            "monitor_skipped_account_mismatch",
+                            exc.message,
+                        )
+                        db.commit()
                 logger.exception("Trade setup outcome reconciliation failed for setup %s", setup.id)
             except Exception:
                 logger.exception("Unexpected trade setup reconciliation error for setup %s", setup.id)

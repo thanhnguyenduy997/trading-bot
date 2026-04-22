@@ -4,6 +4,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
+from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.execution import default_adapter_factory
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import create_trade_event, event_exists
@@ -34,6 +35,8 @@ class TradeSetupMonitoringService:
 
         adapter = self.adapter_factory(account)
         try:
+            account_info = adapter.get_account_info()
+            persist_session_matched(self.db, account, account_info=account_info)
             order1_position = adapter.get_position(position_ticket=int(setup.order1_ticket))
             order2_position = adapter.get_position(position_ticket=int(setup.order2_ticket))
 
@@ -148,6 +151,19 @@ class TradeSetupMonitoringService:
             self._persist(setup)
             self.outcomes.reconcile_setup(setup.id, user_id)
             return self._result(setup, order1_status="closed", order2_status="open", be_moved=True)
+        except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
+            if exc.code == "mt5_session_mismatch" and not event_exists(self.db, setup.id, user_id, "monitor_skipped_account_mismatch"):
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "monitor_skipped_account_mismatch",
+                    exc.message,
+                    details=self._error_details(exc),
+                )
+                self.db.commit()
+            raise
         finally:
             close = getattr(adapter, "close", None)
             if callable(close):

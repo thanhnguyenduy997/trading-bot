@@ -135,6 +135,18 @@ class MediumDriftExecutionAdapter(SuccessfulExecutionAdapter):
         return {"symbol": symbol, "bid": 2320.10, "ask": 2320.30}
 
 
+class SessionMismatchExecutionAdapter(SuccessfulExecutionAdapter):
+    def connect(self):
+        raise AdapterError(
+            code="mt5_session_mismatch",
+            message=(
+                f"MT5 terminal is logged into account 999999, but this trading account expects {self.account.account_number}. "
+                "Log into the correct MT5 account in the terminal first."
+            ),
+            details={"current_login": "999999", "expected_account": self.account.account_number},
+        )
+
+
 def test_executing_own_setup(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",
@@ -383,3 +395,39 @@ def test_preview_drift_rejection_message_is_shown_on_html_execute_flow(
     assert response.status_code == 409
     assert "Market conditions have changed beyond the allowed threshold. Please preview again before executing." in response.text
     assert "Preview Again" in response.text
+
+
+def test_execute_is_blocked_when_mt5_session_does_not_match(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: SessionMismatchExecutionAdapter(account),
+    )
+    account = _create_account(db_session, created_user, "123465")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["message"].startswith("MT5 terminal is logged into account 999999")
+    stored_setup = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored_setup is not None
+    assert stored_setup.status == "failed"
+    events = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id)
+        .order_by(TradeEvent.id.asc())
+        .all()
+    )
+    event_types = [event.event_type for event in events]
+    assert "execute_blocked_account_mismatch" in event_types
+    db_session.refresh(account)
+    assert account.mt5_session_status == "mismatch"
+    assert account.current_mt5_login == "999999"
