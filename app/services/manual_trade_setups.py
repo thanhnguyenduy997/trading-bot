@@ -190,6 +190,105 @@ class ManualTradeSetupService:
             },
         }
 
+    def derive_fields_from_form(
+        self,
+        *,
+        user_id: int,
+        trading_account_id: int | None,
+        symbol: str | None,
+        side: str | None,
+        estimated_entry: float | None,
+        sl_price: float | None,
+        rr_order2: float | None,
+        order_count: int | None,
+        order1_ticket: int | None,
+        order2_ticket: int | None,
+    ) -> dict[str, object]:
+        messages: list[str] = []
+        warnings: list[str] = []
+        if not trading_account_id:
+            return self._empty_derivation("Select a trading account first.")
+        account = get_trading_account(self.db, trading_account_id, user_id)
+        if not account:
+            raise LookupError("Trading account not found")
+
+        if not order1_ticket:
+            return self._empty_derivation("Select at least one manual MT5 trade first.")
+        if not order_count:
+            order_count = 1 if not order2_ticket else 2
+        if order_count == 2 and not order2_ticket:
+            return self._empty_derivation("Choose the second manual MT5 trade to derive combined risk.")
+
+        tickets = [int(order1_ticket)] + ([int(order2_ticket)] if order_count == 2 and order2_ticket else [])
+        snapshots = self._load_ticket_snapshots(account=account, tickets=tickets)
+        if len(snapshots) != len(tickets):
+            return self._empty_derivation("Selected MT5 tickets are unavailable for derivation.")
+
+        if symbol:
+            normalized_symbol = self._normalize_symbol(symbol)
+            for snapshot in snapshots:
+                if self._normalize_symbol(snapshot.symbol) != normalized_symbol:
+                    raise ValueError(
+                        f"Selected ticket {snapshot.ticket} symbol mismatch: form={normalized_symbol}, live={self._normalize_symbol(snapshot.symbol)}."
+                    )
+        if side:
+            canonical_side = self._canonical_side(side)
+            for snapshot in snapshots:
+                snapshot_side = self._canonical_side(snapshot.side)
+                if snapshot_side is not None and canonical_side is not None and snapshot_side != canonical_side:
+                    raise ValueError(
+                        f"Selected ticket {snapshot.ticket} side mismatch: form={canonical_side}, live={snapshot_side}."
+                    )
+
+        warning = self._grouping_warning(snapshots)
+        if warning:
+            warnings.append(warning)
+
+        if estimated_entry is None or estimated_entry <= 0:
+            return self._empty_derivation("Enter a valid Entry plan to derive Total risk, TP1, and TP2.", warnings=warnings)
+        if sl_price is None or sl_price <= 0:
+            return self._empty_derivation("Enter a valid Stop loss plan to derive Total risk, TP1, and TP2.", warnings=warnings)
+        if rr_order2 is None or rr_order2 <= 0:
+            return self._empty_derivation("Enter a valid RR order 2 value to derive TP2.", warnings=warnings)
+
+        normalized_side = self._ui_side(side)
+        entry = Decimal(str(estimated_entry))
+        stop = Decimal(str(sl_price))
+        r_value = abs(entry - stop)
+        if r_value <= 0:
+            return self._empty_derivation("Entry plan and Stop loss plan must produce a positive 1R distance.", warnings=warnings)
+        if normalized_side == "buy" and stop >= entry:
+            return self._empty_derivation("For buy setups, Stop loss plan must be below Entry plan.", warnings=warnings)
+        if normalized_side == "sell" and stop <= entry:
+            return self._empty_derivation("For sell setups, Stop loss plan must be above Entry plan.", warnings=warnings)
+
+        tp1_price = self._derive_target_price(side=normalized_side, entry_price=entry, r_value=r_value, rr_multiple=Decimal("1"))
+        tp2_price = self._derive_target_price(
+            side=normalized_side,
+            entry_price=entry,
+            r_value=r_value,
+            rr_multiple=Decimal(str(rr_order2)),
+        )
+        total_risk_money, risk_message = self._derive_total_risk_money_from_entry(
+            account=account,
+            snapshots=snapshots,
+            entry_price=entry,
+            stop_loss=stop,
+        )
+        if risk_message:
+            messages.append(risk_message)
+        else:
+            messages.append("Derived values updated from current Entry, Stop loss, RR, and selected MT5 order volumes.")
+
+        return {
+            "total_risk_money": float(total_risk_money) if total_risk_money is not None else None,
+            "tp1_price": float(tp1_price),
+            "tp2_price": float(tp2_price),
+            "messages": messages,
+            "warnings": warnings,
+            "autofilled_fields": ["total_risk_money", "tp1_price", "tp2_price"] if total_risk_money is not None else ["tp1_price", "tp2_price"],
+        }
+
     def create_manual_setup(self, *, user_id: int, payload: ManualTradeSetupCreate) -> TradeSetup:
         account = get_trading_account(self.db, payload.trading_account_id, user_id)
         if not account:
@@ -512,6 +611,24 @@ class ManualTradeSetupService:
         snapshots: list[ManualTicketSnapshot],
         stop_loss: Decimal,
     ) -> tuple[Decimal | None, str | None]:
+        entry_prices = [Decimal(str(snapshot.open_price)) for snapshot in snapshots if snapshot.open_price is not None]
+        if len(entry_prices) != len(snapshots):
+            return None, "Selected MT5 trades are missing open price data, so total risk needs manual review."
+        return self._derive_total_risk_money_from_entry(
+            account=account,
+            snapshots=snapshots,
+            entry_price=None,
+            stop_loss=stop_loss,
+        )
+
+    def _derive_total_risk_money_from_entry(
+        self,
+        *,
+        account,
+        snapshots: list[ManualTicketSnapshot],
+        entry_price: Decimal | None,
+        stop_loss: Decimal,
+    ) -> tuple[Decimal | None, str | None]:
         try:
             adapter = self.adapter_factory(account)
             adapter.connect()
@@ -531,9 +648,12 @@ class ManualTradeSetupService:
 
         total_risk = Decimal("0")
         for snapshot in snapshots:
-            if snapshot.open_price is None:
-                return None, "Selected MT5 trades are missing open price data, so total risk needs manual review."
-            entry = Decimal(str(snapshot.open_price))
+            if entry_price is None:
+                if snapshot.open_price is None:
+                    return None, "Selected MT5 trades are missing open price data, so total risk needs manual review."
+                entry = Decimal(str(snapshot.open_price))
+            else:
+                entry = entry_price
             volume = Decimal(str(snapshot.volume))
             risk_distance = abs(entry - stop_loss)
             total_risk += risk_distance * Decimal(str(contract_size)) * volume
@@ -629,6 +749,16 @@ class ManualTradeSetupService:
 
     def _normalize_symbol(self, value: object) -> str:
         return str(value or "").upper()
+
+    def _empty_derivation(self, message: str, *, warnings: list[str] | None = None) -> dict[str, object]:
+        return {
+            "total_risk_money": None,
+            "tp1_price": None,
+            "tp2_price": None,
+            "messages": [message],
+            "warnings": warnings or [],
+            "autofilled_fields": [],
+        }
 
     def _coerce_float(self, value: object) -> float | None:
         if value in (None, ""):

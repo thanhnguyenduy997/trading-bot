@@ -100,7 +100,7 @@
         <div class="preview-primary-grid">
             <label>
                 Trading account {% if "trading_account_id" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <select name="trading_account_id" required>
+                <select id="manual-trading-account-select" name="trading_account_id" required>
                     {% for account in accounts %}
                     <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
                         {{ account.broker_name }} / {{ account.account_number }}
@@ -110,11 +110,11 @@
             </label>
             <label>
                 Symbol {% if "symbol" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="text" name="symbol" value="{{ form_data.symbol or '' }}" maxlength="20" required>
+                <input type="text" id="manual-symbol-input" name="symbol" value="{{ form_data.symbol or '' }}" maxlength="20" required>
             </label>
             <label>
                 Side {% if "side" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <select name="side" required>
+                <select id="manual-side-select" name="side" required>
                     {% for item in ["buy", "sell"] %}
                     <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
                     {% endfor %}
@@ -122,27 +122,27 @@
             </label>
             <label>
                 Entry plan {% if "estimated_entry" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="estimated_entry" step="0.0001" min="0" value="{{ form_data.estimated_entry or '' }}" required>
+                <input type="number" id="manual-estimated-entry-input" name="estimated_entry" step="0.0001" min="0" value="{{ form_data.estimated_entry or '' }}" required>
             </label>
             <label>
                 Stop loss plan {% if "sl_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
+                <input type="number" id="manual-sl-price-input" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
             </label>
             <label>
-                Total risk plan {% if "total_risk_money" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="total_risk_money" step="0.01" min="0.01" value="{{ form_data.total_risk_money or '' }}" required>
+                Total risk plan {% if "total_risk_money" in autofilled_fields %}<span class="status-pill">Auto-derived</span>{% endif %}
+                <input type="number" id="manual-total-risk-input" name="total_risk_money" step="0.01" min="0.01" value="{{ form_data.total_risk_money or '' }}" required>
             </label>
             <label>
                 RR order 2 {% if "rr_order2" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
+                <input type="number" id="manual-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
             </label>
             <label>
-                TP1 {% if "tp1_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="tp1_price" step="0.0001" min="0" value="{{ form_data.tp1_price or '' }}">
+                TP1 {% if "tp1_price" in autofilled_fields %}<span class="status-pill">Auto-derived</span>{% endif %}
+                <input type="number" id="manual-tp1-input" name="tp1_price" step="0.0001" min="0" value="{{ form_data.tp1_price or '' }}">
             </label>
             <label>
-                TP2 {% if "tp2_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="tp2_price" step="0.0001" min="0" value="{{ form_data.tp2_price or '' }}">
+                TP2 {% if "tp2_price" in autofilled_fields %}<span class="status-pill">Auto-derived</span>{% endif %}
+                <input type="number" id="manual-tp2-input" name="tp2_price" step="0.0001" min="0" value="{{ form_data.tp2_price or '' }}">
             </label>
             <label>
                 Number of orders {% if "order_count" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
@@ -154,13 +154,15 @@
             </label>
             <label>
                 Order 1 ticket {% if "order1_ticket" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="order1_ticket" step="1" min="1" value="{{ form_data.order1_ticket or '' }}" required>
+                <input type="number" id="manual-order1-ticket-input" name="order1_ticket" step="1" min="1" value="{{ form_data.order1_ticket or '' }}" required>
             </label>
             <label id="manual-order-2-ticket-field">
                 Order 2 ticket {% if "order2_ticket" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
-                <input type="number" name="order2_ticket" step="1" min="1" value="{{ form_data.order2_ticket or '' }}">
+                <input type="number" id="manual-order2-ticket-input" name="order2_ticket" step="1" min="1" value="{{ form_data.order2_ticket or '' }}">
             </label>
         </div>
+
+        <div id="manual-derived-feedback" class="muted"></div>
 
         <div class="alert">
             Manual setups only count in outcome tracking and risk logic after you confirm them here. Unlinked raw manual MT5 trades remain dashboard-only.
@@ -176,6 +178,19 @@
 <script>
     const manualOrderCountSelect = document.getElementById("manual-order-count");
     const manualOrder2TicketField = document.getElementById("manual-order-2-ticket-field");
+    const manualAccountSelect = document.getElementById("manual-trading-account-select");
+    const manualSymbolInput = document.getElementById("manual-symbol-input");
+    const manualSideSelect = document.getElementById("manual-side-select");
+    const manualEntryInput = document.getElementById("manual-estimated-entry-input");
+    const manualSlInput = document.getElementById("manual-sl-price-input");
+    const manualRrInput = document.getElementById("manual-rr-order-2-input");
+    const manualOrder1TicketInput = document.getElementById("manual-order1-ticket-input");
+    const manualOrder2TicketInput = document.getElementById("manual-order2-ticket-input");
+    const manualTotalRiskInput = document.getElementById("manual-total-risk-input");
+    const manualTp1Input = document.getElementById("manual-tp1-input");
+    const manualTp2Input = document.getElementById("manual-tp2-input");
+    const manualDerivedFeedback = document.getElementById("manual-derived-feedback");
+    let manualDeriveTimer = null;
 
     function syncManualOrderFields() {
         if (!manualOrderCountSelect || !manualOrder2TicketField) {
@@ -190,11 +205,83 @@
                 input.value = "";
             }
         }
+        queueManualDerivation();
+    }
+
+    async function recomputeManualDerivedFields() {
+        if (!manualAccountSelect || !manualSymbolInput || !manualSideSelect || !manualEntryInput || !manualSlInput || !manualRrInput || !manualOrderCountSelect || !manualOrder1TicketInput) {
+            return;
+        }
+
+        const response = await fetch("/trade-setups/manual/derive", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+                trading_account_id: manualAccountSelect.value,
+                symbol: manualSymbolInput.value,
+                side: manualSideSelect.value,
+                estimated_entry: manualEntryInput.value,
+                sl_price: manualSlInput.value,
+                rr_order2: manualRrInput.value,
+                order_count: manualOrderCountSelect.value,
+                order1_ticket: manualOrder1TicketInput.value,
+                order2_ticket: manualOrder2TicketInput ? manualOrder2TicketInput.value : "",
+            }),
+        });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
+
+        const data = await response.json();
+        if (!response.ok) {
+            if (manualDerivedFeedback) {
+                manualDerivedFeedback.textContent = data.detail?.message || "";
+            }
+            return;
+        }
+
+        if (manualTotalRiskInput) {
+            manualTotalRiskInput.value = data.total_risk_money ?? "";
+        }
+        if (manualTp1Input) {
+            manualTp1Input.value = data.tp1_price ?? "";
+        }
+        if (manualTp2Input) {
+            manualTp2Input.value = data.tp2_price ?? "";
+        }
+        if (manualDerivedFeedback) {
+            const messages = [...(data.messages || []), ...(data.warnings || [])].filter(Boolean);
+            manualDerivedFeedback.textContent = messages.join(" ");
+        }
+    }
+
+    function queueManualDerivation() {
+        if (manualDeriveTimer) {
+            window.clearTimeout(manualDeriveTimer);
+        }
+        manualDeriveTimer = window.setTimeout(() => {
+            recomputeManualDerivedFields().catch(() => {
+                if (manualDerivedFeedback) {
+                    manualDerivedFeedback.textContent = "Derived values could not be updated right now. Review them manually.";
+                }
+            });
+        }, 250);
     }
 
     if (manualOrderCountSelect) {
         manualOrderCountSelect.addEventListener("change", syncManualOrderFields);
         syncManualOrderFields();
     }
+    [manualAccountSelect, manualSymbolInput, manualSideSelect, manualEntryInput, manualSlInput, manualRrInput, manualOrder1TicketInput, manualOrder2TicketInput].forEach((field) => {
+        if (field) {
+            field.addEventListener("input", queueManualDerivation);
+            field.addEventListener("change", queueManualDerivation);
+        }
+    });
+    queueManualDerivation();
 </script>
 {% endblock %}

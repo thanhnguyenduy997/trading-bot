@@ -792,3 +792,76 @@ def test_synced_sell_with_blank_live_side_is_allowed(db_session, created_user, m
 
     assert prefill["form_data"]["side"] == "sell"
     assert prefill["form_data"]["order1_ticket"] == 67001
+
+
+def test_manual_derived_fields_recompute_after_stop_loss_is_entered(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-209")
+    account.default_rr_order_2 = 2.0
+    db_session.add(account)
+    db_session.commit()
+
+    result = ManualTradeSetupService(db_session).derive_fields_from_form(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        symbol="XAUUSD",
+        side="buy",
+        estimated_entry=2320.0,
+        sl_price=2319.2,
+        rr_order2=2.0,
+        order_count=1,
+        order1_ticket=63001,
+        order2_ticket=None,
+    )
+
+    assert result["tp1_price"] == 2320.8
+    assert result["tp2_price"] == 2321.6
+    assert result["total_risk_money"] == 24.0
+
+
+def test_manual_derived_fields_recompute_after_rr_change(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-210")
+    db_session.add(account)
+    db_session.commit()
+
+    result = ManualTradeSetupService(db_session).derive_fields_from_form(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        symbol="XAUUSD",
+        side="buy",
+        estimated_entry=2320.2,
+        sl_price=2319.2,
+        rr_order2=3.0,
+        order_count=1,
+        order1_ticket=60001,
+        order2_ticket=None,
+    )
+
+    assert result["tp1_price"] == 2321.2
+    assert result["tp2_price"] == 2323.2
+    assert result["total_risk_money"] == 40.0
+
+
+def test_manual_derived_fields_use_selected_order_volumes_for_combined_risk(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-211")
+    db_session.add(account)
+    db_session.commit()
+
+    result = ManualTradeSetupService(db_session).derive_fields_from_form(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        symbol="XAUUSD",
+        side="buy",
+        estimated_entry=2320.4,
+        sl_price=2319.2,
+        rr_order2=2.0,
+        order_count=2,
+        order1_ticket=64001,
+        order2_ticket=64002,
+    )
+
+    assert result["tp1_price"] == 2321.6
+    assert result["tp2_price"] == 2322.8
+    assert result["total_risk_money"] == 72.0

@@ -788,6 +788,41 @@ def create_manual_trade_setup_page_submit(
         )
 
 
+@router.post("/trade-setups/manual/derive")
+async def derive_manual_trade_setup_fields(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> JSONResponse:
+    payload = await request.json()
+    try:
+        result = ManualTradeSetupService(db).derive_fields_from_form(
+            user_id=current_user.id,
+            trading_account_id=int(payload["trading_account_id"]) if payload.get("trading_account_id") else None,
+            symbol=payload.get("symbol"),
+            side=payload.get("side"),
+            estimated_entry=float(payload["estimated_entry"]) if payload.get("estimated_entry") not in (None, "") else None,
+            sl_price=float(payload["sl_price"]) if payload.get("sl_price") not in (None, "") else None,
+            rr_order2=float(payload["rr_order2"]) if payload.get("rr_order2") not in (None, "") else None,
+            order_count=int(payload["order_count"]) if payload.get("order_count") not in (None, "") else None,
+            order1_ticket=int(payload["order1_ticket"]) if payload.get("order1_ticket") not in (None, "") else None,
+            order2_ticket=int(payload["order2_ticket"]) if payload.get("order2_ticket") not in (None, "") else None,
+        )
+    except (ValueError, LookupError, AdapterError) as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "detail": {"message": str(exc)},
+                "total_risk_money": None,
+                "tp1_price": None,
+                "tp2_price": None,
+                "messages": [],
+                "warnings": [],
+            },
+        )
+    return JSONResponse(content=result)
+
+
 @router.get("/trade-setups/{setup_id}/manual/edit", response_class=HTMLResponse)
 def edit_manual_trade_setup_page(
     setup_id: int,
