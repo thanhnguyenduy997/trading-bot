@@ -427,6 +427,16 @@ class ManualTradeSetupService:
             raise ValueError("For sell manual setups, stop loss plan must be above entry plan.")
 
         tickets = [payload.order1_ticket] + ([payload.order2_ticket] if payload.order2_ticket is not None else [])
+        synced_trades = self._load_synced_manual_trades(
+            user_id=account.user_id,
+            trading_account_id=account.id,
+            tickets=tickets,
+        )
+        self._assert_synced_trade_grouping(
+            synced_trades=synced_trades,
+            expected_symbol=payload.symbol,
+            expected_side=payload.side,
+        )
         snapshots = self._load_ticket_snapshots(account=account, tickets=tickets)
         order1_snapshot = snapshots[0]
         order2_snapshot = snapshots[1] if len(snapshots) > 1 else None
@@ -435,11 +445,36 @@ class ManualTradeSetupService:
         if payload.order2_ticket is not None:
             self._assert_ticket_not_already_linked(payload.order2_ticket, current_setup_id=current_setup_id)
 
-        for snapshot in snapshots:
-            if snapshot.symbol != payload.symbol:
-                raise ValueError(f"Ticket {snapshot.ticket} belongs to symbol {snapshot.symbol}, not {payload.symbol}.")
-            if snapshot.side != payload.side:
-                raise ValueError(f"Ticket {snapshot.ticket} belongs to side {snapshot.side.upper()}, not {payload.side.upper()}.")
+        snapshot_map = {snapshot.ticket: snapshot for snapshot in snapshots}
+        expected_symbol = self._normalize_symbol(payload.symbol)
+        expected_side = self._canonical_side(payload.side)
+        for trade in synced_trades:
+            snapshot = snapshot_map.get(int(trade.position_ticket))
+            live_symbol = self._normalize_symbol(snapshot.symbol) if snapshot is not None else None
+            live_side = self._canonical_side(snapshot.side) if snapshot is not None else None
+            live_side_missing = live_side is None
+            logger.info(
+                "Manual setup register validation ticket=%s synced_side=%s live_side=%s live_side_missing=%s validation_source=%s synced_symbol=%s live_symbol=%s rejection_reason=%s",
+                trade.position_ticket,
+                self._canonical_side(trade.side),
+                live_side,
+                live_side_missing,
+                "synced_manual_trade_history",
+                self._normalize_symbol(trade.symbol),
+                live_symbol,
+                None,
+            )
+            if live_symbol and live_symbol != expected_symbol:
+                logger.warning(
+                    "Manual setup register validation rejected ticket=%s reason=live_symbol_mismatch synced_symbol=%s live_symbol=%s expected_symbol=%s",
+                    trade.position_ticket,
+                    self._normalize_symbol(trade.symbol),
+                    live_symbol,
+                    expected_symbol,
+                )
+                raise ValueError(
+                    f"Ticket {trade.position_ticket} belongs to symbol {live_symbol}, not {expected_symbol}."
+                )
 
         tp1_price = (
             float(payload.tp1_price)
@@ -497,6 +532,70 @@ class ManualTradeSetupService:
                 ],
             },
         }
+
+    def _load_synced_manual_trades(
+        self,
+        *,
+        user_id: int,
+        trading_account_id: int,
+        tickets: list[int],
+    ) -> list[MT5TradeHistory]:
+        trades = (
+            self.db.query(MT5TradeHistory)
+            .filter(
+                MT5TradeHistory.user_id == user_id,
+                MT5TradeHistory.trading_account_id == trading_account_id,
+                MT5TradeHistory.trade_source == "manual",
+                MT5TradeHistory.position_ticket.in_(tickets),
+            )
+            .order_by(MT5TradeHistory.open_time.asc().nulls_last(), MT5TradeHistory.id.asc())
+            .all()
+        )
+        if len(trades) != len(set(tickets)):
+            raise ValueError("One or more selected MT5 trades are unavailable in synced manual trade history.")
+        return trades
+
+    def _assert_synced_trade_grouping(
+        self,
+        *,
+        synced_trades: list[MT5TradeHistory],
+        expected_symbol: str,
+        expected_side: str,
+    ) -> None:
+        canonical_expected_symbol = self._normalize_symbol(expected_symbol)
+        canonical_expected_side = self._canonical_side(expected_side)
+        account_ids = {trade.trading_account_id for trade in synced_trades}
+        if len(account_ids) != 1:
+            raise ValueError("Selected MT5 trades must belong to the same trading account.")
+        symbols = {self._normalize_symbol(trade.symbol) for trade in synced_trades}
+        if len(symbols) != 1:
+            raise ValueError("Selected MT5 trades must have the same symbol.")
+        sides = {self._canonical_side(trade.side) for trade in synced_trades}
+        if len(sides) != 1:
+            raise ValueError("Selected MT5 trades must have the same side.")
+        for trade in synced_trades:
+            synced_symbol = self._normalize_symbol(trade.symbol)
+            synced_side = self._canonical_side(trade.side)
+            if synced_symbol != canonical_expected_symbol:
+                logger.warning(
+                    "Manual setup register validation rejected ticket=%s reason=synced_symbol_mismatch synced_symbol=%s expected_symbol=%s",
+                    trade.position_ticket,
+                    synced_symbol,
+                    canonical_expected_symbol,
+                )
+                raise ValueError(
+                    f"Ticket {trade.position_ticket} belongs to symbol {synced_symbol}, not {canonical_expected_symbol}."
+                )
+            if synced_side != canonical_expected_side:
+                logger.warning(
+                    "Manual setup register validation rejected ticket=%s reason=synced_side_mismatch synced_side=%s expected_side=%s",
+                    trade.position_ticket,
+                    synced_side,
+                    canonical_expected_side,
+                )
+                raise ValueError(
+                    f"Ticket {trade.position_ticket} belongs to side {synced_side}, not {canonical_expected_side}."
+                )
 
     def _load_ticket_snapshots(self, *, account, tickets: list[int]) -> list[ManualTicketSnapshot]:
         adapter = self.adapter_factory(account)
