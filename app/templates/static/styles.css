@@ -938,9 +938,13 @@ button:hover {
 }
 
 .dashboard-shell {
+    width: min(1600px, calc(100vw - 48px));
+    max-width: none;
+    margin-left: 50%;
+    transform: translateX(-50%);
     gap: 1rem;
     min-width: 0;
-    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .dashboard-hero {
@@ -1403,6 +1407,10 @@ button:hover {
 }
 
 @media (max-width: 640px) {
+    .dashboard-shell {
+        width: min(1600px, calc(100vw - 24px));
+    }
+
     .dashboard-trade-table {
         min-width: 980px;
     }
