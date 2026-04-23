@@ -132,6 +132,18 @@ class ManualTicketAdapter(FakePreviewAdapter):
                 {"ticket": 5503, "position_id": 65002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.2, "time": base_time.replace(hour=11, minute=2), "sl": 2318.8},
                 {"ticket": 5504, "position_id": 65002, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.6, "profit": 8.0, "time": base_time.replace(hour=11, minute=14), "point": 0.01},
             ],
+            66001: [
+                {"ticket": 5601, "position_id": 66001, "entry": "in", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.1, "time": base_time.replace(hour=12), "sl": 2319.2},
+                {"ticket": 5602, "position_id": 66001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.4, "profit": 9.0, "time": base_time.replace(hour=12, minute=9), "point": 0.01},
+            ],
+            66002: [
+                {"ticket": 5603, "position_id": 66002, "entry": "in", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.2, "time": base_time.replace(hour=12, minute=1), "sl": 2319.2},
+                {"ticket": 5604, "position_id": 66002, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.5, "profit": 9.0, "time": base_time.replace(hour=12, minute=10), "point": 0.01},
+            ],
+            67001: [
+                {"ticket": 5701, "position_id": 67001, "entry": "in", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.1, "time": base_time.replace(hour=13), "sl": 2321.1},
+                {"ticket": 5702, "position_id": 67001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.3, "price": 2319.8, "profit": 9.0, "time": base_time.replace(hour=13, minute=8), "point": 0.01},
+            ],
         }
         return closed_tickets.get(position_ticket, [])
 
@@ -704,3 +716,79 @@ def test_real_mixed_buy_sell_trades_are_still_rejected(db_session, created_user,
         assert False, "Expected mixed-side rejection"
     except ValueError as exc:
         assert str(exc) == "Selected MT5 trades must have the same side."
+
+
+def test_synced_buy_with_blank_live_side_is_allowed(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-207")
+    db_session.add(account)
+    db_session.flush()
+    trade1 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=66001,
+        symbol="XAUUSD",
+        side="BUY",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.1,
+        close_price=2320.4,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 12, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 12, 9, tzinfo=timezone.utc),
+    )
+    trade2 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=66002,
+        symbol="XAUUSD",
+        side="BUY",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.2,
+        close_price=2320.5,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 12, 1, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 12, 10, tzinfo=timezone.utc),
+    )
+    db_session.add_all([trade1, trade2])
+    db_session.commit()
+
+    prefill = ManualTradeSetupService(db_session).build_prefill_from_selected_trades(
+        user_id=created_user.id,
+        selected_trade_ids=[trade1.id, trade2.id],
+    )
+
+    assert prefill["form_data"]["side"] == "buy"
+    assert prefill["form_data"]["order_count"] == 2
+
+
+def test_synced_sell_with_blank_live_side_is_allowed(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-208")
+    db_session.add(account)
+    db_session.flush()
+    trade = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=67001,
+        symbol="XAUUSD",
+        side="SELL",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.1,
+        close_price=2319.8,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 13, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 13, 8, tzinfo=timezone.utc),
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    prefill = ManualTradeSetupService(db_session).build_prefill_from_selected_trades(
+        user_id=created_user.id,
+        selected_trade_ids=[trade.id],
+    )
+
+    assert prefill["form_data"]["side"] == "sell"
+    assert prefill["form_data"]["order1_ticket"] == 67001

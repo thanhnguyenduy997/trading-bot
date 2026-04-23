@@ -466,12 +466,14 @@ class ManualTradeSetupService:
             snapshot_symbol = self._normalize_symbol(snapshot.symbol)
             db_side = self._canonical_side(trade.side)
             snapshot_side = self._canonical_side(snapshot.side)
+            live_side_missing = snapshot_side is None
             logger.info(
-                "Manual setup trade selection validation ticket=%s payload_side=%s db_side=%s snapshot_side=%s db_symbol=%s snapshot_symbol=%s account_id=%s snapshot_account_check=%s",
+                "Manual setup trade selection validation ticket=%s payload_side=%s db_side=%s snapshot_side=%s live_side_missing=%s db_symbol=%s snapshot_symbol=%s account_id=%s snapshot_account_check=%s",
                 trade.position_ticket,
                 None,
                 db_side,
                 snapshot_side,
+                live_side_missing,
                 db_symbol,
                 snapshot_symbol,
                 trade.trading_account_id,
@@ -481,7 +483,7 @@ class ManualTradeSetupService:
                 raise ValueError(
                     f"Selected ticket {trade.position_ticket} symbol mismatch: synced={db_symbol}, live={snapshot_symbol}."
                 )
-            if snapshot_side != db_side:
+            if snapshot_side is not None and snapshot_side != db_side:
                 raise ValueError(
                     f"Selected ticket {trade.position_ticket} side mismatch: synced={db_side}, live={snapshot_side}."
                 )
@@ -608,13 +610,16 @@ class ManualTradeSetupService:
             return "sell"
         return normalized
 
-    def _canonical_side(self, value: object) -> str:
+    def _canonical_side(self, value: object) -> str | None:
         normalized = self._normalize_side(value)
         if normalized == "buy":
             return "BUY"
         if normalized == "sell":
             return "SELL"
-        return str(value or "").upper()
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        return raw.upper()
 
     def _ui_side(self, value: object) -> str:
         normalized = self._normalize_side(value)
