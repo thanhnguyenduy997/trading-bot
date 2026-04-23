@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import logging
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.services.trading_accounts import get_trading_account
 
 MANUAL_TICKET_TIME_WARNING_WINDOW = timedelta(minutes=15)
 MANUAL_ENTRY_PRICE_WARNING_POINTS = Decimal("0.50")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -85,10 +87,10 @@ class ManualTradeSetupService:
         account_ids = {trade.trading_account_id for trade in trades}
         if len(account_ids) != 1:
             raise ValueError("Selected MT5 trades must belong to the same trading account.")
-        symbols = {trade.symbol for trade in trades}
+        symbols = {self._normalize_symbol(trade.symbol) for trade in trades}
         if len(symbols) != 1:
             raise ValueError("Selected MT5 trades must have the same symbol.")
-        sides = {trade.side for trade in trades}
+        sides = {self._canonical_side(trade.side) for trade in trades}
         if len(sides) != 1:
             raise ValueError("Selected MT5 trades must have the same side.")
 
@@ -160,8 +162,8 @@ class ManualTradeSetupService:
 
         form_data = {
             "trading_account_id": account.id,
-            "symbol": trades[0].symbol,
-            "side": trades[0].side,
+            "symbol": self._normalize_symbol(trades[0].symbol),
+            "side": self._ui_side(trades[0].side),
             "estimated_entry": float(weighted_entry) if weighted_entry is not None else "",
             "sl_price": float(derived_sl) if derived_sl is not None else "",
             "total_risk_money": float(total_risk_money) if total_risk_money is not None else "",
@@ -460,10 +462,29 @@ class ManualTradeSetupService:
             snapshot = snapshot_map.get(int(trade.position_ticket))
             if snapshot is None:
                 raise ValueError(f"Selected ticket {trade.position_ticket} is unavailable on the selected MT5 account.")
-            if snapshot.symbol != trade.symbol:
-                raise ValueError(f"Selected ticket {trade.position_ticket} symbol no longer matches the synced manual trade.")
-            if snapshot.side != trade.side:
-                raise ValueError(f"Selected ticket {trade.position_ticket} side no longer matches the synced manual trade.")
+            db_symbol = self._normalize_symbol(trade.symbol)
+            snapshot_symbol = self._normalize_symbol(snapshot.symbol)
+            db_side = self._canonical_side(trade.side)
+            snapshot_side = self._canonical_side(snapshot.side)
+            logger.info(
+                "Manual setup trade selection validation ticket=%s payload_side=%s db_side=%s snapshot_side=%s db_symbol=%s snapshot_symbol=%s account_id=%s snapshot_account_check=%s",
+                trade.position_ticket,
+                None,
+                db_side,
+                snapshot_side,
+                db_symbol,
+                snapshot_symbol,
+                trade.trading_account_id,
+                True,
+            )
+            if snapshot_symbol != db_symbol:
+                raise ValueError(
+                    f"Selected ticket {trade.position_ticket} symbol mismatch: synced={db_symbol}, live={snapshot_symbol}."
+                )
+            if snapshot_side != db_side:
+                raise ValueError(
+                    f"Selected ticket {trade.position_ticket} side mismatch: synced={db_side}, live={snapshot_side}."
+                )
 
     def _derive_stop_loss(
         self,
@@ -586,6 +607,23 @@ class ManualTradeSetupService:
         if normalized in {"sell", "1"}:
             return "sell"
         return normalized
+
+    def _canonical_side(self, value: object) -> str:
+        normalized = self._normalize_side(value)
+        if normalized == "buy":
+            return "BUY"
+        if normalized == "sell":
+            return "SELL"
+        return str(value or "").upper()
+
+    def _ui_side(self, value: object) -> str:
+        normalized = self._normalize_side(value)
+        if normalized in {"buy", "sell"}:
+            return normalized
+        return str(value or "").lower()
+
+    def _normalize_symbol(self, value: object) -> str:
+        return str(value or "").upper()
 
     def _coerce_float(self, value: object) -> float | None:
         if value in (None, ""):
