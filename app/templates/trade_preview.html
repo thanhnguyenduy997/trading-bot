@@ -4,7 +4,6 @@
     <div class="section-header">
         <div>
             <h1>Trade Preview</h1>
-            <p class="muted">Preview a two-order setup using live MT5 quote and symbol specifications from the selected account.</p>
         </div>
     </div>
 
@@ -19,59 +18,61 @@
         {% if setup %}
         <input type="hidden" name="draft_setup_id" value="{{ setup.id }}">
         {% endif %}
-        <label>
-            Trading account
-            <select id="preview-account-select" name="trading_account_id" required {% if not accounts %}disabled{% endif %}>
-                {% for account in accounts %}
-                <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
-                    {{ account.broker_name }} / {{ account.account_number }}
-                </option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>
-            Symbol
-            <select id="preview-symbol-select" name="symbol" required {% if not symbols %}disabled{% endif %}>
-                {% for item in symbols %}
-                <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.symbol_name }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <p id="preview-symbol-help" class="muted">
-            {% if symbols %}
-            Symbols come from the selected account's synced MT5 Market Watch list.
-            {% else %}
+        <div class="preview-primary-grid">
+            <label>
+                Trading account
+                <select id="preview-account-select" name="trading_account_id" required {% if not accounts %}disabled{% endif %}>
+                    {% for account in accounts %}
+                    <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
+                        {{ account.broker_name }} / {{ account.account_number }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Symbol
+                <select id="preview-symbol-select" name="symbol" required {% if not symbols %}disabled{% endif %}>
+                    {% for item in symbols %}
+                    <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.symbol_name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Side
+                <select name="side" id="preview-side-select" required>
+                    {% for item in ["buy", "sell"] %}
+                    <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Stop loss price
+                <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
+            </label>
+            <label>
+                Risk mode
+                <select name="risk_mode" id="preview-risk-mode-select" required>
+                    {% for item in ["fixed_money", "balance_percent"] %}
+                    <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Risk value
+                <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
+            </label>
+            <label>
+                RR order 2
+                <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
+            </label>
+        </div>
+        <p id="preview-symbol-help" class="muted preview-symbol-status">
+            {% if not symbols %}
             {{ symbol_message or "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." }}
+            {% elif symbol_message %}
+            {{ symbol_message }}
             {% endif %}
         </p>
-        <label>
-            Side
-            <select name="side" id="preview-side-select" required>
-                {% for item in ["buy", "sell"] %}
-                <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>
-            Stop loss price
-            <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
-        </label>
-        <label>
-            Risk mode
-            <select name="risk_mode" id="preview-risk-mode-select" required>
-                {% for item in ["fixed_money", "balance_percent"] %}
-                <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>
-            Risk value
-            <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
-        </label>
-        <label>
-            RR order 2
-            <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
-        </label>
         <div class="action-row">
             <button type="submit" {% if not accounts or not symbols %}disabled{% endif %}>{{ "Update Review" if setup else "Preview Setup" }}</button>
             <button id="reset-preview-defaults-button" type="button" class="secondary-button" {% if not accounts %}disabled{% endif %}>Reset to Account Defaults</button>
@@ -85,7 +86,6 @@
     <div class="section-header compact-header">
         <div>
             <h2>Review Setup #{{ setup.id }}</h2>
-            <p class="muted">Auto-saved as draft. Entry uses a live MT5 quote snapshot from this preview.</p>
         </div>
         <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
     </div>
@@ -93,14 +93,20 @@
     <div class="setup-hero">
         <div>
             <div class="setup-symbol">{{ preview.symbol }}</div>
-            <div class="setup-subtitle">{{ preview.side|upper }} · {{ "ask" if preview.side == "buy" else "bid" }} snapshot {{ preview.estimated_entry }}</div>
+            <div class="setup-subtitle">{{ preview.side|upper }}</div>
         </div>
         <div class="status-pill">{{ preview.validation_status }}</div>
     </div>
 
-    <div class="metric-grid">
+    {% if preview.warnings %}
+    <div class="alert alert-error">
+        {{ preview.warnings|join(", ") }}
+    </div>
+    {% endif %}
+
+    <div class="preview-summary-grid">
         <div class="metric-card primary-metric">
-            <span>Entry</span>
+            <span>Estimated entry</span>
             <strong>{{ preview.estimated_entry }}</strong>
         </div>
         <div class="metric-card">
@@ -120,26 +126,29 @@
             <strong>{{ preview.total_risk_money }}</strong>
         </div>
         <div class="metric-card">
-            <span>Volumes</span>
-            <strong>{{ preview.order1_volume }} / {{ preview.order2_volume }}</strong>
+            <span>Order 1 volume</span>
+            <strong>{{ preview.order1_volume }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Order 2 volume</span>
+            <strong>{{ preview.order2_volume }}</strong>
         </div>
     </div>
 
-    <section class="detail-panel">
-        <h2>Quote Snapshot</h2>
+    <details class="detail-panel preview-advanced-panel">
+        <summary>Advanced Details</summary>
         <dl class="compact-details">
+            <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
+            <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
             <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
             <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
-            <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
             <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
+            <div><dt>Contract size</dt><dd>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</dd></div>
+            <div><dt>Volume min / max</dt><dd>{{ preview.volume_min if preview.volume_min is not none else "N/A" }} / {{ preview.volume_max if preview.volume_max is not none else "N/A" }}</dd></div>
             <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
             <div><dt>Warnings</dt><dd>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</dd></div>
         </dl>
-    </section>
-
-    <div class="alert alert-success">
-        Draft saved. Execute within 5 minutes or refresh the preview to avoid stale quote risk.
-    </div>
+    </details>
 
     <section class="detail-panel actions-panel">
         <h2>Actions</h2>
@@ -149,7 +158,6 @@
                 <button type="submit">Execute Now</button>
             </form>
         </div>
-        <p class="muted">Execution uses saved setup ID {{ setup.id }}. This draft is visible in setup history.</p>
     </section>
 </section>
 {% endif %}
@@ -249,7 +257,7 @@
         if (savePreviewDefaultsButton) {
             savePreviewDefaultsButton.disabled = false;
         }
-        previewSymbolHelp.textContent = data.message || "Symbols come from the selected account's synced MT5 Market Watch list.";
+        previewSymbolHelp.textContent = data.message || "";
     }
 
     async function savePreviewDefaults() {

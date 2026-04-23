@@ -386,6 +386,51 @@ button:hover {
     gap: 1rem;
 }
 
+.preview-primary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem;
+}
+
+.preview-symbol-status {
+    margin: 0;
+    min-height: 1.25rem;
+}
+
+.preview-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.7rem;
+}
+
+.preview-advanced-panel summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 750;
+}
+
+.preview-advanced-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.preview-advanced-panel summary::after {
+    content: "+";
+    color: var(--accent);
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.preview-advanced-panel[open] summary::after {
+    content: "-";
+}
+
+.preview-advanced-panel .compact-details {
+    margin-top: 0.85rem;
+}
+
 .setup-hero {
     display: flex;
     justify-content: space-between;
@@ -576,6 +621,10 @@ button:hover {
     .metric-grid {
         grid-template-columns: repeat(3, 1fr);
     }
+
+    .preview-summary-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
 }
 
 @media (max-width: 820px) {
@@ -714,6 +763,11 @@ button:hover {
     .metric-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.55rem;
+    }
+
+    .preview-primary-grid,
+    .preview-summary-grid {
+        grid-template-columns: 1fr 1fr;
     }
 
     .metric-card {
@@ -927,6 +981,11 @@ button:hover {
     .accounts-table td[data-label] {
         grid-template-columns: 1fr;
         gap: 0.12rem;
+    }
+
+    .preview-primary-grid,
+    .preview-summary-grid {
+        grid-template-columns: 1fr;
     }
 }
 

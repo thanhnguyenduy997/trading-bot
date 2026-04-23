@@ -511,6 +511,50 @@ def test_preview_submit_allows_user_to_override_account_defaults(
     assert "2322.2" in response.text
 
 
+def test_preview_page_keeps_primary_results_visible_and_moves_secondary_details_into_accordion(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user, account_number="ACC-202")
+    sync_account_symbols(account, "XAUUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        "/trade-setups/preview",
+        data={
+            "trading_account_id": str(account.id),
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "sl_price": "2319.2",
+            "risk_mode": "fixed_money",
+            "risk_value": "100",
+            "rr_order2": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Estimated entry" in response.text
+    assert "Stop loss" in response.text
+    assert "TP1" in response.text
+    assert "TP2" in response.text
+    assert "Order 1 volume" in response.text
+    assert "Order 2 volume" in response.text
+    assert "Total risk" in response.text
+    assert "Advanced Details" in response.text
+    assert "Risk / order" in response.text
+    assert "Live bid" in response.text
+    assert "Live ask" in response.text
+    assert "Symbols come from the selected account&#39;s synced MT5 Market Watch list." not in response.text
+    assert "Execute within 5 minutes or refresh the preview to avoid stale quote risk." not in response.text
+
+
 def test_preview_uses_only_synced_symbols_for_selected_account(
     client,
     db_session,
