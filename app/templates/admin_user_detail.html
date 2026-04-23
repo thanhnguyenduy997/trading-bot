@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
+<section class="card layout-tier-wide">
     <div class="section-header">
         <div>
             <h1>{{ target.email }}</h1>
@@ -65,7 +65,7 @@
     </section>
 </section>
 
-<section class="card results-card">
+<section class="card results-card layout-tier-wide">
     <h2>Trading Accounts</h2>
     {% if accounts %}
     <table class="accounts-table account-list-table">
@@ -119,7 +119,7 @@
     {% endif %}
 </section>
 
-<section class="card results-card">
+<section class="card results-card layout-tier-wide">
     <h2>Create Trading Account For User</h2>
     {% set create_form = create_account_form %}
     <form action="/admin/users/{{ target.id }}/trading-accounts" method="post" class="stack">

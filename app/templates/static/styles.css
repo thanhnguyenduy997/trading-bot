@@ -151,6 +151,33 @@ body {
     max-width: 100%;
 }
 
+.layout-tier-narrow,
+.layout-tier-medium,
+.layout-tier-wide {
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.layout-tier-narrow {
+    width: min(560px, calc(100vw - 32px));
+    max-width: 100%;
+    margin-inline: auto;
+}
+
+.layout-tier-medium {
+    width: min(1400px, calc(100vw - 48px));
+    max-width: none;
+    margin-left: 50%;
+    transform: translateX(-50%);
+}
+
+.layout-tier-wide {
+    width: min(1600px, calc(100vw - 48px));
+    max-width: none;
+    margin-left: 50%;
+    transform: translateX(-50%);
+}
+
 h1,
 h2 {
     margin-top: 0;
@@ -938,10 +965,6 @@ button:hover {
 }
 
 .dashboard-shell {
-    width: min(1600px, calc(100vw - 48px));
-    max-width: none;
-    margin-left: 50%;
-    transform: translateX(-50%);
     gap: 1rem;
     min-width: 0;
     box-sizing: border-box;
@@ -1407,8 +1430,17 @@ button:hover {
 }
 
 @media (max-width: 640px) {
+    .layout-tier-narrow {
+        width: min(560px, calc(100vw - 24px));
+    }
+
+    .layout-tier-medium,
+    .layout-tier-wide {
+        width: calc(100vw - 24px);
+    }
+
     .dashboard-shell {
-        width: min(1600px, calc(100vw - 24px));
+        width: calc(100vw - 24px);
     }
 
     .dashboard-trade-table {

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
+<section class="card layout-tier-medium">
     <div class="section-header">
         <div>
             <h1>Trading Account {{ account.account_number }}</h1>
@@ -77,7 +77,7 @@
     </div>
 </section>
 
-<section class="card results-card">
+<section class="card results-card layout-tier-medium">
     <h2>Telegram Notifications</h2>
     <form action="/trading-accounts/id/{{ account.id }}/telegram" method="post" class="stack">
         <label>
@@ -100,7 +100,7 @@
     </form>
 </section>
 
-<section id="connection-result-card" class="card results-card" {% if not (connection_result and connection_result.success) %}hidden{% endif %}>
+<section id="connection-result-card" class="card results-card layout-tier-medium" {% if not (connection_result and connection_result.success) %}hidden{% endif %}>
     <h2>Connection Result</h2>
     <table class="accounts-table detail-table">
         <tbody>
@@ -117,7 +117,7 @@
     </table>
 </section>
 
-<section id="quote-result-card" class="card results-card" {% if not quote_result %}hidden{% endif %}>
+<section id="quote-result-card" class="card results-card layout-tier-medium" {% if not quote_result %}hidden{% endif %}>
     <h2>Quote Result</h2>
     <table class="accounts-table detail-table">
         <tbody>
@@ -133,7 +133,7 @@
     </table>
 </section>
 
-<section id="symbol-info-card" class="card results-card" {% if not (quote_result and quote_result.symbol_info) %}hidden{% endif %}>
+<section id="symbol-info-card" class="card results-card layout-tier-medium" {% if not (quote_result and quote_result.symbol_info) %}hidden{% endif %}>
     <h2>Symbol Info</h2>
     <table class="accounts-table detail-table">
         <tbody>
