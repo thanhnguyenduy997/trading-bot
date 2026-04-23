@@ -240,6 +240,39 @@ def test_dashboard_defaults_to_all_time_when_no_range_is_provided(client, db_ses
     assert ">2<" in response.text
 
 
+def test_dashboard_blank_or_unknown_range_normalizes_to_all_time(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "ALL-005")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=503,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.4,
+            open_price=2300.0,
+            close_price=2302.0,
+            realized_pnl=20.0,
+            open_time=datetime(2026, 4, 10, 9, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 10, 10, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+    _login(client, created_user.email)
+
+    blank_response = client.get(f"/dashboard?account_id={account.id}&range=")
+    unknown_response = client.get(f"/dashboard?account_id={account.id}&range=unexpected")
+
+    assert blank_response.status_code == 200
+    assert unknown_response.status_code == 200
+    assert 'option value="all_time" selected' in blank_response.text
+    assert 'option value="all_time" selected' in unknown_response.text
+    assert "All Time" in blank_response.text
+    assert "All Time" in unknown_response.text
+
+
 def test_dashboard_defaults_to_most_recent_owned_account_when_no_match(db_session, created_user):
     service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 8, tzinfo=timezone.utc))
     older = _create_account(db_session, created_user, "RECENT-001")

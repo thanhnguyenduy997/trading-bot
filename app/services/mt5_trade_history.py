@@ -22,6 +22,15 @@ SETUP_COMMENT_RE = re.compile(r"setup-(\d+)-", re.IGNORECASE)
 MANUAL_BREAKEVEN_PNL_TOLERANCE = 1.0
 SYNC_LOOKBACK_DAYS = 90
 ALL_TIME_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
+VALID_DASHBOARD_RANGE_KEYS = {
+    "all_time",
+    "today",
+    "yesterday",
+    "last_7_days",
+    "last_30_days",
+    "this_month",
+    "custom",
+}
 
 
 @dataclass
@@ -388,19 +397,22 @@ class DashboardService:
         start_of_today = datetime.combine(now.date(), time.min, tzinfo=tz)
         end_of_today = datetime.combine(now.date(), time.max, tzinfo=tz)
 
-        if filters.range_key == "all_time":
+        range_key = filters.range_key if filters.range_key in VALID_DASHBOARD_RANGE_KEYS else "all_time"
+        if range_key == "all_time":
             return ALL_TIME_START.astimezone(tz), end_of_today
-        if filters.range_key == "yesterday":
+        if range_key == "today":
+            return start_of_today, end_of_today
+        if range_key == "yesterday":
             day = now.date() - timedelta(days=1)
             return datetime.combine(day, time.min, tzinfo=tz), datetime.combine(day, time.max, tzinfo=tz)
-        if filters.range_key == "last_7_days":
+        if range_key == "last_7_days":
             return start_of_today - timedelta(days=6), end_of_today
-        if filters.range_key == "last_30_days":
+        if range_key == "last_30_days":
             return start_of_today - timedelta(days=29), end_of_today
-        if filters.range_key == "this_month":
+        if range_key == "this_month":
             first_day = now.date().replace(day=1)
             return datetime.combine(first_day, time.min, tzinfo=tz), end_of_today
-        if filters.range_key == "custom":
+        if range_key == "custom":
             if not filters.start_date or not filters.end_date:
                 raise ValueError("Custom date range requires both Start Date and End Date.")
             if filters.end_date < filters.start_date:
@@ -409,7 +421,7 @@ class DashboardService:
                 datetime.combine(filters.start_date, time.min, tzinfo=tz),
                 datetime.combine(filters.end_date, time.max, tzinfo=tz),
             )
-        return start_of_today, end_of_today
+        return ALL_TIME_START.astimezone(tz), end_of_today
 
     def _account_activity_map(self, user_id: int) -> dict[int, datetime]:
         activity: dict[int, datetime] = {}

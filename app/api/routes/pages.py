@@ -62,6 +62,7 @@ TIME_RANGE_OPTIONS = (
     ("this_month", "This Month"),
     ("custom", "Custom Range"),
 )
+VALID_TIME_RANGE_KEYS = {value for value, _label in TIME_RANGE_OPTIONS}
 
 
 def _render_trade_preview_page(
@@ -112,11 +113,12 @@ def _parse_dashboard_filters(
     end_date: str | None,
     account_id: str | None,
 ) -> DashboardFilters:
+    normalized_range_key = range_key if range_key in VALID_TIME_RANGE_KEYS else "all_time"
     parsed_account_id = int(account_id) if account_id else None
     parsed_start = date.fromisoformat(start_date) if start_date else None
     parsed_end = date.fromisoformat(end_date) if end_date else None
     return DashboardFilters(
-        range_key=range_key,
+        range_key=normalized_range_key,
         start_date=parsed_start,
         end_date=parsed_end,
         trading_account_id=parsed_account_id,
