@@ -193,6 +193,53 @@ def test_dashboard_defaults_to_matched_owned_account(db_session, created_user):
     assert selected.id != first.id
 
 
+def test_dashboard_defaults_to_all_time_when_no_range_is_provided(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "ALL-001")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=501,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.4,
+                open_price=2300.0,
+                close_price=2302.0,
+                realized_pnl=20.0,
+                open_time=datetime(2026, 4, 10, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 10, 10, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=502,
+                symbol="XAUUSD",
+                side="sell",
+                trade_source="manual",
+                outcome="stoploss",
+                volume=0.3,
+                open_price=2310.0,
+                close_price=2312.0,
+                realized_pnl=-10.0,
+                open_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 10, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login(client, created_user.email)
+
+    response = client.get(f"/dashboard?account_id={account.id}")
+
+    assert response.status_code == 200
+    assert 'option value="all_time" selected' in response.text
+    assert "All Time" in response.text
+    assert ">2<" in response.text
+
+
 def test_dashboard_defaults_to_most_recent_owned_account_when_no_match(db_session, created_user):
     service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 8, tzinfo=timezone.utc))
     older = _create_account(db_session, created_user, "RECENT-001")
@@ -273,6 +320,170 @@ def test_dashboard_data_is_scoped_to_selected_account_only(db_session, created_u
     assert dashboard["summary"]["trade_count"] == 1
     assert dashboard["table_rows"][0]["position_ticket"] == 1001
     assert dashboard["table_rows"][0]["account_display"] == "SCOPE-001"
+
+
+def test_all_time_returns_full_available_dataset(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "ALL-002")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=601,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2300.0,
+                close_price=2301.0,
+                realized_pnl=12.0,
+                open_time=datetime(2026, 3, 1, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 3, 1, 10, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=602,
+                symbol="EURUSD",
+                side="sell",
+                trade_source="system",
+                outcome="tp_hit",
+                volume=0.2,
+                open_price=1.1,
+                close_price=1.09,
+                realized_pnl=8.0,
+                open_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 10, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="all_time", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["summary"]["trade_count"] == 2
+    assert len(dashboard["table_rows"]) == 2
+    assert len(dashboard["trade_count_chart"]) == 2
+    assert round(dashboard["summary"]["total_realized_pnl"], 2) == 20.0
+
+
+def test_explicit_range_in_query_params_overrides_all_time_default(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "ALL-003")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=701,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2300.0,
+                close_price=2301.0,
+                realized_pnl=12.0,
+                open_time=datetime(2026, 4, 10, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 10, 10, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=702,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2300.0,
+                close_price=2301.0,
+                realized_pnl=15.0,
+                open_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 10, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["summary"]["trade_count"] == 1
+    assert dashboard["table_rows"][0]["position_ticket"] == 702
+
+
+def test_custom_still_requires_start_and_end_dates(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+
+    try:
+        service.resolve_time_range(DashboardFilters(range_key="custom"))
+    except ValueError as exc:
+        assert str(exc) == "Custom date range requires both Start Date and End Date."
+    else:
+        raise AssertionError("Expected ValueError for incomplete custom range.")
+
+
+def test_summary_cards_charts_and_table_all_use_same_all_time_scope(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "ALL-004")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=801,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2300.0,
+                close_price=2301.0,
+                realized_pnl=10.0,
+                open_time=datetime(2026, 2, 1, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 2, 1, 10, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=802,
+                symbol="EURUSD",
+                side="sell",
+                trade_source="manual",
+                outcome="breakeven",
+                volume=0.4,
+                open_price=1.1,
+                close_price=1.1,
+                realized_pnl=0.0,
+                open_time=datetime(2026, 4, 1, 9, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 1, 10, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="all_time", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["summary"]["trade_count"] == 2
+    assert len(dashboard["table_rows"]) == 2
+    assert sum(item["value"] for item in dashboard["trade_count_chart"]) == 2
+    assert round(dashboard["summary"]["total_realized_pnl"], 2) == sum(
+        row["realized_pnl"] for row in dashboard["table_rows"]
+    )
 
 
 def test_unrelated_account_warnings_are_not_shown(client, db_session, created_user):

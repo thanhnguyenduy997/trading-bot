@@ -21,11 +21,12 @@ from app.services.trading_accounts import get_trading_account, list_trading_acco
 SETUP_COMMENT_RE = re.compile(r"setup-(\d+)-", re.IGNORECASE)
 MANUAL_BREAKEVEN_PNL_TOLERANCE = 1.0
 SYNC_LOOKBACK_DAYS = 90
+ALL_TIME_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
 class DashboardFilters:
-    range_key: str = "today"
+    range_key: str = "all_time"
     start_date: date | None = None
     end_date: date | None = None
     trading_account_id: int | None = None
@@ -387,6 +388,8 @@ class DashboardService:
         start_of_today = datetime.combine(now.date(), time.min, tzinfo=tz)
         end_of_today = datetime.combine(now.date(), time.max, tzinfo=tz)
 
+        if filters.range_key == "all_time":
+            return ALL_TIME_START.astimezone(tz), end_of_today
         if filters.range_key == "yesterday":
             day = now.date() - timedelta(days=1)
             return datetime.combine(day, time.min, tzinfo=tz), datetime.combine(day, time.max, tzinfo=tz)
@@ -397,7 +400,9 @@ class DashboardService:
         if filters.range_key == "this_month":
             first_day = now.date().replace(day=1)
             return datetime.combine(first_day, time.min, tzinfo=tz), end_of_today
-        if filters.range_key == "custom" and filters.start_date and filters.end_date:
+        if filters.range_key == "custom":
+            if not filters.start_date or not filters.end_date:
+                raise ValueError("Custom date range requires both Start Date and End Date.")
             if filters.end_date < filters.start_date:
                 raise ValueError("Custom date range end date must be on or after the start date.")
             return (

@@ -54,6 +54,7 @@ MISSING_DEFAULT_SYMBOL_MESSAGE = (
 )
 
 TIME_RANGE_OPTIONS = (
+    ("all_time", "All Time"),
     ("today", "Today"),
     ("yesterday", "Yesterday"),
     ("last_7_days", "Last 7 Days"),
@@ -302,7 +303,7 @@ def login_page(
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(
     request: Request,
-    range_key: str = Query("today", alias="range"),
+    range_key: str = Query("all_time", alias="range"),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     account_id: str | None = Query(None),
@@ -356,7 +357,7 @@ def dashboard_page(
 @router.post("/dashboard/sync", response_class=HTMLResponse)
 def dashboard_sync_page(
     request: Request,
-    range_key: str = Form("today", alias="range"),
+    range_key: str = Form("all_time", alias="range"),
     start_date: str = Form(""),
     end_date: str = Form(""),
     account_id: str = Form(""),

@@ -43,7 +43,16 @@
         <div><span class="muted">Trading Account</span><strong>{{ dashboard.selected_account.account_number }}</strong></div>
         <div><span class="muted">Server</span><strong>{{ dashboard.selected_account.server_name }}</strong></div>
         <div><span class="muted">Current MT5 Login</span><strong>{{ dashboard.selected_account.current_mt5_login or "Unknown" }}</strong></div>
-        <div><span class="muted">Time Window</span><strong>{{ dashboard.range_start.strftime("%Y-%m-%d") }} to {{ dashboard.range_end.strftime("%Y-%m-%d") }}</strong></div>
+        <div>
+            <span class="muted">Time Window</span>
+            <strong>
+                {% if dashboard.filters.range_key == "all_time" %}
+                All Time
+                {% else %}
+                {{ dashboard.range_start.strftime("%Y-%m-%d") }} to {{ dashboard.range_end.strftime("%Y-%m-%d") }}
+                {% endif %}
+            </strong>
+        </div>
     </section>
 
     <form action="/dashboard" method="get" class="dashboard-compact-filters">
@@ -65,11 +74,11 @@
         </div>
         <div>
             <label for="dashboard-start-date">Start Date</label>
-            <input id="dashboard-start-date" type="date" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
+            <input id="dashboard-start-date" type="date" name="start_date" value="{{ dashboard.filters.start_date or '' }}" {% if dashboard.filters.range_key != "custom" %}disabled{% endif %}>
         </div>
         <div>
             <label for="dashboard-end-date">End Date</label>
-            <input id="dashboard-end-date" type="date" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
+            <input id="dashboard-end-date" type="date" name="end_date" value="{{ dashboard.filters.end_date or '' }}" {% if dashboard.filters.range_key != "custom" %}disabled{% endif %}>
         </div>
         <div class="filter-actions">
             <button type="submit">Apply</button>
@@ -248,4 +257,23 @@
     </section>
     {% endif %}
 </section>
+<script>
+    const dashboardRangeSelect = document.getElementById("dashboard-range");
+    const dashboardStartDateInput = document.getElementById("dashboard-start-date");
+    const dashboardEndDateInput = document.getElementById("dashboard-end-date");
+
+    function syncDashboardDateInputs() {
+        if (!dashboardRangeSelect || !dashboardStartDateInput || !dashboardEndDateInput) {
+            return;
+        }
+        const useCustomRange = dashboardRangeSelect.value === "custom";
+        dashboardStartDateInput.disabled = !useCustomRange;
+        dashboardEndDateInput.disabled = !useCustomRange;
+    }
+
+    if (dashboardRangeSelect) {
+        dashboardRangeSelect.addEventListener("change", syncDashboardDateInputs);
+        syncDashboardDateInputs();
+    }
+</script>
 {% endblock %}
