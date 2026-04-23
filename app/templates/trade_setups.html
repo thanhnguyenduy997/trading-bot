@@ -4,9 +4,12 @@
     <div class="section-header">
         <div>
             <h1>Trade Setups</h1>
-            <p class="muted">Saved draft setups for your account.</p>
+            <p class="muted">System previews and confirmed manual MT5 setups for your account.</p>
         </div>
-        <a class="button-link" href="/trade-setups/preview">New Preview</a>
+        <div class="action-row">
+            <a class="button-link secondary-button" href="/trade-setups/manual/create">Create Manual Setup</a>
+            <a class="button-link" href="/trade-setups/preview">New Preview</a>
+        </div>
     </div>
 
     {% if setups %}
@@ -16,6 +19,7 @@
                 <th>ID</th>
                 <th>Symbol</th>
                 <th>Side</th>
+                <th>Source</th>
                 <th>Status</th>
                 <th>Risk</th>
                 <th>Created</th>
@@ -28,13 +32,18 @@
                 <td data-label="ID"><a href="/trade-setups/{{ setup.id }}">{{ setup.id }}</a></td>
                 <td data-label="Symbol">{{ setup.symbol }}</td>
                 <td data-label="Side">{{ setup.side|upper }}</td>
+                <td data-label="Source">{{ setup.setup_source|replace("_", " ")|title }}</td>
                 <td data-label="Status">{{ setup.status }}</td>
                 <td data-label="Risk">{{ setup.total_risk_money }}</td>
                 <td data-label="Created">{{ setup.created_at }}</td>
                 <td data-label="Action">
+                    {% if setup.setup_source == "manual" %}
+                    <a class="button-link secondary-button" href="/trade-setups/{{ setup.id }}">Open</a>
+                    {% else %}
                     <form action="/trade-setups/{{ setup.id }}/execute" method="post">
                         <button type="submit">Execute</button>
                     </form>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}

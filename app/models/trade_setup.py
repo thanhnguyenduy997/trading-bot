@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,6 +16,8 @@ class TradeSetup(Base):
         nullable=False,
         index=True,
     )
+    setup_source: Mapped[str] = mapped_column(String(20), nullable=False, default="system", server_default="system")
+    order_count: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)
     sl_price: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
@@ -40,6 +42,7 @@ class TradeSetup(Base):
     order2_be_move_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     result_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    manual_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     order1_outcome: Mapped[str | None] = mapped_column(String(30), nullable=True)
     order2_outcome: Mapped[str | None] = mapped_column(String(30), nullable=True)
     order1_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

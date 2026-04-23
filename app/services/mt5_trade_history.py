@@ -202,7 +202,7 @@ class MT5TradeHistorySyncService:
 
         if len({match[0].id for match in direct_matches}) == 1 and direct_matches:
             setup, order_index = direct_matches[0]
-            return setup, order_index, "system"
+            return setup, order_index, self._linked_trade_source(setup)
         if len({match[0].id for match in direct_matches}) > 1:
             return None, None, "unknown"
 
@@ -216,7 +216,7 @@ class MT5TradeHistorySyncService:
                 comment_matches.append(setup)
 
         if len(comment_matches) == 1:
-            return comment_matches[0], None, "system"
+            return comment_matches[0], None, self._linked_trade_source(comment_matches[0])
         if len(comment_matches) > 1:
             return None, None, "unknown"
         return None, None, "manual"
@@ -239,6 +239,9 @@ class MT5TradeHistorySyncService:
         if realized_pnl < -MANUAL_BREAKEVEN_PNL_TOLERANCE:
             return "stoploss"
         return "breakeven"
+
+    def _linked_trade_source(self, setup: TradeSetup) -> str:
+        return "manual_setup" if setup.setup_source == "manual" else "system"
 
     def _upsert_trade(self, *, account: TradingAccount, normalized: dict[str, object]) -> None:
         trade = (
@@ -461,7 +464,7 @@ class DashboardService:
         setup: TradeSetup | None,
         selected_account: TradingAccount,
     ) -> dict[str, object]:
-        effective_outcome = setup.setup_outcome if trade.trade_source == "system" and setup else trade.outcome
+        effective_outcome = setup.setup_outcome if trade.trade_source in {"system", "manual_setup"} and setup else trade.outcome
         return {
             "position_ticket": trade.position_ticket,
             "open_time": trade.open_time,
@@ -488,7 +491,7 @@ class DashboardService:
             "total_realized_pnl": total_pnl,
             "trade_count": total_trades,
             "win_rate": round((win_trades / total_trades * 100), 2) if total_trades else 0.0,
-            "manual_trades": sum(1 for item in items if item["trade_source"] == "manual"),
+            "manual_trades": sum(1 for item in items if item["trade_source"] in {"manual", "manual_setup"}),
             "system_trades": sum(1 for item in items if item["trade_source"] == "system"),
             "stoploss_count": sum(1 for item in items if item["effective_outcome"] == "stoploss"),
             "breakeven_count": sum(1 for item in items if item["effective_outcome"] == "breakeven"),

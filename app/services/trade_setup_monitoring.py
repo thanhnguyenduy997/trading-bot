@@ -26,6 +26,8 @@ class TradeSetupMonitoringService:
             raise LookupError("Trade setup not found")
         if setup.status != "executed":
             raise ValueError("Only executed trade setups can be monitored.")
+        if setup.order_count != 2:
+            raise ValueError("Only two-order trade setups support TP1 / breakeven monitoring.")
         if not setup.order1_ticket or not setup.order2_ticket:
             raise ValueError("Executed trade setup is missing MT5 order tickets.")
 

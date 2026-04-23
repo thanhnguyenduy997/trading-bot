@@ -9,6 +9,7 @@ from app.execution.base import AdapterError
 from app.models.user import User
 from app.schemas.trade_preview import TradePreviewRequest, TradePreviewResponse
 from app.schemas.trade_setup import (
+    ManualTradeSetupCreate,
     TradeEventRead,
     TradeSetupCreate,
     TradeSetupExecutionRead,
@@ -16,6 +17,7 @@ from app.schemas.trade_setup import (
     TradeSetupReconciliationRead,
     TradeSetupRead,
 )
+from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.preview_service import PreviewService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
@@ -52,6 +54,27 @@ def create_trade_setup_endpoint(
         setup = create_trade_setup(db, current_user.id, payload)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return TradeSetupRead.model_validate(setup)
+
+
+@router.post("/manual", response_model=TradeSetupRead, status_code=status.HTTP_201_CREATED)
+def create_manual_trade_setup_endpoint(
+    payload: ManualTradeSetupCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TradeSetupRead:
+    try:
+        setup = ManualTradeSetupService(db).create_manual_setup(user_id=current_user.id, payload=payload)
+        TradeSetupOutcomeService(db).reconcile_setup(setup.id, current_user.id)
+        setup = get_trade_setup(db, setup.id, current_user.id)
+        if setup is None:
+            raise LookupError("Trade setup not found")
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AdapterError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.to_dict()) from exc
     return TradeSetupRead.model_validate(setup)
 
 

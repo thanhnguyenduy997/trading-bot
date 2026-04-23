@@ -19,7 +19,7 @@
     <div class="setup-hero">
         <div>
             <div class="setup-symbol">{{ setup.symbol }}</div>
-            <div class="setup-subtitle">{{ setup.side|upper }} · Account {{ setup.trading_account_id }}</div>
+            <div class="setup-subtitle">{{ setup.side|upper }} · {{ setup.setup_source|replace("_", " ")|title }} · Account {{ setup.trading_account_id }}</div>
         </div>
         <div class="status-pill status-{{ setup.status }}">{{ setup.status }}</div>
     </div>
@@ -55,6 +55,10 @@
         <section class="detail-panel">
             <h2>Setup</h2>
             <dl class="compact-details">
+                <div><dt>Source</dt><dd>{{ setup.setup_source|replace("_", " ")|title }}</dd></div>
+                <div><dt>Order count</dt><dd>{{ setup.order_count }}</dd></div>
+                <div><dt>Manual confirmed</dt><dd>{% if setup.setup_source == "manual" %}{{ setup.manual_confirmed_at or "No" }}{% else %}System setup{% endif %}</dd></div>
+                <div><dt>Counted in risk logic</dt><dd>{{ "Yes" if setup.setup_source != "manual" or setup.manual_confirmed_at else "No" }}</dd></div>
                 <div><dt>Risk mode</dt><dd>{{ setup.risk_mode }}</dd></div>
                 <div><dt>Risk value</dt><dd>{{ setup.risk_value }}</dd></div>
                 <div><dt>R value</dt><dd>{{ setup.r_value }}</dd></div>
@@ -109,13 +113,21 @@
     <section class="detail-panel actions-panel">
         <h2>Actions</h2>
         <div class="action-row">
+            {% if setup.setup_source == "manual" and setup.result_status is none %}
+            <a class="button-link secondary-button" href="/trade-setups/{{ setup.id }}/manual/edit">Edit Manual Setup</a>
+            {% elif setup.setup_source != "manual" %}
             <a class="button-link secondary-button" href="/trade-setups/preview">Preview Again</a>
+            {% endif %}
+            {% if setup.setup_source != "manual" %}
             <form action="/trade-setups/{{ setup.id }}/execute" method="post">
                 <button type="submit">Execute</button>
             </form>
+            {% endif %}
+            {% if setup.order_count == 2 %}
             <form action="/trade-setups/{{ setup.id }}/monitor" method="post">
                 <button type="submit" class="secondary-button">Check TP1 / Move BE</button>
             </form>
+            {% endif %}
             <form action="/trade-setups/{{ setup.id }}/reconcile" method="post">
                 <button type="submit" class="secondary-button">Reconcile Outcome</button>
             </form>

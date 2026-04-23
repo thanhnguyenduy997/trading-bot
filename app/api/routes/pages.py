@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_user_from_cookie
 from app.execution.base import AdapterError
 from app.models.user import User
 from app.schemas.trade_preview import TradePreviewRequest
-from app.schemas.trade_setup import TradeSetupCreate
+from app.schemas.trade_setup import ManualTradeSetupCreate, TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.services.account_symbols import (
     EMPTY_SYMBOL_MESSAGE,
@@ -26,6 +26,7 @@ from app.services.mt5_trade_history import (
     DashboardService,
     MT5TradeHistorySyncService,
 )
+from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
@@ -156,6 +157,40 @@ def _render_trade_setup_detail_page(
             "events": events,
             "message": message,
             "error": error,
+        },
+        status_code=status_code,
+    )
+
+
+def _render_manual_trade_setup_form_page(
+    request: Request,
+    current_user: User,
+    accounts: list,
+    *,
+    form_action: str,
+    heading: str,
+    submit_label: str,
+    form_data: dict[str, object] | None = None,
+    setup: object | None = None,
+    error: str | None = None,
+    message: str | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    values = form_data or {}
+    return templates.TemplateResponse(
+        request,
+        "manual_trade_setup_form.html",
+        {
+            "request": request,
+            "user": current_user,
+            "accounts": accounts,
+            "form_action": form_action,
+            "heading": heading,
+            "submit_label": submit_label,
+            "form_data": values,
+            "setup": setup,
+            "error": error,
+            "message": message,
         },
         status_code=status_code,
     )
@@ -591,6 +626,236 @@ def save_trade_setup_from_preview(
     return RedirectResponse(url=f"/trade-setups/{setup.id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _manual_setup_form_defaults(accounts: list, setup: object | None = None) -> dict[str, object]:
+    if setup is not None:
+        return {
+            "trading_account_id": setup.trading_account_id,
+            "symbol": setup.symbol,
+            "side": setup.side,
+            "estimated_entry": float(setup.estimated_entry),
+            "sl_price": float(setup.sl_price),
+            "total_risk_money": float(setup.total_risk_money),
+            "rr_order2": float(setup.rr_order2),
+            "tp1_price": float(setup.tp1_price),
+            "tp2_price": float(setup.tp2_price),
+            "order_count": setup.order_count,
+            "order1_ticket": setup.order1_ticket or "",
+            "order2_ticket": setup.order2_ticket or "",
+        }
+    return {
+        "trading_account_id": accounts[0].id if accounts else None,
+        "symbol": "",
+        "side": "buy",
+        "estimated_entry": "",
+        "sl_price": "",
+        "total_risk_money": "",
+        "rr_order2": 2.0,
+        "tp1_price": "",
+        "tp2_price": "",
+        "order_count": 2,
+        "order1_ticket": "",
+        "order2_ticket": "",
+    }
+
+
+@router.get("/trade-setups/manual/create", response_class=HTMLResponse)
+def create_manual_trade_setup_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    accounts = list_trading_accounts(db, current_user.id)
+    return _render_manual_trade_setup_form_page(
+        request,
+        current_user,
+        accounts,
+        form_action="/trade-setups/manual/create",
+        heading="Create Manual Setup",
+        submit_label="Register Manual Setup",
+        form_data=_manual_setup_form_defaults(accounts),
+    )
+
+
+@router.post("/trade-setups/manual/create", response_class=HTMLResponse)
+def create_manual_trade_setup_page_submit(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    trading_account_id: int = Form(...),
+    symbol: str = Form(...),
+    side: str = Form(...),
+    estimated_entry: float = Form(...),
+    sl_price: float = Form(...),
+    total_risk_money: float = Form(...),
+    rr_order2: float = Form(...),
+    tp1_price: str = Form(""),
+    tp2_price: str = Form(""),
+    order_count: int = Form(...),
+    order1_ticket: int = Form(...),
+    order2_ticket: str = Form(""),
+) -> Response:
+    accounts = list_trading_accounts(db, current_user.id)
+    form_data = {
+        "trading_account_id": trading_account_id,
+        "symbol": symbol,
+        "side": side,
+        "estimated_entry": estimated_entry,
+        "sl_price": sl_price,
+        "total_risk_money": total_risk_money,
+        "rr_order2": rr_order2,
+        "tp1_price": tp1_price,
+        "tp2_price": tp2_price,
+        "order_count": order_count,
+        "order1_ticket": order1_ticket,
+        "order2_ticket": order2_ticket,
+    }
+    try:
+        payload = ManualTradeSetupCreate(
+            trading_account_id=trading_account_id,
+            symbol=symbol,
+            side=side,
+            estimated_entry=estimated_entry,
+            sl_price=sl_price,
+            total_risk_money=total_risk_money,
+            rr_order2=rr_order2,
+            tp1_price=float(tp1_price) if tp1_price else None,
+            tp2_price=float(tp2_price) if tp2_price else None,
+            order_count=order_count,
+            order1_ticket=order1_ticket,
+            order2_ticket=int(order2_ticket) if order2_ticket else None,
+        )
+        setup = ManualTradeSetupService(db).create_manual_setup(user_id=current_user.id, payload=payload)
+        result = TradeSetupOutcomeService(db).reconcile_setup(setup.id, current_user.id)
+        setup = get_trade_setup(db, setup.id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            list_trade_events(db, setup.id, current_user.id),
+            message=f"Manual setup registered. Outcome status: {result['setup_outcome']}.",
+        )
+    except (ValidationError, ValueError, LookupError, AdapterError) as exc:
+        error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
+        return _render_manual_trade_setup_form_page(
+            request,
+            current_user,
+            accounts,
+            form_action="/trade-setups/manual/create",
+            heading="Create Manual Setup",
+            submit_label="Register Manual Setup",
+            form_data=form_data,
+            error=error,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@router.get("/trade-setups/{setup_id}/manual/edit", response_class=HTMLResponse)
+def edit_manual_trade_setup_page(
+    setup_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    setup = get_trade_setup(db, setup_id, current_user.id)
+    if not setup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
+    if setup.setup_source != "manual":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Trade setup is not a manual setup")
+    accounts = list_trading_accounts(db, current_user.id)
+    return _render_manual_trade_setup_form_page(
+        request,
+        current_user,
+        accounts,
+        form_action=f"/trade-setups/{setup_id}/manual/edit",
+        heading=f"Edit Manual Setup #{setup.id}",
+        submit_label="Update Manual Setup",
+        form_data=_manual_setup_form_defaults(accounts, setup),
+        setup=setup,
+    )
+
+
+@router.post("/trade-setups/{setup_id}/manual/edit", response_class=HTMLResponse)
+def edit_manual_trade_setup_page_submit(
+    setup_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    trading_account_id: int = Form(...),
+    symbol: str = Form(...),
+    side: str = Form(...),
+    estimated_entry: float = Form(...),
+    sl_price: float = Form(...),
+    total_risk_money: float = Form(...),
+    rr_order2: float = Form(...),
+    tp1_price: str = Form(""),
+    tp2_price: str = Form(""),
+    order_count: int = Form(...),
+    order1_ticket: int = Form(...),
+    order2_ticket: str = Form(""),
+) -> HTMLResponse:
+    accounts = list_trading_accounts(db, current_user.id)
+    setup = get_trade_setup(db, setup_id, current_user.id)
+    if not setup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
+    form_data = {
+        "trading_account_id": trading_account_id,
+        "symbol": symbol,
+        "side": side,
+        "estimated_entry": estimated_entry,
+        "sl_price": sl_price,
+        "total_risk_money": total_risk_money,
+        "rr_order2": rr_order2,
+        "tp1_price": tp1_price,
+        "tp2_price": tp2_price,
+        "order_count": order_count,
+        "order1_ticket": order1_ticket,
+        "order2_ticket": order2_ticket,
+    }
+    try:
+        payload = ManualTradeSetupCreate(
+            trading_account_id=trading_account_id,
+            symbol=symbol,
+            side=side,
+            estimated_entry=estimated_entry,
+            sl_price=sl_price,
+            total_risk_money=total_risk_money,
+            rr_order2=rr_order2,
+            tp1_price=float(tp1_price) if tp1_price else None,
+            tp2_price=float(tp2_price) if tp2_price else None,
+            order_count=order_count,
+            order1_ticket=order1_ticket,
+            order2_ticket=int(order2_ticket) if order2_ticket else None,
+        )
+        updated = ManualTradeSetupService(db).update_manual_setup(
+            setup_id=setup_id,
+            user_id=current_user.id,
+            payload=payload,
+        )
+        result = TradeSetupOutcomeService(db).reconcile_setup(updated.id, current_user.id)
+        updated = get_trade_setup(db, updated.id, current_user.id)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            updated,
+            list_trade_events(db, updated.id, current_user.id),
+            message=f"Manual setup updated. Outcome status: {result['setup_outcome']}.",
+        )
+    except (ValidationError, ValueError, LookupError, AdapterError) as exc:
+        error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
+        return _render_manual_trade_setup_form_page(
+            request,
+            current_user,
+            accounts,
+            form_action=f"/trade-setups/{setup_id}/manual/edit",
+            heading=f"Edit Manual Setup #{setup.id}",
+            submit_label="Update Manual Setup",
+            form_data=form_data,
+            setup=setup,
+            error=error,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 @router.get("/trade-setups", response_class=HTMLResponse)
 def trade_setup_list_page(
     request: Request,
@@ -605,6 +870,8 @@ def trade_setup_list_page(
 def trade_setup_detail_page(
     setup_id: int,
     request: Request,
+    message: str | None = Query(None),
+    error: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
@@ -612,7 +879,7 @@ def trade_setup_detail_page(
     if not setup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
     events = list_trade_events(db, setup_id, current_user.id)
-    return _render_trade_setup_detail_page(request, current_user, setup, events)
+    return _render_trade_setup_detail_page(request, current_user, setup, events, message=message, error=error)
 
 
 @router.post("/trade-setups/{setup_id}/execute", response_class=HTMLResponse)

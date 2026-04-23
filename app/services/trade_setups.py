@@ -89,6 +89,7 @@ def list_setups_requiring_monitoring(db: Session, limit: int = 50) -> list[Trade
         db.query(TradeSetup)
         .filter(
             TradeSetup.status == "executed",
+            TradeSetup.order_count == 2,
             TradeSetup.order1_ticket.isnot(None),
             TradeSetup.order2_ticket.isnot(None),
             TradeSetup.order2_be_moved_at.is_(None),
@@ -114,7 +115,6 @@ def list_setups_requiring_outcome_reconciliation(db: Session, limit: int = 50) -
         .filter(
             TradeSetup.status == "executed",
             TradeSetup.order1_ticket.isnot(None),
-            TradeSetup.order2_ticket.isnot(None),
             or_(
                 TradeSetup.setup_outcome.is_(None),
                 TradeSetup.setup_outcome.in_(non_terminal_outcomes),

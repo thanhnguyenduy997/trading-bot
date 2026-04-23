@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class TradeSetupCreate(BaseModel):
     trading_account_id: int = Field(gt=0)
+    setup_source: Literal["system", "manual"] = "system"
+    order_count: int = Field(default=2, ge=1, le=2)
     symbol: str = Field(min_length=3, max_length=20)
     side: Literal["buy", "sell"]
     sl_price: float = Field(gt=0)
@@ -34,6 +36,8 @@ class TradeSetupRead(BaseModel):
     id: int
     user_id: int
     trading_account_id: int
+    setup_source: Literal["system", "manual"]
+    order_count: int
     symbol: str
     side: Literal["buy", "sell"]
     sl_price: float
@@ -58,6 +62,7 @@ class TradeSetupRead(BaseModel):
     order2_be_move_error: str | None
     result_status: str | None
     result_recorded_at: datetime | None
+    manual_confirmed_at: datetime | None
     order1_outcome: str | None
     order2_outcome: str | None
     order1_closed_at: datetime | None
@@ -117,3 +122,23 @@ class TradeSetupReconciliationRead(BaseModel):
     order1_realized_pnl: float | None
     order2_realized_pnl: float | None
     setup_outcome_recorded_at: datetime | None
+
+
+class ManualTradeSetupCreate(BaseModel):
+    trading_account_id: int = Field(gt=0)
+    symbol: str = Field(min_length=3, max_length=20)
+    side: Literal["buy", "sell"]
+    estimated_entry: float = Field(gt=0)
+    sl_price: float = Field(gt=0)
+    total_risk_money: float = Field(gt=0)
+    rr_order2: float = Field(gt=0)
+    tp1_price: float | None = Field(default=None, gt=0)
+    tp2_price: float | None = Field(default=None, gt=0)
+    order_count: int = Field(default=2, ge=1, le=2)
+    order1_ticket: int = Field(gt=0)
+    order2_ticket: int | None = Field(default=None, gt=0)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_manual_symbol(cls, value: str) -> str:
+        return value.upper()

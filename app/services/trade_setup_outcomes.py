@@ -67,8 +67,10 @@ class TradeSetupOutcomeService:
 
         if setup.status != "executed":
             raise ValueError("Only executed or failed trade setups can be reconciled.")
-        if not setup.order1_ticket or not setup.order2_ticket:
+        if not setup.order1_ticket:
             raise ValueError("Executed trade setup is missing MT5 order tickets.")
+        if setup.order_count == 2 and not setup.order2_ticket:
+            raise ValueError("Two-order trade setup is missing MT5 order tickets.")
 
         account = get_trading_account(self.db, setup.trading_account_id, user_id)
         if not account:
@@ -79,7 +81,11 @@ class TradeSetupOutcomeService:
             account_info = adapter.get_account_info()
             persist_session_matched(self.db, account, account_info=account_info)
             order1_snapshot = self._inspect_order(setup, order_index=1, adapter=adapter)
-            order2_snapshot = self._inspect_order(setup, order_index=2, adapter=adapter)
+            order2_snapshot = (
+                self._inspect_order(setup, order_index=2, adapter=adapter)
+                if setup.order_count == 2 and setup.order2_ticket
+                else self._unused_order_snapshot()
+            )
         except AdapterError as exc:
             persist_session_failure(self.db, account, error=exc)
             raise
@@ -93,7 +99,10 @@ class TradeSetupOutcomeService:
         previous_setup_outcome = setup.setup_outcome
 
         self._apply_snapshot(setup, order_index=1, snapshot=order1_snapshot)
-        self._apply_snapshot(setup, order_index=2, snapshot=order2_snapshot)
+        if setup.order_count == 2 and setup.order2_ticket:
+            self._apply_snapshot(setup, order_index=2, snapshot=order2_snapshot)
+        else:
+            self._clear_order_snapshot(setup, order_index=2)
 
         setup.setup_outcome = self._derive_setup_outcome(setup, order1_snapshot["outcome"], order2_snapshot["outcome"])
         if previous_setup_outcome != setup.setup_outcome:
@@ -103,7 +112,8 @@ class TradeSetupOutcomeService:
         self.db.flush()
 
         self._create_order_event_if_changed(setup, 1, previous_order1_outcome, order1_snapshot)
-        self._create_order_event_if_changed(setup, 2, previous_order2_outcome, order2_snapshot)
+        if setup.order_count == 2 and setup.order2_ticket:
+            self._create_order_event_if_changed(setup, 2, previous_order2_outcome, order2_snapshot)
         if previous_setup_outcome != setup.setup_outcome:
             self._create_setup_milestone_event(setup)
             self._create_setup_outcome_event(setup, previous_setup_outcome)
@@ -198,9 +208,29 @@ class TradeSetupOutcomeService:
         setattr(setup, f"order{order_index}_close_price", snapshot["close_price"])
         setattr(setup, f"order{order_index}_realized_pnl", snapshot["realized_pnl"])
 
+    def _clear_order_snapshot(self, setup, *, order_index: int) -> None:
+        setattr(setup, f"order{order_index}_outcome", None)
+        setattr(setup, f"order{order_index}_closed_at", None)
+        setattr(setup, f"order{order_index}_close_price", None)
+        setattr(setup, f"order{order_index}_realized_pnl", None)
+
     def _derive_setup_outcome(self, setup, order1_outcome: str, order2_outcome: str) -> str:
         if setup.status == "failed":
             return "execution_failed"
+        if setup.order_count == 1:
+            if order1_outcome == "open":
+                return "open"
+            if order1_outcome == "tp_hit":
+                return "tp2_hit"
+            if order1_outcome == "closed_at_be":
+                return "breakeven"
+            if order1_outcome == "sl_hit":
+                return "stoploss"
+            if order1_outcome == "manual_close":
+                return "manual_close"
+            if order1_outcome == "unknown":
+                return "unknown"
+            return "mixed"
         if order1_outcome == "open" and order2_outcome == "open":
             return "open"
         if order1_outcome == "tp_hit" and order2_outcome == "open":
@@ -223,6 +253,16 @@ class TradeSetupOutcomeService:
         if order1_outcome == "closed_at_be" and order2_outcome == "closed_at_be":
             return "breakeven"
         return "mixed"
+
+    def _unused_order_snapshot(self) -> dict[str, object]:
+        return {
+            "outcome": "not_used",
+            "closed_at": None,
+            "close_price": None,
+            "realized_pnl": None,
+            "ticket": None,
+            "summary": {"status": "not_used"},
+        }
 
     def _create_order_event_if_changed(
         self,

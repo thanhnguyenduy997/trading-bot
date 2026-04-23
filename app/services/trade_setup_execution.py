@@ -33,6 +33,8 @@ class TradeSetupExecutionService:
         setup = get_trade_setup(self.db, setup_id, user_id)
         if not setup:
             raise LookupError("Trade setup not found")
+        if setup.setup_source == "manual":
+            raise ValueError("Manual trade setups cannot be executed from the app.")
         if self._is_stale_draft(setup):
             raise ValueError("Preview is older than 5 minutes. Refresh the preview before execution.")
 

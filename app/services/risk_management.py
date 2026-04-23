@@ -30,6 +30,13 @@ class RiskManagementService:
     def record_setup_result(self, *, setup: TradeSetup, result_status: str) -> None:
         if setup.result_status is not None:
             return
+        if not self._counts_toward_risk_logic(setup):
+            setup.result_status = result_status
+            setup.result_recorded_at = datetime.now(timezone.utc)
+            self.db.add(setup)
+            self.db.commit()
+            self.db.refresh(setup)
+            return
 
         trading_day = self._trading_day(setup.executed_at or setup.updated_at or datetime.now(timezone.utc))
         state = self._get_or_create_state(setup.user_id, trading_day)
@@ -138,3 +145,8 @@ class RiskManagementService:
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).date()
+
+    def _counts_toward_risk_logic(self, setup: TradeSetup) -> bool:
+        if setup.setup_source != "manual":
+            return True
+        return setup.manual_confirmed_at is not None

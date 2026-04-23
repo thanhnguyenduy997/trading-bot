@@ -211,7 +211,7 @@
                             {{ "%.2f"|format(row.realized_pnl) }}
                         </td>
                         <td data-label="Source">
-                            <span class="trade-pill trade-pill-source trade-pill-source-{{ row.trade_source|lower }}">{{ row.trade_source }}</span>
+                            <span class="trade-pill trade-pill-source trade-pill-source-{{ row.trade_source|lower }}">{{ row.trade_source|replace('_', ' ')|title }}</span>
                         </td>
                         <td data-label="Outcome">
                             <span class="trade-pill trade-pill-outcome trade-pill-outcome-{{ (row.effective_outcome or 'unknown')|lower|replace('_', '-') }}">{{ row.effective_outcome or "-" }}</span>
