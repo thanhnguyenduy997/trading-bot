@@ -93,24 +93,44 @@ class ManualTicketAdapter(FakePreviewAdapter):
         base_time = datetime(2026, 4, 23, 8, 0, tzinfo=timezone.utc)
         closed_tickets = {
             60001: [
-                {"ticket": 5001, "position_id": 60001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.4, "price": 2320.2, "time": base_time},
+                {"ticket": 5001, "position_id": 60001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.4, "price": 2320.2, "time": base_time, "sl": 2319.2},
                 {"ticket": 5002, "position_id": 60001, "entry": "out", "reason": "sl", "symbol": "XAUUSD", "volume": 0.4, "price": 2319.2, "profit": -50.0, "time": base_time.replace(minute=8), "point": 0.01},
             ],
             60002: [
-                {"ticket": 5003, "position_id": 60002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.4, "price": 2320.2, "time": base_time.replace(minute=1)},
+                {"ticket": 5003, "position_id": 60002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.4, "price": 2320.2, "time": base_time.replace(minute=1), "sl": 2319.2},
                 {"ticket": 5004, "position_id": 60002, "entry": "out", "reason": "sl", "symbol": "XAUUSD", "volume": 0.4, "price": 2319.2, "profit": -50.0, "time": base_time.replace(minute=9), "point": 0.01},
             ],
             61001: [
-                {"ticket": 5101, "position_id": 61001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.5, "price": 2320.2, "time": base_time.replace(minute=3)},
+                {"ticket": 5101, "position_id": 61001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.5, "price": 2320.2, "time": base_time.replace(minute=3), "sl": 2319.2},
                 {"ticket": 5102, "position_id": 61001, "entry": "out", "reason": "tp", "symbol": "XAUUSD", "volume": 0.5, "price": 2321.2, "profit": 50.0, "time": base_time.replace(minute=12), "point": 0.01},
             ],
             61002: [
-                {"ticket": 5103, "position_id": 61002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.5, "price": 2320.2, "time": base_time.replace(minute=4)},
+                {"ticket": 5103, "position_id": 61002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.5, "price": 2320.2, "time": base_time.replace(minute=4), "sl": 2320.2},
                 {"ticket": 5104, "position_id": 61002, "entry": "out", "reason": "sl", "symbol": "XAUUSD", "volume": 0.5, "price": 2320.19, "profit": -0.3, "time": base_time.replace(minute=20), "point": 0.01},
             ],
             62001: [
-                {"ticket": 5201, "position_id": 62001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.2, "time": base_time},
+                {"ticket": 5201, "position_id": 62001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.2, "time": base_time, "sl": 2319.2},
                 {"ticket": 5202, "position_id": 62001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.15, "profit": -2.0, "time": base_time.replace(minute=6), "point": 0.01},
+            ],
+            63001: [
+                {"ticket": 5301, "position_id": 63001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.0, "time": base_time.replace(hour=9)},
+                {"ticket": 5302, "position_id": 63001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.3, "price": 2320.1, "profit": 3.0, "time": base_time.replace(hour=9, minute=10), "point": 0.01},
+            ],
+            64001: [
+                {"ticket": 5401, "position_id": 64001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.0, "time": base_time.replace(hour=10), "sl": 2319.2},
+                {"ticket": 5402, "position_id": 64001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.3, "profit": 6.0, "time": base_time.replace(hour=10, minute=5), "point": 0.01},
+            ],
+            64002: [
+                {"ticket": 5403, "position_id": 64002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.4, "price": 2320.6, "time": base_time.replace(hour=10, minute=40), "sl": 2319.2},
+                {"ticket": 5404, "position_id": 64002, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.4, "price": 2321.0, "profit": 16.0, "time": base_time.replace(hour=10, minute=55), "point": 0.01},
+            ],
+            65001: [
+                {"ticket": 5501, "position_id": 65001, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.1, "time": base_time.replace(hour=11), "sl": 2319.2},
+                {"ticket": 5502, "position_id": 65001, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.4, "profit": 6.0, "time": base_time.replace(hour=11, minute=8), "point": 0.01},
+            ],
+            65002: [
+                {"ticket": 5503, "position_id": 65002, "entry": "in", "type": "buy", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.2, "time": base_time.replace(hour=11, minute=2), "sl": 2318.8},
+                {"ticket": 5504, "position_id": 65002, "entry": "out", "reason": "client", "symbol": "XAUUSD", "volume": 0.2, "price": 2320.6, "profit": 8.0, "time": base_time.replace(hour=11, minute=14), "point": 0.01},
             ],
         }
         return closed_tickets.get(position_ticket, [])
@@ -386,3 +406,163 @@ def test_duplicate_manual_ticket_link_is_blocked(client, db_session, created_use
     assert first.status_code == 201
     assert duplicate.status_code == 400
     assert duplicate.json()["detail"] == f"Ticket 62001 is already linked to setup #{first_setup_id}."
+
+
+def test_single_selected_manual_trade_autofills_entry_and_sl(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-200")
+    account.default_rr_order_2 = 2.5
+    db_session.add(account)
+    db_session.flush()
+    trade = MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=60001,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            volume=0.4,
+            open_price=2320.2,
+            close_price=2319.2,
+            realized_pnl=-50.0,
+            open_time=datetime(2026, 4, 23, 8, 0, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 23, 8, 8, tzinfo=timezone.utc),
+        )
+    db_session.add(trade)
+    db_session.commit()
+
+    prefill = ManualTradeSetupService(db_session).build_prefill_from_selected_trades(user_id=created_user.id, selected_trade_ids=[trade.id])
+
+    assert prefill["form_data"]["estimated_entry"] == 2320.2
+    assert prefill["form_data"]["sl_price"] == 2319.2
+    assert prefill["form_data"]["rr_order2"] == 2.5
+    assert prefill["form_data"]["tp1_price"] == 2321.2
+    assert prefill["form_data"]["tp2_price"] == 2322.7
+
+
+def test_two_selected_manual_trades_autofill_combined_logic_and_total_risk(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-201")
+    account.default_rr_order_2 = 2.0
+    db_session.add(account)
+    db_session.flush()
+    trade1 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=64001,
+        symbol="XAUUSD",
+        side="buy",
+        trade_source="manual",
+        volume=0.2,
+        open_price=2320.0,
+        close_price=2320.3,
+        realized_pnl=6.0,
+        open_time=datetime(2026, 4, 23, 10, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 10, 5, tzinfo=timezone.utc),
+    )
+    trade2 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=64002,
+        symbol="XAUUSD",
+        side="buy",
+        trade_source="manual",
+        volume=0.4,
+        open_price=2320.6,
+        close_price=2321.0,
+        realized_pnl=16.0,
+        open_time=datetime(2026, 4, 23, 10, 40, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 10, 55, tzinfo=timezone.utc),
+    )
+    db_session.add_all(
+        [
+            trade1,
+            trade2,
+        ]
+    )
+    db_session.commit()
+
+    prefill = ManualTradeSetupService(db_session).build_prefill_from_selected_trades(user_id=created_user.id, selected_trade_ids=[trade1.id, trade2.id])
+
+    assert round(prefill["form_data"]["estimated_entry"], 5) == round((2320.0 * 0.2 + 2320.6 * 0.4) / 0.6, 5)
+    assert prefill["form_data"]["sl_price"] == 2319.2
+    assert prefill["form_data"]["tp1_price"] == round(prefill["form_data"]["estimated_entry"] + (prefill["form_data"]["estimated_entry"] - 2319.2), 10)
+    assert round(prefill["form_data"]["total_risk_money"], 2) == round(((2320.0 - 2319.2) * 100 * 0.2) + ((2320.6 - 2319.2) * 100 * 0.4), 2)
+    assert prefill["warnings"] == ["Selected MT5 trades were opened more than 15 minutes apart. Review whether they belong to one setup."]
+
+
+def test_missing_sl_requires_manual_input(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-202")
+    db_session.add(account)
+    db_session.flush()
+    trade = MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=63001,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            volume=0.3,
+            open_price=2320.0,
+            close_price=2320.1,
+            realized_pnl=3.0,
+            open_time=datetime(2026, 4, 23, 9, 0, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 23, 9, 10, tzinfo=timezone.utc),
+        )
+    db_session.add(trade)
+    db_session.commit()
+
+    prefill = ManualTradeSetupService(db_session).build_prefill_from_selected_trades(user_id=created_user.id, selected_trade_ids=[trade.id])
+
+    assert prefill["form_data"]["sl_price"] == ""
+    assert prefill["form_data"]["total_risk_money"] == ""
+    assert "Stop loss could not be derived from the selected MT5 trades. Enter it manually." in prefill["messages"]
+
+
+def test_conflicting_selected_orders_are_rejected(db_session, created_user, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: ManualTicketAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-203")
+    db_session.add(account)
+    db_session.flush()
+    trade1 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=65001,
+        symbol="XAUUSD",
+        side="buy",
+        trade_source="manual",
+        volume=0.2,
+        open_price=2320.1,
+        close_price=2320.4,
+        realized_pnl=6.0,
+        open_time=datetime(2026, 4, 23, 11, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 11, 8, tzinfo=timezone.utc),
+    )
+    trade2 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=65002,
+        symbol="XAUUSD",
+        side="buy",
+        trade_source="manual",
+        volume=0.2,
+        open_price=2320.2,
+        close_price=2320.6,
+        realized_pnl=8.0,
+        open_time=datetime(2026, 4, 23, 11, 2, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 11, 14, tzinfo=timezone.utc),
+    )
+    db_session.add_all(
+        [
+            trade1,
+            trade2,
+        ]
+    )
+    db_session.commit()
+
+    try:
+        ManualTradeSetupService(db_session).build_prefill_from_selected_trades(user_id=created_user.id, selected_trade_ids=[trade1.id, trade2.id])
+        assert False, "Expected conflicting SL rejection"
+    except ValueError as exc:
+        assert str(exc) == "Selected MT5 trades have conflicting stop loss values. Review them manually before creating one setup."

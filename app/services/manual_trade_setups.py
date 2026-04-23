@@ -2,22 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
+from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import ManualTradeSetupCreate
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
+from app.services.risk_service import RiskService
 from app.services.trade_events import create_trade_event
 from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
 
 
-MANUAL_TICKET_TIME_WINDOW = timedelta(minutes=15)
+MANUAL_TICKET_TIME_WARNING_WINDOW = timedelta(minutes=15)
+MANUAL_ENTRY_PRICE_WARNING_POINTS = Decimal("0.50")
 
 
 @dataclass
@@ -31,19 +35,165 @@ class ManualTicketSnapshot:
     close_price: float | None
     close_time: datetime | None
     status: str
+    sl_price: float | None = None
 
 
 class ManualTradeSetupService:
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
         self.adapter_factory = adapter_factory or default_adapter_factory
+        self.risk_service = RiskService()
+
+    def list_unlinked_manual_trades(self, *, user_id: int) -> list[MT5TradeHistory]:
+        return (
+            self.db.query(MT5TradeHistory)
+            .filter(
+                MT5TradeHistory.user_id == user_id,
+                MT5TradeHistory.trade_source == "manual",
+                MT5TradeHistory.linked_setup_id.is_(None),
+            )
+            .order_by(MT5TradeHistory.close_time.desc().nulls_last(), MT5TradeHistory.id.desc())
+            .all()
+        )
+
+    def build_prefill_from_selected_trades(
+        self,
+        *,
+        user_id: int,
+        selected_trade_ids: list[int],
+    ) -> dict[str, object]:
+        if not selected_trade_ids:
+            raise ValueError("Select 1 or 2 unlinked manual MT5 trades to auto-fill the setup.")
+        if len(selected_trade_ids) > 2:
+            raise ValueError("Manual setup auto-fill supports 1 or 2 selected MT5 trades.")
+
+        trades = (
+            self.db.query(MT5TradeHistory)
+            .filter(
+                MT5TradeHistory.user_id == user_id,
+                MT5TradeHistory.id.in_(selected_trade_ids),
+                MT5TradeHistory.trade_source == "manual",
+            )
+            .order_by(MT5TradeHistory.open_time.asc().nulls_last(), MT5TradeHistory.id.asc())
+            .all()
+        )
+        if len(trades) != len(set(selected_trade_ids)):
+            raise ValueError("One or more selected trades are unavailable for manual setup linking.")
+        if any(trade.linked_setup_id for trade in trades):
+            raise ValueError("Selected MT5 trade is already linked to a setup.")
+
+        account_ids = {trade.trading_account_id for trade in trades}
+        if len(account_ids) != 1:
+            raise ValueError("Selected MT5 trades must belong to the same trading account.")
+        symbols = {trade.symbol for trade in trades}
+        if len(symbols) != 1:
+            raise ValueError("Selected MT5 trades must have the same symbol.")
+        sides = {trade.side for trade in trades}
+        if len(sides) != 1:
+            raise ValueError("Selected MT5 trades must have the same side.")
+
+        account = get_trading_account(self.db, trades[0].trading_account_id, user_id)
+        if not account:
+            raise LookupError("Trading account not found")
+
+        snapshots = self._load_ticket_snapshots(account=account, tickets=[int(trade.position_ticket) for trade in trades])
+        self._assert_snapshots_match_selected_trades(trades=trades, snapshots=snapshots)
+
+        total_volume = sum(Decimal(str(snapshot.volume)) for snapshot in snapshots)
+        weighted_entry = self._weighted_entry_price(snapshots)
+        rr_order2 = float(account.default_rr_order_2 or 2.0)
+        derived_sl, warnings = self._derive_stop_loss(snapshots=snapshots, trades=trades)
+
+        tp1_price = None
+        tp2_price = None
+        total_risk_money = None
+        risk_message = None
+
+        if weighted_entry is not None and derived_sl is not None:
+            r_value = abs(weighted_entry - derived_sl)
+            tp1_price = self._derive_target_price(
+                side=trades[0].side,
+                entry_price=weighted_entry,
+                r_value=r_value,
+                rr_multiple=Decimal("1"),
+            )
+            tp2_price = self._derive_target_price(
+                side=trades[0].side,
+                entry_price=weighted_entry,
+                r_value=r_value,
+                rr_multiple=Decimal(str(rr_order2)),
+            )
+            total_risk_money, risk_message = self._derive_total_risk_money(account=account, snapshots=snapshots, stop_loss=derived_sl)
+        else:
+            risk_message = "Stop loss is missing, so total risk and TP targets need manual review."
+
+        if len(snapshots) == 2:
+            warning = self._grouping_warning(snapshots)
+            if warning:
+                warnings.append(warning)
+
+        messages = []
+        if derived_sl is None:
+            messages.append("Stop loss could not be derived from the selected MT5 trades. Enter it manually.")
+        if risk_message:
+            messages.append(risk_message)
+
+        autofilled_fields = {
+            "trading_account_id",
+            "symbol",
+            "side",
+            "estimated_entry",
+            "rr_order2",
+            "order_count",
+            "order1_ticket",
+        }
+        if len(trades) == 2:
+            autofilled_fields.add("order2_ticket")
+        if derived_sl is not None:
+            autofilled_fields.add("sl_price")
+        if total_risk_money is not None:
+            autofilled_fields.add("total_risk_money")
+        if tp1_price is not None:
+            autofilled_fields.add("tp1_price")
+        if tp2_price is not None:
+            autofilled_fields.add("tp2_price")
+
+        form_data = {
+            "trading_account_id": account.id,
+            "symbol": trades[0].symbol,
+            "side": trades[0].side,
+            "estimated_entry": float(weighted_entry) if weighted_entry is not None else "",
+            "sl_price": float(derived_sl) if derived_sl is not None else "",
+            "total_risk_money": float(total_risk_money) if total_risk_money is not None else "",
+            "rr_order2": rr_order2,
+            "tp1_price": float(tp1_price) if tp1_price is not None else "",
+            "tp2_price": float(tp2_price) if tp2_price is not None else "",
+            "order_count": len(trades),
+            "order1_ticket": int(trades[0].position_ticket),
+            "order2_ticket": int(trades[1].position_ticket) if len(trades) == 2 else "",
+        }
+        return {
+            "form_data": form_data,
+            "selected_trades": trades,
+            "autofilled_fields": autofilled_fields,
+            "messages": messages,
+            "warnings": warnings,
+            "summary": {
+                "weighted_entry_price": float(weighted_entry) if weighted_entry is not None else None,
+                "derived_sl_price": float(derived_sl) if derived_sl is not None else None,
+                "derived_total_risk_money": float(total_risk_money) if total_risk_money is not None else None,
+                "derived_tp1_price": float(tp1_price) if tp1_price is not None else None,
+                "derived_tp2_price": float(tp2_price) if tp2_price is not None else None,
+                "rr_order_2": rr_order2,
+            },
+        }
 
     def create_manual_setup(self, *, user_id: int, payload: ManualTradeSetupCreate) -> TradeSetup:
         account = get_trading_account(self.db, payload.trading_account_id, user_id)
         if not account:
             raise LookupError("Trading account not found")
 
-        validated = self._validate_manual_payload(account=account, payload=payload, user_id=user_id)
+        validated = self._validate_manual_payload(account=account, payload=payload, current_setup_id=None)
         setup = TradeSetup(
             user_id=user_id,
             trading_account_id=account.id,
@@ -72,6 +222,7 @@ class ManualTradeSetupService:
         )
         self.db.add(setup)
         self.db.flush()
+        self._link_trade_history_rows(setup=setup, previous_tickets=set())
         create_trade_event(
             self.db,
             user_id,
@@ -97,12 +248,8 @@ class ManualTradeSetupService:
         if not account:
             raise LookupError("Trading account not found")
 
-        validated = self._validate_manual_payload(
-            account=account,
-            payload=payload,
-            user_id=user_id,
-            current_setup_id=setup.id,
-        )
+        previous_tickets = {ticket for ticket in [setup.order1_ticket, setup.order2_ticket] if ticket}
+        validated = self._validate_manual_payload(account=account, payload=payload, current_setup_id=setup.id)
 
         setup.trading_account_id = account.id
         setup.setup_source = "manual"
@@ -143,6 +290,7 @@ class ManualTradeSetupService:
         setup.setup_outcome_recorded_at = None
         self.db.add(setup)
         self.db.flush()
+        self._link_trade_history_rows(setup=setup, previous_tickets=previous_tickets)
         create_trade_event(
             self.db,
             user_id,
@@ -160,8 +308,7 @@ class ManualTradeSetupService:
         *,
         account,
         payload: ManualTradeSetupCreate,
-        user_id: int,
-        current_setup_id: int | None = None,
+        current_setup_id: int | None,
     ) -> dict[str, object]:
         if payload.order_count == 1 and payload.order2_ticket is not None:
             raise ValueError("Single-order manual setups cannot include Order 2 ticket.")
@@ -178,7 +325,8 @@ class ManualTradeSetupService:
         if payload.side == "sell" and float(payload.sl_price) <= float(payload.estimated_entry):
             raise ValueError("For sell manual setups, stop loss plan must be above entry plan.")
 
-        snapshots = self._load_ticket_snapshots(account=account, payload=payload)
+        tickets = [payload.order1_ticket] + ([payload.order2_ticket] if payload.order2_ticket is not None else [])
+        snapshots = self._load_ticket_snapshots(account=account, tickets=tickets)
         order1_snapshot = snapshots[0]
         order2_snapshot = snapshots[1] if len(snapshots) > 1 else None
 
@@ -188,42 +336,32 @@ class ManualTradeSetupService:
 
         for snapshot in snapshots:
             if snapshot.symbol != payload.symbol:
-                raise ValueError(
-                    f"Ticket {snapshot.ticket} belongs to symbol {snapshot.symbol}, not {payload.symbol}."
-                )
+                raise ValueError(f"Ticket {snapshot.ticket} belongs to symbol {snapshot.symbol}, not {payload.symbol}.")
             if snapshot.side != payload.side:
-                raise ValueError(
-                    f"Ticket {snapshot.ticket} belongs to side {snapshot.side.upper()}, not {payload.side.upper()}."
-                )
-
-        if order2_snapshot and order1_snapshot.open_time and order2_snapshot.open_time:
-            if abs(order1_snapshot.open_time - order2_snapshot.open_time) > MANUAL_TICKET_TIME_WINDOW:
-                raise ValueError("Order 1 and Order 2 tickets are too far apart in time to register as one setup.")
+                raise ValueError(f"Ticket {snapshot.ticket} belongs to side {snapshot.side.upper()}, not {payload.side.upper()}.")
 
         tp1_price = (
             float(payload.tp1_price)
             if payload.tp1_price is not None
-            else self._derive_target_price(
-                side=payload.side,
-                entry_price=float(payload.estimated_entry),
-                r_value=r_value,
-                rr_multiple=1.0,
-            )
+            else self._derive_target_price(side=payload.side, entry_price=Decimal(str(payload.estimated_entry)), r_value=Decimal(str(r_value)), rr_multiple=Decimal("1"))
         )
         tp2_price = (
             float(payload.tp2_price)
             if payload.tp2_price is not None
             else self._derive_target_price(
                 side=payload.side,
-                entry_price=float(payload.estimated_entry),
-                r_value=r_value,
-                rr_multiple=float(payload.rr_order2),
+                entry_price=Decimal(str(payload.estimated_entry)),
+                r_value=Decimal(str(r_value)),
+                rr_multiple=Decimal(str(payload.rr_order2)),
             )
         )
-        executed_at = min(
-            [snapshot.open_time for snapshot in snapshots if snapshot.open_time is not None] or [datetime.now(timezone.utc)]
-        )
+        executed_at = min([snapshot.open_time for snapshot in snapshots if snapshot.open_time is not None] or [datetime.now(timezone.utc)])
         risk_per_order = float(payload.total_risk_money) / float(payload.order_count)
+
+        warnings = []
+        warning = self._grouping_warning(snapshots)
+        if warning:
+            warnings.append(warning)
 
         return {
             "r_value": r_value,
@@ -240,6 +378,7 @@ class ManualTradeSetupService:
                 "symbol": payload.symbol,
                 "side": payload.side,
                 "executed_at": executed_at,
+                "warnings": warnings,
                 "ticket_snapshots": [
                     {
                         "ticket": snapshot.ticket,
@@ -251,21 +390,20 @@ class ManualTradeSetupService:
                         "open_time": snapshot.open_time,
                         "close_price": snapshot.close_price,
                         "close_time": snapshot.close_time,
+                        "sl_price": snapshot.sl_price,
                     }
                     for snapshot in snapshots
                 ],
             },
         }
 
-    def _load_ticket_snapshots(self, *, account, payload: ManualTradeSetupCreate) -> list[ManualTicketSnapshot]:
+    def _load_ticket_snapshots(self, *, account, tickets: list[int]) -> list[ManualTicketSnapshot]:
         adapter = self.adapter_factory(account)
         try:
             adapter.connect()
             account_info = adapter.get_account_info()
             persist_session_matched(self.db, account, account_info=account_info)
-            snapshots = [self._inspect_ticket(adapter, payload.order1_ticket)]
-            if payload.order2_ticket is not None:
-                snapshots.append(self._inspect_ticket(adapter, payload.order2_ticket))
+            snapshots = [self._inspect_ticket(adapter, ticket) for ticket in tickets]
             return snapshots
         except AdapterError as exc:
             persist_session_failure(self.db, account, error=exc)
@@ -288,6 +426,7 @@ class ManualTradeSetupService:
                 close_price=None,
                 close_time=None,
                 status="open",
+                sl_price=self._coerce_float(position.get("sl") or position.get("stop_loss")),
             )
 
         history = adapter.get_position_history(position_ticket=int(ticket))
@@ -312,7 +451,95 @@ class ManualTradeSetupService:
             close_price=self._coerce_float(last_close.get("price")),
             close_time=self._coerce_datetime(last_close.get("time")),
             status="closed",
+            sl_price=self._coerce_float(first_open.get("sl") or first_open.get("stop_loss") or last_close.get("sl") or last_close.get("stop_loss")),
         )
+
+    def _assert_snapshots_match_selected_trades(self, *, trades: list[MT5TradeHistory], snapshots: list[ManualTicketSnapshot]) -> None:
+        snapshot_map = {snapshot.ticket: snapshot for snapshot in snapshots}
+        for trade in trades:
+            snapshot = snapshot_map.get(int(trade.position_ticket))
+            if snapshot is None:
+                raise ValueError(f"Selected ticket {trade.position_ticket} is unavailable on the selected MT5 account.")
+            if snapshot.symbol != trade.symbol:
+                raise ValueError(f"Selected ticket {trade.position_ticket} symbol no longer matches the synced manual trade.")
+            if snapshot.side != trade.side:
+                raise ValueError(f"Selected ticket {trade.position_ticket} side no longer matches the synced manual trade.")
+
+    def _derive_stop_loss(
+        self,
+        *,
+        snapshots: list[ManualTicketSnapshot],
+        trades: list[MT5TradeHistory],
+    ) -> tuple[Decimal | None, list[str]]:
+        warnings: list[str] = []
+        sl_values = []
+        for snapshot in snapshots:
+            if snapshot.sl_price is not None:
+                sl_values.append(Decimal(str(snapshot.sl_price)))
+        if not sl_values:
+            return None, warnings
+        if len(set(sl_values)) > 1:
+            raise ValueError("Selected MT5 trades have conflicting stop loss values. Review them manually before creating one setup.")
+        return sl_values[0], warnings
+
+    def _derive_total_risk_money(
+        self,
+        *,
+        account,
+        snapshots: list[ManualTicketSnapshot],
+        stop_loss: Decimal,
+    ) -> tuple[Decimal | None, str | None]:
+        try:
+            adapter = self.adapter_factory(account)
+            adapter.connect()
+            symbol_info = adapter.get_symbol_info(snapshots[0].symbol)
+        except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
+            return None, "Total risk could not be derived safely from MT5 symbol specifications. Review it manually."
+        finally:
+            close = locals().get("adapter")
+            close_fn = getattr(close, "close", None) if close is not None else None
+            if callable(close_fn):
+                close_fn()
+
+        contract_size = symbol_info.get("trade_contract_size")
+        if contract_size in (None, "", 0):
+            return None, "Total risk could not be derived safely from MT5 symbol specifications. Review it manually."
+
+        total_risk = Decimal("0")
+        for snapshot in snapshots:
+            if snapshot.open_price is None:
+                return None, "Selected MT5 trades are missing open price data, so total risk needs manual review."
+            entry = Decimal(str(snapshot.open_price))
+            volume = Decimal(str(snapshot.volume))
+            risk_distance = abs(entry - stop_loss)
+            total_risk += risk_distance * Decimal(str(contract_size)) * volume
+        return total_risk.quantize(Decimal("0.01")), None
+
+    def _weighted_entry_price(self, snapshots: list[ManualTicketSnapshot]) -> Decimal | None:
+        numerator = Decimal("0")
+        denominator = Decimal("0")
+        for snapshot in snapshots:
+            if snapshot.open_price is None:
+                return None
+            volume = Decimal(str(snapshot.volume))
+            numerator += Decimal(str(snapshot.open_price)) * volume
+            denominator += volume
+        if denominator <= 0:
+            return None
+        return numerator / denominator
+
+    def _grouping_warning(self, snapshots: list[ManualTicketSnapshot]) -> str | None:
+        if len(snapshots) < 2:
+            return None
+        first, second = snapshots[0], snapshots[1]
+        if first.open_time and second.open_time and abs(first.open_time - second.open_time) > MANUAL_TICKET_TIME_WARNING_WINDOW:
+            return "Selected MT5 trades were opened more than 15 minutes apart. Review whether they belong to one setup."
+        if first.open_price is not None and second.open_price is not None:
+            price_gap = abs(Decimal(str(first.open_price)) - Decimal(str(second.open_price)))
+            if price_gap > MANUAL_ENTRY_PRICE_WARNING_POINTS:
+                return "Selected MT5 trades have materially different entry prices. Review the combined setup before confirming."
+        return None
 
     def _assert_ticket_not_already_linked(self, ticket: int, *, current_setup_id: int | None) -> None:
         query = self.db.query(TradeSetup).filter(or_(TradeSetup.order1_ticket == ticket, TradeSetup.order2_ticket == ticket))
@@ -322,11 +549,35 @@ class ManualTradeSetupService:
         if existing:
             raise ValueError(f"Ticket {ticket} is already linked to setup #{existing.id}.")
 
-    def _derive_target_price(self, *, side: str, entry_price: float, r_value: float, rr_multiple: float) -> float:
+    def _link_trade_history_rows(self, *, setup: TradeSetup, previous_tickets: set[int]) -> None:
+        current_tickets = {ticket for ticket in [setup.order1_ticket, setup.order2_ticket] if ticket}
+        tickets_to_clear = previous_tickets - current_tickets
+        if tickets_to_clear:
+            (
+                self.db.query(MT5TradeHistory)
+                .filter(
+                    MT5TradeHistory.user_id == setup.user_id,
+                    MT5TradeHistory.position_ticket.in_(list(tickets_to_clear)),
+                    MT5TradeHistory.linked_setup_id == setup.id,
+                )
+                .update({"linked_setup_id": None}, synchronize_session=False)
+            )
+        if current_tickets:
+            (
+                self.db.query(MT5TradeHistory)
+                .filter(
+                    MT5TradeHistory.user_id == setup.user_id,
+                    MT5TradeHistory.trading_account_id == setup.trading_account_id,
+                    MT5TradeHistory.position_ticket.in_(list(current_tickets)),
+                )
+                .update({"linked_setup_id": setup.id}, synchronize_session=False)
+            )
+
+    def _derive_target_price(self, *, side: str, entry_price: Decimal, r_value: Decimal, rr_multiple: Decimal) -> float:
         distance = r_value * rr_multiple
         if side == "buy":
-            return entry_price + distance
-        return entry_price - distance
+            return float(entry_price + distance)
+        return float(entry_price - distance)
 
     def _normalize_side(self, value: object) -> str:
         normalized = str(value or "").lower()

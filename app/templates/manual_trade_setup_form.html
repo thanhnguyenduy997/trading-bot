@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card layout-tier-medium stack">
+<section class="card layout-tier-wide stack">
     <div class="section-header">
         <div>
             <h1>{{ heading }}</h1>
-            <p class="muted">Register existing MT5 tickets as one confirmed setup so outcome tracking and risk logic can use them.</p>
+            <p class="muted">Select 1 or 2 unlinked manual MT5 trades, let the app derive the setup plan, then review and confirm it.</p>
         </div>
         <a class="button-link secondary-button" href="/trade-setups">Back to Setups</a>
     </div>
@@ -15,11 +15,91 @@
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
+    {% for notice in notices %}
+    <div class="alert alert-success">{{ notice }}</div>
+    {% endfor %}
+    {% for warning in warnings %}
+    <div class="alert alert-error">{{ warning }}</div>
+    {% endfor %}
+
+    {% if available_manual_trades %}
+    <section class="detail-panel">
+        <div class="section-header compact-header">
+            <div>
+                <h2>Select Unlinked Manual MT5 Trades</h2>
+                <p class="muted">Choose 1 or 2 trades from synced MT5 history to auto-fill the manual setup.</p>
+            </div>
+        </div>
+        <form action="/trade-setups/manual/create" method="get" class="stack">
+            <div class="table-wrap">
+                <table class="accounts-table">
+                    <thead>
+                        <tr>
+                            <th>Pick</th>
+                            <th>Account</th>
+                            <th>Ticket</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Volume</th>
+                            <th>Open</th>
+                            <th>Close</th>
+                            <th>PnL</th>
+                            <th>Comment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for trade in available_manual_trades %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" name="selected_trade" value="{{ trade.id }}"
+                                    {% if trade.position_ticket in selected_trade_tickets %}checked{% endif %}>
+                            </td>
+                            <td>{{ trade.trading_account_id }}</td>
+                            <td>{{ trade.position_ticket }}</td>
+                            <td>{{ trade.symbol }}</td>
+                            <td>{{ trade.side|upper }}</td>
+                            <td>{{ trade.volume }}</td>
+                            <td>{{ trade.open_price if trade.open_price is not none else "-" }}</td>
+                            <td>{{ trade.close_price if trade.close_price is not none else "-" }}</td>
+                            <td>{{ trade.realized_pnl if trade.realized_pnl is not none else "-" }}</td>
+                            <td title="{{ trade.comment or '' }}">{{ trade.comment or "-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="action-row">
+                <button type="submit" class="secondary-button">Auto-fill From Selected Trades</button>
+            </div>
+        </form>
+    </section>
+    {% endif %}
+
+    {% if selected_trades %}
+    <section class="detail-panel">
+        <div class="section-header compact-header">
+            <div>
+                <h2>Selected Manual Trades</h2>
+                <p class="muted">These synced MT5 trades are being grouped into one confirmed setup.</p>
+            </div>
+        </div>
+        <div class="preview-summary-grid">
+            {% for trade in selected_trades %}
+            <article class="metric-card">
+                <span>Ticket {{ trade.position_ticket }}</span>
+                <strong>{{ trade.symbol }} {{ trade.side|upper }}</strong>
+                <div class="muted">Volume {{ trade.volume }} · Open {{ trade.open_price if trade.open_price is not none else "-" }}</div>
+                <div class="muted">Opened {{ trade.open_time if trade.open_time is not none else "-" }}</div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
 
     <form action="{{ form_action }}" method="post" class="stack preview-form">
         <div class="preview-primary-grid">
             <label>
-                Trading account
+                Trading account {% if "trading_account_id" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <select name="trading_account_id" required>
                     {% for account in accounts %}
                     <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
@@ -29,11 +109,11 @@
                 </select>
             </label>
             <label>
-                Symbol
+                Symbol {% if "symbol" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="text" name="symbol" value="{{ form_data.symbol or '' }}" maxlength="20" required>
             </label>
             <label>
-                Side
+                Side {% if "side" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <select name="side" required>
                     {% for item in ["buy", "sell"] %}
                     <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
@@ -41,31 +121,31 @@
                 </select>
             </label>
             <label>
-                Entry plan
+                Entry plan {% if "estimated_entry" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="estimated_entry" step="0.0001" min="0" value="{{ form_data.estimated_entry or '' }}" required>
             </label>
             <label>
-                Stop loss plan
+                Stop loss plan {% if "sl_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
             </label>
             <label>
-                Total risk plan
+                Total risk plan {% if "total_risk_money" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="total_risk_money" step="0.01" min="0.01" value="{{ form_data.total_risk_money or '' }}" required>
             </label>
             <label>
-                RR order 2
+                RR order 2 {% if "rr_order2" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
             </label>
             <label>
-                TP1
+                TP1 {% if "tp1_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="tp1_price" step="0.0001" min="0" value="{{ form_data.tp1_price or '' }}">
             </label>
             <label>
-                TP2
+                TP2 {% if "tp2_price" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="tp2_price" step="0.0001" min="0" value="{{ form_data.tp2_price or '' }}">
             </label>
             <label>
-                Number of orders
+                Number of orders {% if "order_count" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <select id="manual-order-count" name="order_count" required>
                     {% for item in [1, 2] %}
                     <option value="{{ item }}" {% if form_data.order_count == item %}selected{% endif %}>{{ item }}</option>
@@ -73,17 +153,17 @@
                 </select>
             </label>
             <label>
-                Order 1 ticket
+                Order 1 ticket {% if "order1_ticket" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="order1_ticket" step="1" min="1" value="{{ form_data.order1_ticket or '' }}" required>
             </label>
             <label id="manual-order-2-ticket-field">
-                Order 2 ticket
+                Order 2 ticket {% if "order2_ticket" in autofilled_fields %}<span class="status-pill">Auto-filled</span>{% endif %}
                 <input type="number" name="order2_ticket" step="1" min="1" value="{{ form_data.order2_ticket or '' }}">
             </label>
         </div>
 
         <div class="alert">
-            Manual setups are counted in risk logic only after they are registered here. Raw manual MT5 trades that are not linked to a setup remain dashboard-only.
+            Manual setups only count in outcome tracking and risk logic after you confirm them here. Unlinked raw manual MT5 trades remain dashboard-only.
         </div>
 
         <div class="action-row">

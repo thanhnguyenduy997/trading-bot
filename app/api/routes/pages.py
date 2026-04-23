@@ -172,6 +172,11 @@ def _render_manual_trade_setup_form_page(
     submit_label: str,
     form_data: dict[str, object] | None = None,
     setup: object | None = None,
+    available_manual_trades: list | None = None,
+    selected_trades: list | None = None,
+    autofilled_fields: set[str] | None = None,
+    notices: list[str] | None = None,
+    warnings: list[str] | None = None,
     error: str | None = None,
     message: str | None = None,
     status_code: int = status.HTTP_200_OK,
@@ -189,6 +194,12 @@ def _render_manual_trade_setup_form_page(
             "submit_label": submit_label,
             "form_data": values,
             "setup": setup,
+            "available_manual_trades": available_manual_trades or [],
+            "selected_trades": selected_trades or [],
+            "selected_trade_tickets": [trade.position_ticket for trade in (selected_trades or [])],
+            "autofilled_fields": autofilled_fields or set(),
+            "notices": notices or [],
+            "warnings": warnings or [],
             "error": error,
             "message": message,
         },
@@ -661,10 +672,29 @@ def _manual_setup_form_defaults(accounts: list, setup: object | None = None) -> 
 @router.get("/trade-setups/manual/create", response_class=HTMLResponse)
 def create_manual_trade_setup_page(
     request: Request,
+    selected_trade: list[int] | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
+    service = ManualTradeSetupService(db)
+    available_manual_trades = service.list_unlinked_manual_trades(user_id=current_user.id)
+    form_data = _manual_setup_form_defaults(accounts)
+    selected_trades = []
+    autofilled_fields: set[str] = set()
+    notices: list[str] = []
+    warnings: list[str] = []
+    error = None
+    if selected_trade:
+        try:
+            prefill = service.build_prefill_from_selected_trades(user_id=current_user.id, selected_trade_ids=selected_trade)
+            form_data = prefill["form_data"]
+            selected_trades = prefill["selected_trades"]
+            autofilled_fields = prefill["autofilled_fields"]
+            notices = prefill["messages"]
+            warnings = prefill["warnings"]
+        except (ValueError, LookupError, AdapterError) as exc:
+            error = str(exc)
     return _render_manual_trade_setup_form_page(
         request,
         current_user,
@@ -672,7 +702,13 @@ def create_manual_trade_setup_page(
         form_action="/trade-setups/manual/create",
         heading="Create Manual Setup",
         submit_label="Register Manual Setup",
-        form_data=_manual_setup_form_defaults(accounts),
+        form_data=form_data,
+        available_manual_trades=available_manual_trades,
+        selected_trades=selected_trades,
+        autofilled_fields=autofilled_fields,
+        notices=notices,
+        warnings=warnings,
+        error=error,
     )
 
 
@@ -695,6 +731,8 @@ def create_manual_trade_setup_page_submit(
     order2_ticket: str = Form(""),
 ) -> Response:
     accounts = list_trading_accounts(db, current_user.id)
+    manual_service = ManualTradeSetupService(db)
+    available_manual_trades = manual_service.list_unlinked_manual_trades(user_id=current_user.id)
     form_data = {
         "trading_account_id": trading_account_id,
         "symbol": symbol,
@@ -724,7 +762,7 @@ def create_manual_trade_setup_page_submit(
             order1_ticket=order1_ticket,
             order2_ticket=int(order2_ticket) if order2_ticket else None,
         )
-        setup = ManualTradeSetupService(db).create_manual_setup(user_id=current_user.id, payload=payload)
+        setup = manual_service.create_manual_setup(user_id=current_user.id, payload=payload)
         result = TradeSetupOutcomeService(db).reconcile_setup(setup.id, current_user.id)
         setup = get_trade_setup(db, setup.id, current_user.id)
         return _render_trade_setup_detail_page(
@@ -744,6 +782,7 @@ def create_manual_trade_setup_page_submit(
             heading="Create Manual Setup",
             submit_label="Register Manual Setup",
             form_data=form_data,
+            available_manual_trades=available_manual_trades,
             error=error,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
@@ -762,6 +801,14 @@ def edit_manual_trade_setup_page(
     if setup.setup_source != "manual":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Trade setup is not a manual setup")
     accounts = list_trading_accounts(db, current_user.id)
+    selected_trades = []
+    try:
+        selected_trades = ManualTradeSetupService(db).build_prefill_from_selected_trades(
+            user_id=current_user.id,
+            selected_trade_ids=[ticket for ticket in [setup.order1_ticket, setup.order2_ticket] if ticket],
+        )["selected_trades"]
+    except Exception:
+        selected_trades = []
     return _render_manual_trade_setup_form_page(
         request,
         current_user,
@@ -771,6 +818,7 @@ def edit_manual_trade_setup_page(
         submit_label="Update Manual Setup",
         form_data=_manual_setup_form_defaults(accounts, setup),
         setup=setup,
+        selected_trades=selected_trades,
     )
 
 
@@ -794,6 +842,8 @@ def edit_manual_trade_setup_page_submit(
     order2_ticket: str = Form(""),
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
+    manual_service = ManualTradeSetupService(db)
+    available_manual_trades = manual_service.list_unlinked_manual_trades(user_id=current_user.id)
     setup = get_trade_setup(db, setup_id, current_user.id)
     if not setup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
@@ -826,7 +876,7 @@ def edit_manual_trade_setup_page_submit(
             order1_ticket=order1_ticket,
             order2_ticket=int(order2_ticket) if order2_ticket else None,
         )
-        updated = ManualTradeSetupService(db).update_manual_setup(
+        updated = manual_service.update_manual_setup(
             setup_id=setup_id,
             user_id=current_user.id,
             payload=payload,
@@ -851,6 +901,7 @@ def edit_manual_trade_setup_page_submit(
             submit_label="Update Manual Setup",
             form_data=form_data,
             setup=setup,
+            available_manual_trades=available_manual_trades,
             error=error,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
