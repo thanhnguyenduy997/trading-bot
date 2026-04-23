@@ -399,8 +399,45 @@ button:hover {
 
 .preview-summary-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0.7rem;
+}
+
+.preview-summary-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.preview-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.preview-summary-item {
+    display: grid;
+    gap: 0.22rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(142, 169, 209, 0.35);
+    min-width: 0;
+}
+
+.preview-summary-item span {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.preview-summary-item strong {
+    font-size: 1.02rem;
+    font-weight: 820;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 
 .preview-advanced-panel summary {
@@ -625,6 +662,11 @@ button:hover {
     .preview-summary-grid {
         grid-template-columns: repeat(3, 1fr);
     }
+
+    .preview-summary-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 
 @media (max-width: 820px) {
@@ -768,6 +810,10 @@ button:hover {
     .preview-primary-grid,
     .preview-summary-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .preview-summary-header {
+        gap: 0.6rem;
     }
 
     .metric-card {

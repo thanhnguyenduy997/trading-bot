@@ -90,48 +90,54 @@
         <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
     </div>
 
-    <div class="setup-hero">
-        <div>
-            <div class="setup-symbol">{{ preview.symbol }}</div>
-            <div class="setup-subtitle">{{ preview.side|upper }}</div>
-        </div>
-        <div class="status-pill">{{ preview.validation_status }}</div>
-    </div>
-
     {% if preview.warnings %}
     <div class="alert alert-error">
         {{ preview.warnings|join(", ") }}
     </div>
     {% endif %}
 
-    <div class="preview-summary-grid">
-        <div class="metric-card primary-metric">
-            <span>Estimated entry</span>
-            <strong>{{ preview.estimated_entry }}</strong>
+    <div class="setup-hero preview-summary-card">
+        <div class="preview-summary-header">
+            <div>
+                <div class="setup-symbol">{{ preview.symbol }}</div>
+                <div class="setup-subtitle">{{ preview.side|upper }}</div>
+            </div>
+            <div class="status-pill">{{ preview.validation_status }}</div>
         </div>
-        <div class="metric-card">
-            <span>Stop loss</span>
-            <strong>{{ preview.sl_price }}</strong>
-        </div>
-        <div class="metric-card">
-            <span>TP1</span>
-            <strong>{{ preview.tp1_price }}</strong>
-        </div>
-        <div class="metric-card">
-            <span>TP2</span>
-            <strong>{{ preview.tp2_price }}</strong>
-        </div>
-        <div class="metric-card">
-            <span>Total risk</span>
-            <strong>{{ preview.total_risk_money }}</strong>
-        </div>
-        <div class="metric-card">
-            <span>Order 1 volume</span>
-            <strong>{{ preview.order1_volume }}</strong>
-        </div>
-        <div class="metric-card">
-            <span>Order 2 volume</span>
-            <strong>{{ preview.order2_volume }}</strong>
+
+        <div class="preview-summary-grid">
+            <div class="preview-summary-item">
+                <span>Estimated entry</span>
+                <strong>{{ preview.estimated_entry }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>Stop loss</span>
+                <strong>{{ preview.sl_price }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>TP1</span>
+                <strong>{{ preview.tp1_price }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>TP2</span>
+                <strong>{{ preview.tp2_price }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>Total risk</span>
+                <strong>{{ preview.total_risk_money }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>Order 1 volume</span>
+                <strong>{{ preview.order1_volume }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>Order 2 volume</span>
+                <strong>{{ preview.order2_volume }}</strong>
+            </div>
+            <div class="preview-summary-item">
+                <span>RR order 2</span>
+                <strong>{{ preview.rr_order2 }}</strong>
+            </div>
         </div>
     </div>
 
