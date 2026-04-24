@@ -31,7 +31,7 @@
             </div>
         </div>
         <form action="/trade-setups/manual/create" method="get" class="stack">
-            <div class="table-wrap">
+            <div class="table-wrap desktop-table-only">
                 <table class="accounts-table">
                     <thead>
                         <tr>
@@ -67,6 +67,30 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+            <div class="mobile-card-list mobile-only">
+                {% for trade in available_manual_trades %}
+                <label class="mobile-select-card">
+                    <input type="checkbox" name="selected_trade" value="{{ trade.id }}"
+                        {% if trade.position_ticket in selected_trade_tickets %}checked{% endif %}>
+                    <div class="mobile-select-card-body">
+                        <div class="mobile-data-card-header">
+                            <div>
+                                <h3>{{ trade.symbol }}</h3>
+                                <p>{{ trade.side|upper }} · Ticket {{ trade.position_ticket }}</p>
+                            </div>
+                            <strong>{{ trade.realized_pnl if trade.realized_pnl is not none else "-" }}</strong>
+                        </div>
+                        <dl class="mobile-data-pairs">
+                            <div><dt>Account</dt><dd>{{ trade.trading_account_id }}</dd></div>
+                            <div><dt>Volume</dt><dd>{{ trade.volume }}</dd></div>
+                            <div><dt>Open</dt><dd>{{ trade.open_price if trade.open_price is not none else "-" }}</dd></div>
+                            <div><dt>Close</dt><dd>{{ trade.close_price if trade.close_price is not none else "-" }}</dd></div>
+                            <div><dt>Comment</dt><dd>{{ trade.comment or "-" }}</dd></div>
+                        </dl>
+                    </div>
+                </label>
+                {% endfor %}
             </div>
             <div class="action-row">
                 <button type="submit" class="secondary-button">Auto-fill From Selected Trades</button>

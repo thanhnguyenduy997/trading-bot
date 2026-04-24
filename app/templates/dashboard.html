@@ -156,7 +156,7 @@
 
     <section class="detail-panel results-card">
         <h2>Trades</h2>
-        <div class="table-wrap dashboard-trade-table-wrap">
+        <div class="table-wrap dashboard-trade-table-wrap desktop-table-only">
             <table class="accounts-table dashboard-trade-table">
                 <colgroup>
                     <col class="col-time">
@@ -241,6 +241,36 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+        <div class="mobile-card-list mobile-only">
+            {% for row in dashboard.table_rows %}
+            <article class="mobile-data-card trade-mobile-card">
+                <div class="mobile-data-card-header">
+                    <div>
+                        <h3>{{ row.symbol }}</h3>
+                        <p>{{ row.side|upper }} · {{ row.trade_source|replace('_', ' ')|title }}</p>
+                    </div>
+                    <div class="trade-mobile-pnl {% if row.realized_pnl > 1 %}pnl-profit{% elif row.realized_pnl < -1 %}pnl-loss{% else %}pnl-flat{% endif %}">
+                        {{ "%.2f"|format(row.realized_pnl) }}
+                    </div>
+                </div>
+                <div class="mobile-pill-row">
+                    <span class="trade-pill trade-pill-source trade-pill-source-{{ row.trade_source|lower }}">{{ row.trade_source|replace('_', ' ')|title }}</span>
+                    <span class="trade-pill trade-pill-outcome trade-pill-outcome-{{ (row.effective_outcome or 'unknown')|lower|replace('_', '-') }}">{{ row.effective_outcome or "-" }}</span>
+                </div>
+                <dl class="mobile-data-pairs">
+                    <div><dt>Open</dt><dd>{{ row.open_time.strftime("%d/%m %H:%M") if row.open_time else "-" }}</dd></div>
+                    <div><dt>Close</dt><dd>{{ row.close_time.strftime("%d/%m %H:%M") if row.close_time else "-" }}</dd></div>
+                    <div><dt>Volume</dt><dd>{{ "%.2f"|format(row.volume) }}</dd></div>
+                    <div><dt>Open Price</dt><dd>{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</dd></div>
+                    <div><dt>Close Price</dt><dd>{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</dd></div>
+                    <div><dt>Linked Setup</dt><dd>{% if row.linked_setup_id %}<a class="setup-link-pill" href="/trade-setups/{{ row.linked_setup_id }}">#{{ row.linked_setup_id }}</a>{% else %}-{% endif %}</dd></div>
+                    <div><dt>Comment</dt><dd>{{ row.comment or "-" }}</dd></div>
+                </dl>
+            </article>
+            {% else %}
+            <p class="muted">No normalized MT5 trades matched this account and time range.</p>
+            {% endfor %}
         </div>
     </section>
     {% else %}

@@ -82,6 +82,19 @@ body {
     justify-content: center;
 }
 
+.desktop-only,
+.mobile-only {
+    display: none;
+}
+
+.desktop-table-only {
+    display: block;
+}
+
+.mobile-card-list {
+    display: none;
+}
+
 .mobile-nav {
     display: none;
     position: relative;
@@ -307,6 +320,7 @@ button:hover {
 .preview-form label {
     display: grid;
     gap: 0.35rem;
+    min-width: 0;
 }
 
 .results-card {
@@ -654,6 +668,106 @@ button:hover {
     font-weight: 650;
 }
 
+.mobile-data-card,
+.mobile-select-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fff;
+    padding: 0.9rem;
+}
+
+.mobile-select-card {
+    display: block;
+    cursor: pointer;
+}
+
+.mobile-select-card > input {
+    margin-bottom: 0.6rem;
+}
+
+.mobile-select-card-body {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.mobile-data-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.mobile-data-card-header h2,
+.mobile-data-card-header h3 {
+    margin: 0 0 0.2rem;
+    font-size: 1rem;
+}
+
+.mobile-data-card-header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.mobile-data-pairs {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0;
+}
+
+.mobile-data-pairs div {
+    display: grid;
+    grid-template-columns: minmax(6.2rem, auto) minmax(0, 1fr);
+    gap: 0.6rem;
+    align-items: start;
+}
+
+.mobile-data-pairs dt {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.mobile-data-pairs dd {
+    margin: 0;
+    min-width: 0;
+    font-weight: 700;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.mobile-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    margin-top: 0.85rem;
+}
+
+.mobile-card-actions form {
+    margin: 0;
+}
+
+.mobile-card-actions .button-link,
+.mobile-card-actions button {
+    width: 100%;
+}
+
+.mobile-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.trade-mobile-card {
+    gap: 0.8rem;
+}
+
+.trade-mobile-pnl {
+    font-size: 1rem;
+    font-weight: 820;
+    white-space: nowrap;
+}
+
 @media (max-width: 900px) {
     .metric-grid {
         grid-template-columns: repeat(3, 1fr);
@@ -708,6 +822,10 @@ button:hover {
     .detail-section-grid {
         grid-template-columns: 1fr;
     }
+
+    .preview-primary-grid {
+        grid-template-columns: 1fr 1fr;
+    }
 }
 
 @media (max-width: 640px) {
@@ -746,13 +864,12 @@ button:hover {
     }
 
     .section-header {
-        display: flex;
-        align-items: flex-start;
+        display: grid;
         gap: 0.7rem;
     }
 
     .section-header .button-link {
-        flex: 0 0 auto;
+        width: auto;
     }
 
     .section-header p {
@@ -769,7 +886,7 @@ button:hover {
     select,
     button,
     .button-link {
-        min-height: 40px;
+        min-height: 46px;
     }
 
     button {
@@ -783,7 +900,8 @@ button:hover {
     }
 
     .setup-hero {
-        align-items: center;
+        flex-direction: column;
+        align-items: flex-start;
         padding: 0.85rem;
         border-radius: 14px;
     }
@@ -809,7 +927,7 @@ button:hover {
 
     .preview-primary-grid,
     .preview-summary-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
     }
 
     .preview-summary-header {
@@ -847,10 +965,11 @@ button:hover {
 
     .action-row {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
         gap: 0.55rem;
     }
 
+    .action-row .button-link,
     .action-row button {
         width: 100%;
     }
@@ -893,57 +1012,18 @@ button:hover {
         font-size: 0.92rem;
     }
 
-    .accounts-table {
-        display: block;
+    .desktop-table-only {
+        display: none !important;
     }
 
-    .accounts-table thead {
-        display: none;
-    }
-
-    .accounts-table tbody,
-    .accounts-table tr,
-    .accounts-table th,
-    .accounts-table td {
-        display: block;
-        width: 100%;
-    }
-
-    .accounts-table tr {
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 0.65rem 0.72rem;
-        margin-bottom: 0.65rem;
-        background: #fff;
-    }
-
-    .accounts-table tbody tr:last-child {
-        margin-bottom: 0;
-    }
-
-    .accounts-table th,
-    .accounts-table td {
-        border-bottom: 0;
-        padding: 0.28rem 0;
-    }
-
-    .accounts-table th {
-        color: var(--muted);
-        font-size: 0.78rem;
-    }
-
-    .accounts-table td[data-label] {
+    .mobile-only,
+    .mobile-card-list {
         display: grid;
-        grid-template-columns: minmax(7rem, 38%) 1fr;
-        gap: 0.55rem;
-        align-items: start;
+        gap: 0.7rem;
     }
 
-    .accounts-table td[data-label]::before {
-        content: attr(data-label);
-        color: var(--muted);
-        font-size: 0.76rem;
-        font-weight: 700;
+    .desktop-only {
+        display: none !important;
     }
 
     .detail-table tr {
@@ -1008,6 +1088,45 @@ button:hover {
         min-height: 38px;
         padding: 0.55rem 0.7rem;
     }
+
+    .dashboard-summary-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .dashboard-chart-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-compact-filters,
+    .dashboard-meta-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-hero-actions {
+        width: 100%;
+        justify-items: stretch;
+    }
+
+    .inline-form {
+        width: 100%;
+    }
+
+    .inline-form button {
+        width: 100%;
+    }
+
+    .page-freshness {
+        align-items: flex-start;
+    }
+
+    .mobile-card-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .manual-trade-selection-help,
+    .preview-symbol-status {
+        font-size: 0.88rem;
+    }
 }
 
 @media (max-width: 420px) {
@@ -1029,9 +1148,14 @@ button:hover {
         gap: 0.12rem;
     }
 
-    .preview-primary-grid,
-    .preview-summary-grid {
+    .dashboard-summary-grid,
+    .metric-grid {
         grid-template-columns: 1fr;
+    }
+
+    .mobile-data-pairs div {
+        grid-template-columns: 1fr;
+        gap: 0.12rem;
     }
 }
 

@@ -6,7 +6,7 @@
         <a href="/trading-accounts/create" class="button-link">Add Account</a>
     </div>
     {% if accounts %}
-    <table class="accounts-table account-list-table">
+    <table class="accounts-table account-list-table desktop-table-only">
         <thead>
             <tr>
                 <th>Broker</th>
@@ -36,6 +36,32 @@
             {% endfor %}
         </tbody>
     </table>
+    <div class="mobile-card-list mobile-only">
+        {% for account in accounts %}
+        <article class="mobile-data-card">
+            <div class="mobile-data-card-header">
+                <div>
+                    <h2>{{ account.broker_name }}</h2>
+                    <p>{{ account.account_number }}</p>
+                </div>
+                <span class="status-pill status-pill-{{ 'success' if account.connection_status == 'connected' else 'warning' if account.connection_status == 'unknown' else 'danger' }}">
+                    {{ account.connection_status }}
+                </span>
+            </div>
+            <dl class="mobile-data-pairs">
+                <div><dt>Platform</dt><dd>{{ account.platform }}</dd></div>
+                <div><dt>Server</dt><dd>{{ account.server_name }}</dd></div>
+                <div><dt>Heartbeat</dt><dd>{{ account.last_heartbeat_at.strftime("%Y-%m-%d %H:%M") if account.last_heartbeat_at else "Never" }}</dd></div>
+                <div><dt>Last Error</dt><dd>{{ account.last_error or "None" }}</dd></div>
+                <div><dt>Created</dt><dd>{{ account.created_at.strftime("%Y-%m-%d %H:%M") }}</dd></div>
+            </dl>
+            <div class="mobile-card-actions">
+                <a class="button-link secondary-button" href="/trading-accounts/id/{{ account.id }}">Open</a>
+                <a class="button-link secondary-button" href="/trading-accounts/id/{{ account.id }}/edit">Edit</a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
     {% else %}
     <p>No trading accounts added yet.</p>
     {% endif %}

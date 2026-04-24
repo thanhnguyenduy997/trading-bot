@@ -393,3 +393,15 @@ def test_trading_account_detail_page_shows_auto_refresh_and_history_sync_status(
     assert 'data-auto-refresh-interval="60"' in response.text
     assert "MT5 history last synced" in response.text
     assert "Every 60s" in response.text
+
+
+def test_trading_accounts_page_includes_mobile_account_cards(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "123474")
+    _login_web_session(client, created_user.email)
+
+    response = client.get("/trading-accounts")
+
+    assert response.status_code == 200
+    assert account.account_number in response.text
+    assert "mobile-data-card" in response.text
+    assert "mobile-card-actions" in response.text

@@ -20,7 +20,7 @@
     </div>
 
     {% if setups %}
-    <table class="accounts-table setup-list-table">
+    <table class="accounts-table setup-list-table desktop-table-only">
         <thead>
             <tr>
                 <th>ID</th>
@@ -56,6 +56,32 @@
             {% endfor %}
         </tbody>
     </table>
+    <div class="mobile-card-list mobile-only">
+        {% for setup in setups %}
+        <article class="mobile-data-card">
+            <div class="mobile-data-card-header">
+                <div>
+                    <h2>{{ setup.symbol }}</h2>
+                    <p>{{ setup.side|upper }} · {{ setup.setup_source|replace("_", " ")|title }}</p>
+                </div>
+                <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
+            </div>
+            <dl class="mobile-data-pairs">
+                <div><dt>ID</dt><dd><a href="/trade-setups/{{ setup.id }}">#{{ setup.id }}</a></dd></div>
+                <div><dt>Risk</dt><dd>{{ setup.total_risk_money }}</dd></div>
+                <div><dt>Created</dt><dd>{{ setup.created_at }}</dd></div>
+            </dl>
+            <div class="mobile-card-actions">
+                <a class="button-link secondary-button" href="/trade-setups/{{ setup.id }}">Open</a>
+                {% if setup.setup_source != "manual" %}
+                <form action="/trade-setups/{{ setup.id }}/execute" method="post">
+                    <button type="submit">Execute</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
     {% else %}
     <p class="muted">No trade setups saved yet.</p>
     {% endif %}

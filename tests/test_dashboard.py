@@ -674,6 +674,7 @@ def test_dashboard_page_shows_history_freshness_and_auto_refresh(client, db_sess
     assert "History Freshness" in response.text
     assert 'data-auto-refresh-interval="45"' in response.text
     assert "Every 45s" in response.text
+    assert "mobile-data-card trade-mobile-card" in response.text
 
 
 def test_auto_sync_prefers_recently_viewed_matched_accounts_and_skips_fresh_accounts(db_session, created_user):
