@@ -1060,6 +1060,27 @@ button:hover {
     color: var(--warning);
 }
 
+.page-freshness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    align-items: center;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8fbff;
+    color: var(--muted);
+}
+
+.page-freshness strong {
+    color: var(--ink);
+}
+
+.freshness-row {
+    display: inline-flex;
+    align-items: center;
+}
+
 .eyebrow {
     margin: 0 0 0.35rem;
     color: var(--accent);

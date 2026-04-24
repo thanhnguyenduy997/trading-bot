@@ -54,6 +54,11 @@ def _login_headers(client, email: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _login_web_session(client, email: str, password: str = "password123") -> None:
+    response = client.post("/api/auth/login", data={"email": email, "password": password}, follow_redirects=False)
+    assert response.status_code in {302, 303}
+
+
 def _add_manual_trade_history_row(
     db_session,
     *,
@@ -1153,3 +1158,24 @@ def test_manual_derived_fields_use_selected_order_volumes_for_combined_risk(db_s
     assert result["tp1_price"] == 2321.6
     assert result["tp2_price"] == 2322.8
     assert result["total_risk_money"] == 72.0
+
+
+def test_trade_setup_pages_show_auto_refresh_indicators(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "MAN-212")
+    setup = create_trade_setup(
+        db_session,
+        created_user.id,
+        TradeSetupCreate(**_build_setup_payload(account.id)),
+    )
+    db_session.commit()
+    _login_web_session(client, created_user.email)
+
+    list_response = client.get("/trade-setups")
+    detail_response = client.get(f"/trade-setups/{setup.id}")
+
+    assert list_response.status_code == 200
+    assert 'data-auto-refresh-interval="45"' in list_response.text
+    assert "Auto refresh every 45s" in list_response.text
+    assert detail_response.status_code == 200
+    assert 'data-auto-refresh-interval="30"' in detail_response.text
+    assert "Auto refresh every 30s" in detail_response.text

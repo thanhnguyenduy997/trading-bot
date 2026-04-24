@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import suppress
+from threading import Lock
 
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.execution.base import AdapterError
+from app.services.mt5_trade_history import MT5TradeHistorySyncService
 from app.services.notifications import notify_pending_trade_events
 from app.services.trade_events import create_trade_event, event_exists
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
@@ -13,6 +15,7 @@ from app.services.trade_setups import list_setups_requiring_monitoring, list_set
 
 
 logger = logging.getLogger(__name__)
+_auto_sync_cycle_lock = Lock()
 
 
 class TradeMonitorRunner:
@@ -44,8 +47,14 @@ class TradeMonitorRunner:
 
     async def _run(self) -> None:
         interval = max(5, self.settings.trade_monitor_interval_seconds)
+        next_auto_sync_at = 0.0
         while self._stop_event is not None and not self._stop_event.is_set():
             await asyncio.to_thread(run_monitoring_cycle)
+            if self.settings.mt5_history_auto_sync_enabled:
+                loop_time = asyncio.get_running_loop().time()
+                if loop_time >= next_auto_sync_at:
+                    await asyncio.to_thread(run_auto_sync_cycle, self.settings)
+                    next_auto_sync_at = loop_time + max(30, self.settings.mt5_history_auto_sync_interval_seconds)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
             except TimeoutError:
@@ -99,3 +108,30 @@ def run_monitoring_cycle() -> int:
     finally:
         db.close()
     return processed_count
+
+
+def run_auto_sync_cycle(settings: Settings | None = None) -> int:
+    effective_settings = settings or get_settings()
+    if not effective_settings.mt5_history_auto_sync_enabled:
+        return 0
+    if not _auto_sync_cycle_lock.acquire(blocking=False):
+        logger.info("Skipping MT5 auto-sync cycle because another cycle is still running.")
+        return 0
+
+    db = SessionLocal()
+    try:
+        result = MT5TradeHistorySyncService(db).auto_sync_active_accounts(
+            max_accounts=effective_settings.mt5_history_auto_sync_max_accounts_per_cycle,
+            stale_after_seconds=effective_settings.mt5_history_auto_sync_stale_after_seconds,
+        )
+        logger.info(
+            "MT5 auto-sync cycle finished: selected=%s synced_accounts=%s synced_trades=%s skipped_busy=%s",
+            result["selected_accounts"],
+            result["synced_accounts"],
+            result["synced_trades"],
+            result["skipped_busy"],
+        )
+        return int(result["synced_accounts"])
+    finally:
+        db.close()
+        _auto_sync_cycle_lock.release()

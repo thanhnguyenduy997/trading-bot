@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from threading import Lock
 import re
 
 from sqlalchemy import func
@@ -13,6 +14,7 @@ from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
 from app.models.trading_account import TradingAccount
 from app.models.user import User
+from app.services.account_runtime_state import get_recent_account_views
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.trading_accounts import get_trading_account, list_trading_accounts
@@ -22,6 +24,7 @@ SETUP_COMMENT_RE = re.compile(r"setup-(\d+)-", re.IGNORECASE)
 MANUAL_BREAKEVEN_PNL_TOLERANCE = 1.0
 SYNC_LOOKBACK_DAYS = 90
 ALL_TIME_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
+DEFAULT_AUTO_SYNC_LOOKBACK = timedelta(days=7)
 VALID_DASHBOARD_RANGE_KEYS = {
     "all_time",
     "today",
@@ -31,6 +34,8 @@ VALID_DASHBOARD_RANGE_KEYS = {
     "this_month",
     "custom",
 }
+_account_sync_locks: dict[int, Lock] = {}
+_account_sync_locks_guard = Lock()
 
 
 @dataclass
@@ -57,45 +62,192 @@ class MT5TradeHistorySyncService:
         user_id: int,
         range_start: datetime,
         range_end: datetime,
+        allow_skip_if_busy: bool = False,
     ) -> dict[str, object]:
         account = get_trading_account(self.db, account_id, user_id)
         if not account:
             raise LookupError("Trading account not found")
 
+        sync_lock = _get_account_sync_lock(account.id)
+        acquired = sync_lock.acquire(blocking=not allow_skip_if_busy)
+        if not acquired:
+            return {"synced_count": 0, "skipped": "busy"}
+
         adapter = self.adapter_factory(account)
         try:
-            adapter.connect()
-            account_info = adapter.get_account_info()
-            persist_session_matched(self.db, account, account_info=account_info)
-            deals = adapter.get_trade_history(
-                date_from=range_start - timedelta(days=SYNC_LOOKBACK_DAYS),
-                date_to=range_end + timedelta(days=1),
-            )
-        except AdapterError as exc:
-            persist_session_failure(self.db, account, error=exc)
-            raise
+            try:
+                adapter.connect()
+                account_info = adapter.get_account_info()
+                persist_session_matched(self.db, account, account_info=account_info)
+                deals = adapter.get_trade_history(
+                    date_from=range_start - timedelta(days=SYNC_LOOKBACK_DAYS),
+                    date_to=range_end + timedelta(days=1),
+                )
+            except AdapterError as exc:
+                persist_session_failure(self.db, account, error=exc)
+                raise
+            finally:
+                close = getattr(adapter, "close", None)
+                if callable(close):
+                    close()
+
+            setup_index = self._build_setup_index(account)
+            grouped = self._group_deals_by_position(deals)
+            synced_count = 0
+
+            for position_ticket, trade_deals in grouped.items():
+                normalized = self._normalize_trade(
+                    position_ticket=position_ticket,
+                    deals=trade_deals,
+                    setup_index=setup_index,
+                )
+                if normalized is None or normalized["close_time"] is None:
+                    continue
+                self._upsert_trade(account=account, normalized=normalized)
+                synced_count += 1
+
+            self.db.commit()
+            return {"synced_count": synced_count}
         finally:
-            close = getattr(adapter, "close", None)
-            if callable(close):
-                close()
+            sync_lock.release()
 
-        setup_index = self._build_setup_index(account)
-        grouped = self._group_deals_by_position(deals)
-        synced_count = 0
-
-        for position_ticket, trade_deals in grouped.items():
-            normalized = self._normalize_trade(
-                position_ticket=position_ticket,
-                deals=trade_deals,
-                setup_index=setup_index,
+    def latest_history_sync_at(self, *, account_id: int, user_id: int) -> datetime | None:
+        latest = (
+            self.db.query(func.max(MT5TradeHistory.synced_at))
+            .filter(
+                MT5TradeHistory.user_id == user_id,
+                MT5TradeHistory.trading_account_id == account_id,
             )
-            if normalized is None or normalized["close_time"] is None:
-                continue
-            self._upsert_trade(account=account, normalized=normalized)
-            synced_count += 1
+            .scalar()
+        )
+        if latest is None:
+            return None
+        return latest if latest.tzinfo else latest.replace(tzinfo=timezone.utc)
 
-        self.db.commit()
-        return {"synced_count": synced_count}
+    def select_accounts_for_auto_sync(
+        self,
+        *,
+        max_accounts: int,
+        stale_after_seconds: int,
+        now: datetime | None = None,
+    ) -> list[TradingAccount]:
+        effective_now = now or datetime.now(timezone.utc)
+        stale_before = effective_now - timedelta(seconds=max(30, stale_after_seconds))
+        recent_views = get_recent_account_views(since=effective_now - timedelta(hours=6))
+        accounts = list(self.db.query(TradingAccount).all())
+        setup_activity = self._setup_activity_map()
+        history_sync = self._history_sync_map()
+        ranked: list[tuple[tuple[float, ...], TradingAccount]] = []
+
+        for account in accounts:
+            is_connected_candidate = account.mt5_session_status == "matched" or account.connection_status == "connected"
+            if not is_connected_candidate and account.mt5_session_status != "disconnected":
+                continue
+            latest_sync = history_sync.get(account.id)
+            if latest_sync is not None and latest_sync >= stale_before:
+                continue
+
+            ranked.append(
+                (
+                    (
+                        1.0 if account.mt5_session_status == "matched" else 0.0,
+                        1.0 if account.connection_status == "connected" else 0.0,
+                        self._timestamp(recent_views.get(account.id)),
+                        self._timestamp(setup_activity.get(account.id)),
+                        self._timestamp(account.last_heartbeat_at),
+                        self._timestamp(latest_sync),
+                        float(account.id),
+                    ),
+                    account,
+                )
+            )
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return [account for _score, account in ranked[: max(1, max_accounts)]]
+
+    def auto_sync_active_accounts(
+        self,
+        *,
+        max_accounts: int,
+        stale_after_seconds: int,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        effective_now = now or datetime.now(timezone.utc)
+        selected_accounts = self.select_accounts_for_auto_sync(
+            max_accounts=max_accounts,
+            stale_after_seconds=stale_after_seconds,
+            now=effective_now,
+        )
+        lookback_start = effective_now - DEFAULT_AUTO_SYNC_LOOKBACK
+        synced_accounts = 0
+        synced_trades = 0
+        skipped_busy = 0
+
+        for account in selected_accounts:
+            try:
+                result = self.sync_account_history(
+                    account_id=account.id,
+                    user_id=account.user_id,
+                    range_start=lookback_start,
+                    range_end=effective_now,
+                    allow_skip_if_busy=True,
+                )
+            except AdapterError:
+                continue
+            if result.get("skipped") == "busy":
+                skipped_busy += 1
+                continue
+            synced_accounts += 1
+            synced_trades += int(result.get("synced_count", 0))
+
+        return {
+            "selected_accounts": len(selected_accounts),
+            "synced_accounts": synced_accounts,
+            "synced_trades": synced_trades,
+            "skipped_busy": skipped_busy,
+        }
+
+    def _history_sync_map(self) -> dict[int, datetime]:
+        rows = (
+            self.db.query(
+                MT5TradeHistory.trading_account_id,
+                func.max(MT5TradeHistory.synced_at),
+            )
+            .group_by(MT5TradeHistory.trading_account_id)
+            .all()
+        )
+        return {
+            int(account_id): self._normalize_datetime(last_synced)
+            for account_id, last_synced in rows
+            if account_id is not None and last_synced is not None
+        }
+
+    def _setup_activity_map(self) -> dict[int, datetime]:
+        rows = (
+            self.db.query(
+                TradeSetup.trading_account_id,
+                func.max(func.coalesce(TradeSetup.setup_outcome_recorded_at, TradeSetup.executed_at, TradeSetup.updated_at)),
+            )
+            .group_by(TradeSetup.trading_account_id)
+            .all()
+        )
+        return {
+            int(account_id): self._normalize_datetime(last_seen)
+            for account_id, last_seen in rows
+            if account_id is not None and last_seen is not None
+        }
+
+    def _normalize_datetime(self, value: datetime | None) -> datetime:
+        if value is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    def _timestamp(self, value: datetime | None) -> float:
+        if value is None:
+            return 0.0
+        return self._normalize_datetime(value).timestamp()
 
     def _build_setup_index(self, account: TradingAccount) -> dict[str, object]:
         setups = (
@@ -379,6 +531,8 @@ class DashboardService:
         )
         rows = query.order_by(MT5TradeHistory.close_time.desc(), MT5TradeHistory.id.desc()).all()
         items = [self._row_to_item(trade, setup, selected_account) for trade, setup in rows]
+        latest_history_sync_at = self._latest_history_sync_at(selected_account.id, actor.id)
+        now = self.now_provider()
         return {
             "filters": filters,
             "selected_account": selected_account,
@@ -392,6 +546,9 @@ class DashboardService:
             "accounts": list_trading_accounts(self.db, actor.id),
             "session_badge": self._session_badge(selected_account),
             "account_warning": self._account_warning(selected_account),
+            "latest_history_sync_at": latest_history_sync_at,
+            "history_freshness": self._freshness_badge(latest_history_sync_at, now=now, stale_after_seconds=300),
+            "generated_at": now,
         }
 
     def resolve_time_range(self, filters: DashboardFilters) -> tuple[datetime, datetime]:
@@ -555,3 +712,80 @@ class DashboardService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
+
+    def _history_sync_map(self) -> dict[int, datetime]:
+        rows = (
+            self.db.query(
+                MT5TradeHistory.trading_account_id,
+                func.max(MT5TradeHistory.synced_at),
+            )
+            .group_by(MT5TradeHistory.trading_account_id)
+            .all()
+        )
+        return {
+            int(account_id): self._normalize_datetime(last_synced)
+            for account_id, last_synced in rows
+            if account_id is not None and last_synced is not None
+        }
+
+    def _setup_activity_map(self) -> dict[int, datetime]:
+        rows = (
+            self.db.query(
+                TradeSetup.trading_account_id,
+                func.max(func.coalesce(TradeSetup.setup_outcome_recorded_at, TradeSetup.executed_at, TradeSetup.updated_at)),
+            )
+            .group_by(TradeSetup.trading_account_id)
+            .all()
+        )
+        return {
+            int(account_id): self._normalize_datetime(last_seen)
+            for account_id, last_seen in rows
+            if account_id is not None and last_seen is not None
+        }
+
+    def _latest_history_sync_at(self, account_id: int, user_id: int) -> datetime | None:
+        latest = (
+            self.db.query(func.max(MT5TradeHistory.synced_at))
+            .filter(
+                MT5TradeHistory.user_id == user_id,
+                MT5TradeHistory.trading_account_id == account_id,
+            )
+            .scalar()
+        )
+        return self._normalize_datetime(latest) if latest else None
+
+    def _freshness_badge(
+        self,
+        value: datetime | None,
+        *,
+        now: datetime,
+        stale_after_seconds: int,
+    ) -> dict[str, str]:
+        if value is None:
+            return {"label": "Never synced", "tone": "warning"}
+        age_seconds = max(0, int((self._normalize_datetime(now) - self._normalize_datetime(value)).total_seconds()))
+        if age_seconds <= stale_after_seconds:
+            return {"label": f"Fresh · {self._relative_age(age_seconds)} ago", "tone": "success"}
+        return {"label": f"Stale · {self._relative_age(age_seconds)} ago", "tone": "warning"}
+
+    def _relative_age(self, age_seconds: int) -> str:
+        if age_seconds < 60:
+            return f"{age_seconds}s"
+        if age_seconds < 3600:
+            return f"{age_seconds // 60}m"
+        return f"{age_seconds // 3600}h"
+
+    def _timestamp(self, value: datetime | None) -> float:
+        if value is None:
+            return 0.0
+        normalized = self._normalize_datetime(value)
+        return normalized.timestamp()
+
+
+def _get_account_sync_lock(account_id: int) -> Lock:
+    with _account_sync_locks_guard:
+        lock = _account_sync_locks.get(account_id)
+        if lock is None:
+            lock = Lock()
+            _account_sync_locks[account_id] = lock
+        return lock

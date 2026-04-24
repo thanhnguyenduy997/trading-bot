@@ -378,3 +378,18 @@ def test_trading_account_detail_page_shows_session_mismatch_warning(client, db_s
     assert "Current MT5 login" in response.text
     assert "999999" in response.text
     assert "Live MT5 actions are blocked." in response.text
+
+
+def test_trading_account_detail_page_shows_auto_refresh_and_history_sync_status(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "123473")
+    account.symbols_last_synced_at = None
+    db_session.add(account)
+    db_session.commit()
+    _login_web_session(client, created_user.email)
+
+    response = client.get(f"/trading-accounts/id/{account.id}")
+
+    assert response.status_code == 200
+    assert 'data-auto-refresh-interval="60"' in response.text
+    assert "MT5 history last synced" in response.text
+    assert "Every 60s" in response.text

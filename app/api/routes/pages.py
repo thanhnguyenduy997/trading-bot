@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -17,6 +17,7 @@ from app.services.account_symbols import (
     EMPTY_SYMBOL_MESSAGE,
     TradingAccountSymbolService,
 )
+from app.services.account_runtime_state import mark_trading_account_viewed
 from app.services.execution import TradingAccountExecutionService
 from app.services.preview_service import PreviewService
 from app.services.notifications import send_trading_account_test_notification
@@ -130,11 +131,18 @@ def _render_trade_setup_list_page(
     request: Request,
     current_user: User,
     setups: list,
+    *,
+    generated_at: datetime | None = None,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "trade_setups.html",
-        {"request": request, "user": current_user, "setups": setups},
+        {
+            "request": request,
+            "user": current_user,
+            "setups": setups,
+            "generated_at": generated_at or datetime.now(timezone.utc),
+        },
     )
 
 
@@ -146,6 +154,7 @@ def _render_trade_setup_detail_page(
     message: str | None = None,
     error: str | None = None,
     status_code: int = status.HTTP_200_OK,
+    generated_at: datetime | None = None,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
@@ -157,6 +166,7 @@ def _render_trade_setup_detail_page(
             "events": events,
             "message": message,
             "error": error,
+            "generated_at": generated_at or datetime.now(timezone.utc),
         },
         status_code=status_code,
     )
@@ -218,6 +228,8 @@ def _render_trading_account_detail_page(
     symbols: list[dict[str, str]] | None = None,
     symbol_message: str | None = None,
     status_code: int = status.HTTP_200_OK,
+    generated_at: datetime | None = None,
+    history_last_synced_at: datetime | None = None,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
@@ -232,6 +244,8 @@ def _render_trading_account_detail_page(
             "error": error,
             "symbols": symbols or [],
             "symbol_message": symbol_message,
+            "generated_at": generated_at or datetime.now(timezone.utc),
+            "history_last_synced_at": history_last_synced_at,
         },
         status_code=status_code,
     )
@@ -373,6 +387,8 @@ def dashboard_page(
             actor=current_user,
             requested_account_id=filters.trading_account_id,
         )
+        if selected_account is not None:
+            mark_trading_account_viewed(selected_account.id)
         dashboard = (
             service.build_dashboard(actor=current_user, filters=filters, selected_account=selected_account)
             if selected_account is not None
@@ -381,6 +397,8 @@ def dashboard_page(
     except (ValueError, DashboardAuthorizationError) as exc:
         filters = DashboardFilters()
         selected_account = service.resolve_selected_account(actor=current_user, requested_account_id=None)
+        if selected_account is not None:
+            mark_trading_account_viewed(selected_account.id)
         dashboard = (
             service.build_dashboard(actor=current_user, filters=filters, selected_account=selected_account)
             if selected_account is not None
@@ -427,6 +445,8 @@ def dashboard_sync_page(
             actor=current_user,
             requested_account_id=filters.trading_account_id,
         )
+        if selected_account is not None:
+            mark_trading_account_viewed(selected_account.id)
         if selected_account is None:
             dashboard = {"filters": filters, "accounts": [], "selected_account": None}
         else:
@@ -444,6 +464,8 @@ def dashboard_sync_page(
     except (ValueError, DashboardAuthorizationError, LookupError, AdapterError) as exc:
         filters = DashboardFilters()
         selected_account = service.resolve_selected_account(actor=current_user, requested_account_id=None)
+        if selected_account is not None:
+            mark_trading_account_viewed(selected_account.id)
         dashboard = (
             service.build_dashboard(actor=current_user, filters=filters, selected_account=selected_account)
             if selected_account is not None
@@ -949,7 +971,7 @@ def trade_setup_list_page(
     current_user: User = Depends(get_current_user_from_cookie),
 ) -> HTMLResponse:
     setups = list_trade_setups(db, current_user.id)
-    return _render_trade_setup_list_page(request, current_user, setups)
+    return _render_trade_setup_list_page(request, current_user, setups, generated_at=datetime.now(timezone.utc))
 
 
 @router.get("/trade-setups/{setup_id}", response_class=HTMLResponse)
@@ -964,8 +986,17 @@ def trade_setup_detail_page(
     setup = get_trade_setup(db, setup_id, current_user.id)
     if not setup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trade setup not found")
+    mark_trading_account_viewed(setup.trading_account_id)
     events = list_trade_events(db, setup_id, current_user.id)
-    return _render_trade_setup_detail_page(request, current_user, setup, events, message=message, error=error)
+    return _render_trade_setup_detail_page(
+        request,
+        current_user,
+        setup,
+        events,
+        message=message,
+        error=error,
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 @router.post("/trade-setups/{setup_id}/execute", response_class=HTMLResponse)
@@ -1144,13 +1175,20 @@ def trading_account_detail_page(
     account = get_trading_account(db, account_id, current_user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
+    mark_trading_account_viewed(account.id)
     symbols, symbol_message = _load_synced_symbols(db, current_user, account.id)
+    history_last_synced_at = MT5TradeHistorySyncService(db).latest_history_sync_at(
+        account_id=account.id,
+        user_id=current_user.id,
+    )
     return _render_trading_account_detail_page(
         request,
         current_user,
         account,
         symbols=symbols,
         symbol_message=symbol_message,
+        generated_at=datetime.now(timezone.utc),
+        history_last_synced_at=history_last_synced_at,
     )
 
 
@@ -1395,6 +1433,10 @@ def update_trading_account_from_form(
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
     symbols, symbol_message = _load_synced_symbols(db, current_user, account_id)
+    history_last_synced_at = MT5TradeHistorySyncService(db).latest_history_sync_at(
+        account_id=account.id,
+        user_id=current_user.id,
+    )
     return _render_trading_account_detail_page(
         request,
         current_user,
@@ -1402,6 +1444,8 @@ def update_trading_account_from_form(
         message="Trading account updated.",
         symbols=symbols,
         symbol_message=symbol_message,
+        generated_at=datetime.now(timezone.utc),
+        history_last_synced_at=history_last_synced_at,
     )
 
 
@@ -1424,6 +1468,10 @@ def update_trading_account_telegram_page(
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading account not found")
     symbols, symbol_message = _load_synced_symbols(db, current_user, account.id)
+    history_last_synced_at = MT5TradeHistorySyncService(db).latest_history_sync_at(
+        account_id=account.id,
+        user_id=current_user.id,
+    )
     return _render_trading_account_detail_page(
         request,
         current_user,
@@ -1431,6 +1479,8 @@ def update_trading_account_telegram_page(
         message="Telegram notification settings updated.",
         symbols=symbols,
         symbol_message=symbol_message,
+        generated_at=datetime.now(timezone.utc),
+        history_last_synced_at=history_last_synced_at,
     )
 
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card layout-tier-medium">
+<section class="card layout-tier-medium" data-auto-refresh-interval="60">
     <div class="section-header">
         <div>
             <h1>Trading Account {{ account.account_number }}</h1>
@@ -24,6 +24,9 @@
 
     <table class="accounts-table detail-table">
         <tbody>
+            <tr><th>Page refreshed</th><td>{{ generated_at }}</td></tr>
+            <tr><th>MT5 history last synced</th><td>{{ history_last_synced_at or "Never" }}</td></tr>
+            <tr><th>Auto refresh</th><td data-auto-refresh-status>Every 60s</td></tr>
             <tr><th>Broker</th><td>{{ account.broker_name }}</td></tr>
             <tr><th>Platform</th><td>{{ account.platform }}</td></tr>
             <tr><th>Server</th><td>{{ account.server_name }}</td></tr>
@@ -364,5 +367,6 @@
     });
 
     refreshQuoteSymbols();
+    window.initAutoRefresh(document.querySelector("[data-auto-refresh-interval]"));
 </script>
 {% endblock %}

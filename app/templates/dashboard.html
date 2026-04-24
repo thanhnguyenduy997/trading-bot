@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card stack dashboard-shell layout-tier-wide">
+<section class="card stack dashboard-shell layout-tier-wide" data-auto-refresh-interval="45">
     {% if message %}
     <div class="banner banner-success">{{ message }}</div>
     {% endif %}
@@ -30,7 +30,7 @@
                 <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
                 <input type="hidden" name="end_date" value="{{ dashboard.filters.end_date or '' }}">
                 <input type="hidden" name="account_id" value="{{ dashboard.selected_account.id }}">
-                <button type="submit">Sync MT5 History</button>
+                <button id="dashboard-sync-button" type="submit">Sync MT5 History</button>
             </form>
         </div>
     </section>
@@ -43,6 +43,13 @@
         <div><span class="muted">Trading Account</span><strong>{{ dashboard.selected_account.account_number }}</strong></div>
         <div><span class="muted">Server</span><strong>{{ dashboard.selected_account.server_name }}</strong></div>
         <div><span class="muted">Current MT5 Login</span><strong>{{ dashboard.selected_account.current_mt5_login or "Unknown" }}</strong></div>
+        <div><span class="muted">Last MT5 History Sync</span><strong>{{ dashboard.latest_history_sync_at or "Never" }}</strong></div>
+        <div>
+            <span class="muted">History Freshness</span>
+            <strong class="freshness-row"><span class="status-pill status-pill-{{ dashboard.history_freshness.tone }}">{{ dashboard.history_freshness.label }}</span></strong>
+        </div>
+        <div><span class="muted">Page Refreshed</span><strong>{{ dashboard.generated_at }}</strong></div>
+        <div><span class="muted">Auto Refresh</span><strong data-auto-refresh-status>Every 45s</strong></div>
         <div>
             <span class="muted">Time Window</span>
             <strong>
@@ -261,6 +268,7 @@
     const dashboardRangeSelect = document.getElementById("dashboard-range");
     const dashboardStartDateInput = document.getElementById("dashboard-start-date");
     const dashboardEndDateInput = document.getElementById("dashboard-end-date");
+    const dashboardSyncButton = document.getElementById("dashboard-sync-button");
 
     function syncDashboardDateInputs() {
         if (!dashboardRangeSelect || !dashboardStartDateInput || !dashboardEndDateInput) {
@@ -275,5 +283,12 @@
         dashboardRangeSelect.addEventListener("change", syncDashboardDateInputs);
         syncDashboardDateInputs();
     }
+    if (dashboardSyncButton) {
+        dashboardSyncButton.closest("form").addEventListener("submit", () => {
+            dashboardSyncButton.textContent = "Syncing…";
+            dashboardSyncButton.disabled = true;
+        });
+    }
+    window.initAutoRefresh(document.querySelector("[data-auto-refresh-interval]"));
 </script>
 {% endblock %}

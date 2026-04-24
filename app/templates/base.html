@@ -51,6 +51,36 @@
         {% block content %}{% endblock %}
     </main>
     <script>
+        window.initAutoRefresh = function(rootElement) {
+            const target = rootElement || document.querySelector("[data-auto-refresh-interval]");
+            if (!target) {
+                return;
+            }
+            const intervalSeconds = Number(target.dataset.autoRefreshInterval || "0");
+            if (!intervalSeconds || intervalSeconds < 5) {
+                return;
+            }
+            const statusElement = target.querySelector("[data-auto-refresh-status]");
+            const tick = function() {
+                if (document.hidden) {
+                    return;
+                }
+                const activeElement = document.activeElement;
+                if (
+                    activeElement &&
+                    target.contains(activeElement) &&
+                    activeElement.matches("input:not([type='hidden']), textarea, select")
+                ) {
+                    return;
+                }
+                if (statusElement) {
+                    statusElement.textContent = "Refreshing…";
+                }
+                window.location.reload();
+            };
+            window.setInterval(tick, intervalSeconds * 1000);
+        };
+
         window.handleExpiredSessionResponse = async function(response) {
             if (!response || response.status !== 401) {
                 return false;

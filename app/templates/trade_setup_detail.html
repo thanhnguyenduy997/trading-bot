@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card setup-detail-card layout-tier-medium">
+<section class="card setup-detail-card layout-tier-medium" data-auto-refresh-interval="30">
     <div class="section-header">
         <div>
             <h1>Trade Setup #{{ setup.id }}</h1>
@@ -22,6 +22,13 @@
             <div class="setup-subtitle">{{ setup.side|upper }} · {{ setup.setup_source|replace("_", " ")|title }} · Account {{ setup.trading_account_id }}</div>
         </div>
         <div class="status-pill status-{{ setup.status }}">{{ setup.status }}</div>
+    </div>
+
+    <div class="page-freshness">
+        <span class="muted">Last updated</span>
+        <strong>{{ generated_at }}</strong>
+        <span class="muted">·</span>
+        <strong data-auto-refresh-status>Auto refresh every 30s</strong>
     </div>
 
     <div class="metric-grid">
@@ -169,4 +176,7 @@
     <p class="muted">No events recorded yet.</p>
     {% endif %}
 </section>
+<script>
+    window.initAutoRefresh(document.querySelector("[data-auto-refresh-interval]"));
+</script>
 {% endblock %}

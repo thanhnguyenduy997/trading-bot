@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card layout-tier-wide">
+<section class="card layout-tier-wide" data-auto-refresh-interval="45">
     <div class="section-header">
         <div>
             <h1>Trade Setups</h1>
@@ -10,6 +10,13 @@
             <a class="button-link secondary-button" href="/trade-setups/manual/create">Create Manual Setup</a>
             <a class="button-link" href="/trade-setups/preview">New Preview</a>
         </div>
+    </div>
+
+    <div class="page-freshness">
+        <span class="muted">Last updated</span>
+        <strong>{{ generated_at }}</strong>
+        <span class="muted">·</span>
+        <strong data-auto-refresh-status>Auto refresh every 45s</strong>
     </div>
 
     {% if setups %}
@@ -53,4 +60,7 @@
     <p class="muted">No trade setups saved yet.</p>
     {% endif %}
 </section>
+<script>
+    window.initAutoRefresh(document.querySelector("[data-auto-refresh-interval]"));
+</script>
 {% endblock %}

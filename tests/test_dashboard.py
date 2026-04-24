@@ -5,6 +5,7 @@ from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate
 from app.schemas.user import UserCreate
+from app.services.account_runtime_state import mark_trading_account_viewed
 from app.services.mt5_trade_history import (
     DashboardAuthorizationError,
     DashboardFilters,
@@ -641,6 +642,77 @@ def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db
     assert "trade-pill trade-pill-source trade-pill-source-system" in response.text
     assert "trade-pill trade-pill-outcome trade-pill-outcome-tp2-hit" in response.text
     assert long_comment in response.text
+
+
+def test_dashboard_page_shows_history_freshness_and_auto_refresh(client, db_session, created_user):
+    account = _create_account(db_session, created_user, "FRESH-001")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=82011,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2321.0,
+            realized_pnl=25.0,
+            open_time=datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+            synced_at=datetime(2026, 4, 22, 9, 5, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+    _login(client, created_user.email)
+
+    response = client.get(f"/dashboard?account_id={account.id}")
+
+    assert response.status_code == 200
+    assert "Last MT5 History Sync" in response.text
+    assert "History Freshness" in response.text
+    assert 'data-auto-refresh-interval="45"' in response.text
+    assert "Every 45s" in response.text
+
+
+def test_auto_sync_prefers_recently_viewed_matched_accounts_and_skips_fresh_accounts(db_session, created_user):
+    service = MT5TradeHistorySyncService(db_session)
+    now = datetime(2026, 4, 22, 12, tzinfo=timezone.utc)
+    matched_stale = _create_account(db_session, created_user, "AUTO-001", session_status="matched", current_login="AUTO-001")
+    _create_account(db_session, created_user, "AUTO-002", session_status="disconnected")
+    fresh_matched = _create_account(db_session, created_user, "AUTO-003", session_status="matched", current_login="AUTO-003")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=fresh_matched.id,
+            position_ticket=82012,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2321.0,
+            realized_pnl=25.0,
+            open_time=now - timedelta(hours=2),
+            close_time=now - timedelta(hours=1),
+            synced_at=now - timedelta(seconds=60),
+        )
+    )
+    db_session.commit()
+    mark_trading_account_viewed(matched_stale.id, viewed_at=now - timedelta(minutes=5))
+
+    selected = service.select_accounts_for_auto_sync(
+        max_accounts=2,
+        stale_after_seconds=180,
+        now=now,
+    )
+
+    selected_ids = [account.id for account in selected]
+    assert matched_stale.id in selected_ids
+    assert fresh_matched.id not in selected_ids
+    assert len(selected_ids) <= 2
 
 
 def test_dashboard_authorization_error_raised_for_unowned_account(db_session, created_user):
