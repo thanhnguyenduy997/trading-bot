@@ -621,7 +621,7 @@ class DashboardService:
         setup: TradeSetup | None,
         selected_account: TradingAccount,
     ) -> dict[str, object]:
-        effective_outcome = setup.setup_outcome if trade.trade_source in {"system", "manual_setup"} and setup else trade.outcome
+        effective_outcome = trade.outcome or (setup.setup_outcome if trade.trade_source in {"system", "manual_setup"} and setup else None)
         return {
             "position_ticket": trade.position_ticket,
             "open_time": trade.open_time,

@@ -52,14 +52,11 @@ class TradeSetupMonitoringService:
             if order2_position is None:
                 setup.monitoring_status = "order2_closed"
                 setup.order2_be_move_error = None
-                if setup.result_status is None:
-                    stoploss_hit, _ = self._was_closed_by_stoploss(setup, adapter.get_position_history(position_ticket=int(setup.order1_ticket)))
-                    self.risk_management.record_setup_result(
-                        setup=setup,
-                        result_status="stoploss" if stoploss_hit else "non_stoploss",
-                    )
                 self._persist(setup)
                 self.outcomes.reconcile_setup(setup.id, user_id)
+                refreshed_setup = get_trade_setup(self.db, setup.id, user_id)
+                if refreshed_setup is not None:
+                    self.risk_management.refresh_daily_state_for_setup(refreshed_setup)
                 return self._result(setup, order1_status="closed", order2_status="closed")
 
             order1_history = adapter.get_position_history(position_ticket=int(setup.order1_ticket))
@@ -69,6 +66,9 @@ class TradeSetupMonitoringService:
                 setup.order2_be_move_error = None
                 self._persist(setup)
                 self.outcomes.reconcile_setup(setup.id, user_id)
+                refreshed_setup = get_trade_setup(self.db, setup.id, user_id)
+                if refreshed_setup is not None:
+                    self.risk_management.refresh_daily_state_for_setup(refreshed_setup)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             if not event_exists(self.db, setup.id, user_id, "tp1_hit"):
@@ -80,9 +80,6 @@ class TradeSetupMonitoringService:
                     "Order 1 appears to have closed at TP1.",
                     details=json.dumps(tp1_details, indent=2, sort_keys=True, default=str),
                 )
-            if setup.result_status is None:
-                self.risk_management.record_setup_result(setup=setup, result_status="non_stoploss")
-
             be_price = float(order2_position["price_open"])
             current_sl = float(order2_position.get("sl") or 0.0)
             if setup.order2_be_moved_at is not None:
@@ -90,6 +87,9 @@ class TradeSetupMonitoringService:
                 setup.order2_be_move_error = None
                 self._persist(setup)
                 self.outcomes.reconcile_setup(setup.id, user_id)
+                refreshed_setup = get_trade_setup(self.db, setup.id, user_id)
+                if refreshed_setup is not None:
+                    self.risk_management.refresh_daily_state_for_setup(refreshed_setup)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             if self._is_at_or_better_than_be(setup.side, current_sl, be_price, tp1_details["point"]):
@@ -97,6 +97,9 @@ class TradeSetupMonitoringService:
                 setup.order2_be_move_error = None
                 self._persist(setup)
                 self.outcomes.reconcile_setup(setup.id, user_id)
+                refreshed_setup = get_trade_setup(self.db, setup.id, user_id)
+                if refreshed_setup is not None:
+                    self.risk_management.refresh_daily_state_for_setup(refreshed_setup)
                 return self._result(setup, order1_status="closed", order2_status="open")
 
             create_trade_event(
@@ -152,6 +155,9 @@ class TradeSetupMonitoringService:
             )
             self._persist(setup)
             self.outcomes.reconcile_setup(setup.id, user_id)
+            refreshed_setup = get_trade_setup(self.db, setup.id, user_id)
+            if refreshed_setup is not None:
+                self.risk_management.refresh_daily_state_for_setup(refreshed_setup)
             return self._result(setup, order1_status="closed", order2_status="open", be_moved=True)
         except AdapterError as exc:
             persist_session_failure(self.db, account, error=exc)

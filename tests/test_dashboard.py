@@ -640,8 +640,41 @@ def test_dashboard_page_shows_linked_setup_trade_for_selected_account(client, db
     assert "PAGE-001" in response.text
     assert "dashboard-trade-table" in response.text
     assert "trade-pill trade-pill-source trade-pill-source-system" in response.text
-    assert "trade-pill trade-pill-outcome trade-pill-outcome-tp2-hit" in response.text
+    assert "trade-pill trade-pill-outcome trade-pill-outcome-tp-hit" in response.text
     assert long_comment in response.text
+
+
+def test_positive_pnl_linked_row_does_not_inherit_setup_stoploss_label(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "PAGE-002")
+    setup = _create_setup(db_session, created_user, account, order1_ticket=83001, order2_ticket=83002, setup_outcome="stoploss")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            linked_setup_id=setup.id,
+            position_ticket=83001,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="system",
+            outcome="tp_hit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2321.0,
+            realized_pnl=50.0,
+            open_time=datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
+            close_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["table_rows"][0]["effective_outcome"] == "tp_hit"
 
 
 def test_dashboard_page_shows_history_freshness_and_auto_refresh(client, db_session, created_user):

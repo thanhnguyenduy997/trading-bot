@@ -10,6 +10,7 @@ from app.services.preview_service import PreviewService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setups import create_trade_setup
 from app.services.trading_accounts import create_trading_account
+from app.services.risk_management import RiskManagementService
 
 
 def _create_account(db_session, user, account_number: str, max_total_setup_volume: float | None = None):
@@ -50,6 +51,13 @@ def _create_setup(db_session, user, account, status: str = "draft", order1_volum
         ),
     )
     return setup
+
+
+def _close_order(setup, *, order_index: int, ticket: int, close_time: datetime, realized_pnl: float, close_price: float = 0.0):
+    setattr(setup, f"order{order_index}_ticket", ticket)
+    setattr(setup, f"order{order_index}_closed_at", close_time)
+    setattr(setup, f"order{order_index}_realized_pnl", realized_pnl)
+    setattr(setup, f"order{order_index}_close_price", close_price)
 
 
 class FakePreviewAdapter:
@@ -99,7 +107,10 @@ class LosingMonitoringAdapter(FakePreviewAdapter):
         return None
 
     def get_position_history(self, *, position_ticket: int):
-        return [{"entry": "out", "reason": "sl", "price": 2319.2, "point": 0.01}]
+        closed_at = datetime(2026, 4, 25, 8, 5 if position_ticket % 2 else 8, tzinfo=timezone.utc)
+        return [
+            {"entry": "out", "reason": "sl", "price": 2319.2, "point": 0.01, "profit": -50.0, "time": closed_at},
+        ]
 
     def modify_position_sl(self, **kwargs):
         return {}
@@ -120,7 +131,7 @@ class WinningMonitoringAdapter(FakePreviewAdapter):
         return None
 
     def get_position_history(self, *, position_ticket: int):
-        return [{"entry": "out", "reason": "tp", "price": 2321.2, "point": 0.01}]
+        return [{"entry": "out", "reason": "tp", "price": 2321.2, "point": 0.01, "profit": 50.0, "time": datetime(2026, 4, 25, 9, 5, tzinfo=timezone.utc)}]
 
     def modify_position_sl(self, **kwargs):
         return {"sl": kwargs["sl"]}
@@ -193,8 +204,8 @@ def test_one_losing_setup_increments_consecutive_stoploss_count(db_session, crea
 
     state = db_session.query(UserDailyRiskState).filter(UserDailyRiskState.user_id == created_user.id).first()
     assert state is not None
-    assert state.consecutive_stoploss_count == 1
-    assert state.daily_lock_active is False
+    assert state.consecutive_stoploss_count == 2
+    assert state.daily_lock_active is True
     stored_setup = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
     assert stored_setup.result_status == "stoploss"
 
@@ -229,7 +240,7 @@ def test_two_consecutive_losing_setups_trigger_user_daily_lock_and_other_account
 
     state = db_session.query(UserDailyRiskState).filter(UserDailyRiskState.user_id == created_user.id).first()
     assert state is not None
-    assert state.consecutive_stoploss_count == 2
+    assert state.consecutive_stoploss_count == 4
     assert state.daily_lock_active is True
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "daily_lock_triggered").count() == 1
 
@@ -334,3 +345,114 @@ def test_new_day_resets_lock(db_session, created_user, sync_account_symbols):
     assert today_state is not None
     assert today_state.daily_lock_active is False
     assert db_session.query(RiskControlLog).filter(RiskControlLog.event_type == "daily_lock_reset").count() >= 1
+
+
+def test_sl_then_be_then_sl_does_not_trigger_two_consecutive_stoploss_lock(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-107")
+    first = _create_setup(db_session, created_user, account, status="executed")
+    second = _create_setup(db_session, created_user, account, status="executed")
+    third = _create_setup(db_session, created_user, account, status="executed")
+    base = datetime(2026, 4, 25, 8, 0, tzinfo=timezone.utc)
+
+    for setup in (first, second, third):
+        setup.status = "executed"
+        setup.executed_at = base
+
+    _close_order(first, order_index=1, ticket=8101, close_time=base.replace(minute=5), realized_pnl=-50.0, close_price=2319.2)
+    _close_order(second, order_index=1, ticket=8102, close_time=base.replace(minute=10), realized_pnl=-0.3, close_price=2320.19)
+    _close_order(third, order_index=1, ticket=8103, close_time=base.replace(minute=15), realized_pnl=-50.0, close_price=2319.2)
+    db_session.add_all([first, second, third])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 1
+    assert state.daily_lock_active is False
+
+
+def test_sl_then_sl_triggers_daily_lock(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-108")
+    first = _create_setup(db_session, created_user, account, status="executed")
+    second = _create_setup(db_session, created_user, account, status="executed")
+    base = datetime(2026, 4, 25, 9, 0, tzinfo=timezone.utc)
+
+    for setup in (first, second):
+        setup.status = "executed"
+        setup.executed_at = base
+
+    _close_order(first, order_index=1, ticket=8201, close_time=base.replace(minute=5), realized_pnl=-50.0, close_price=2319.2)
+    _close_order(second, order_index=1, ticket=8202, close_time=base.replace(minute=10), realized_pnl=-49.0, close_price=2319.2)
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 2
+    assert state.daily_lock_active is True
+
+
+def test_positive_pnl_row_labeled_stoploss_does_not_count_toward_lock(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-109")
+    first = _create_setup(db_session, created_user, account, status="executed")
+    second = _create_setup(db_session, created_user, account, status="executed")
+    base = datetime(2026, 4, 25, 10, 0, tzinfo=timezone.utc)
+
+    for setup in (first, second):
+        setup.status = "executed"
+        setup.executed_at = base
+        setup.result_status = "stoploss"
+
+    _close_order(first, order_index=1, ticket=8301, close_time=base.replace(minute=5), realized_pnl=-50.0, close_price=2319.2)
+    _close_order(second, order_index=1, ticket=8302, close_time=base.replace(minute=10), realized_pnl=12.0, close_price=2321.0)
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 0
+    assert state.daily_lock_active is False
+
+
+def test_breakeven_resets_stoploss_streak(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-110")
+    first = _create_setup(db_session, created_user, account, status="executed")
+    second = _create_setup(db_session, created_user, account, status="executed")
+    base = datetime(2026, 4, 25, 11, 0, tzinfo=timezone.utc)
+
+    for setup in (first, second):
+        setup.status = "executed"
+        setup.executed_at = base
+
+    _close_order(first, order_index=1, ticket=8401, close_time=base.replace(minute=5), realized_pnl=-50.0, close_price=2319.2)
+    _close_order(second, order_index=1, ticket=8402, close_time=base.replace(minute=8), realized_pnl=-5.0, close_price=2320.1)
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 0
+    assert state.daily_lock_active is False
+
+
+def test_streak_evaluates_by_close_time_then_ticket(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-111")
+    stoploss_first = _create_setup(db_session, created_user, account, status="executed")
+    breakeven_same_time = _create_setup(db_session, created_user, account, status="executed")
+    later_stoploss = _create_setup(db_session, created_user, account, status="executed")
+    base = datetime(2026, 4, 25, 12, 0, tzinfo=timezone.utc)
+
+    for setup in (stoploss_first, breakeven_same_time, later_stoploss):
+        setup.status = "executed"
+        setup.executed_at = base
+
+    same_close_time = base.replace(minute=5)
+    _close_order(stoploss_first, order_index=1, ticket=8501, close_time=same_close_time, realized_pnl=-50.0, close_price=2319.2)
+    _close_order(breakeven_same_time, order_index=1, ticket=8502, close_time=same_close_time, realized_pnl=-0.2, close_price=2320.19)
+    _close_order(later_stoploss, order_index=1, ticket=8503, close_time=base.replace(minute=10), realized_pnl=-50.0, close_price=2319.2)
+    db_session.add_all([stoploss_first, breakeven_same_time, later_stoploss])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 1
+    assert state.daily_lock_active is False
