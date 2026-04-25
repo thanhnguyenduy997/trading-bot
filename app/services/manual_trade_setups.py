@@ -447,33 +447,39 @@ class ManualTradeSetupService:
 
         snapshot_map = {snapshot.ticket: snapshot for snapshot in snapshots}
         expected_symbol = self._normalize_symbol(payload.symbol)
-        expected_side = self._canonical_side(payload.side)
         for trade in synced_trades:
             snapshot = snapshot_map.get(int(trade.position_ticket))
-            live_symbol = self._normalize_symbol(snapshot.symbol) if snapshot is not None else None
-            live_side = self._canonical_side(snapshot.side) if snapshot is not None else None
-            live_side_missing = live_side is None
+            raw_snapshot_symbol = self._normalize_symbol(snapshot.symbol) if snapshot is not None else None
+            raw_snapshot_side = snapshot.side if snapshot is not None else None
+            raw_snapshot_side_canonical = self._canonical_side(raw_snapshot_side) if snapshot is not None else None
+            live_side_missing = raw_snapshot_side_canonical is None
+            # Register-time grouping validation must use the synced normalized trade record.
+            # Raw/live MT5 side can reflect the closing deal direction on historical trades,
+            # so it is debug-only context and never a blocking validation source here.
             logger.info(
-                "Manual setup register validation ticket=%s synced_side=%s live_side=%s live_side_missing=%s validation_source=%s synced_symbol=%s live_symbol=%s rejection_reason=%s",
+                "Manual setup register validation ticket=%s synced_side=%s raw_live_side=%s raw_live_side_canonical=%s live_side_missing=%s raw_side_from_closing_lookup=%s validation_source=%s synced_symbol=%s raw_live_symbol=%s rejection_reason=%s",
                 trade.position_ticket,
                 self._canonical_side(trade.side),
-                live_side,
+                raw_snapshot_side,
+                raw_snapshot_side_canonical,
                 live_side_missing,
-                "synced_manual_trade_history",
+                snapshot.status == "closed" if snapshot is not None else False,
+                "synced_manual_trade_history_only",
                 self._normalize_symbol(trade.symbol),
-                live_symbol,
+                raw_snapshot_symbol,
                 None,
             )
-            if live_symbol and live_symbol != expected_symbol:
+            if raw_snapshot_symbol and raw_snapshot_symbol != expected_symbol:
                 logger.warning(
-                    "Manual setup register validation rejected ticket=%s reason=live_symbol_mismatch synced_symbol=%s live_symbol=%s expected_symbol=%s",
+                    "Manual setup register validation rejected ticket=%s reason=raw_symbol_mismatch synced_symbol=%s raw_live_symbol=%s expected_symbol=%s validation_source=%s",
                     trade.position_ticket,
                     self._normalize_symbol(trade.symbol),
-                    live_symbol,
+                    raw_snapshot_symbol,
                     expected_symbol,
+                    "synced_manual_trade_history_only",
                 )
                 raise ValueError(
-                    f"Ticket {trade.position_ticket} belongs to symbol {live_symbol}, not {expected_symbol}."
+                    f"Ticket {trade.position_ticket} belongs to symbol {raw_snapshot_symbol}, not {expected_symbol}."
                 )
 
         tp1_price = (

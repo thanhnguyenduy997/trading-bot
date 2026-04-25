@@ -190,6 +190,26 @@ class ManualTicketAdapter(FakePreviewAdapter):
         return []
 
 
+class RawClosingSideAdapter(ManualTicketAdapter):
+    def get_position_history(self, *, position_ticket: int):
+        history = super().get_position_history(position_ticket=position_ticket)
+        if not history:
+            return history
+        rewritten = []
+        inferred_open_type = next((deal.get("type") for deal in history if deal.get("entry") == "in"), None)
+        for deal in history:
+            copied = dict(deal)
+            if copied.get("entry") == "in":
+                copied.pop("type", None)
+            elif copied.get("entry") in {"out", "out_by"} and copied.get("type") is None:
+                if str(inferred_open_type).lower() in {"buy", "0"}:
+                    copied["type"] = "sell"
+                elif str(inferred_open_type).lower() in {"sell", "1"}:
+                    copied["type"] = "buy"
+            rewritten.append(copied)
+        return rewritten
+
+
 def test_save_setup_successfully(client, db_session, created_user, auth_headers):
     account = _create_account(db_session, created_user)
 
@@ -711,6 +731,144 @@ def test_closed_manual_history_trades_can_be_registered_into_one_manual_setup(cl
     assert data["order1_ticket"] == 66001
     assert data["order2_ticket"] == 66002
     assert data["setup_source"] == "manual"
+
+
+def test_buy_trade_closed_by_sell_deal_still_registers_as_buy(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    monkeypatch.setattr("app.services.trade_setup_outcomes.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-REG-RAW-BUY")
+    trade = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=60001,
+        symbol="XAUUSD",
+        side="BUY",
+        trade_source="manual",
+        volume=0.4,
+        open_price=2320.2,
+        close_price=2319.2,
+        realized_pnl=-50.0,
+        open_time=datetime(2026, 4, 23, 8, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 8, 8, tzinfo=timezone.utc),
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    response = client.post(
+        "/api/trade-setups/manual",
+        headers=auth_headers,
+        json={
+            "trading_account_id": account.id,
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "estimated_entry": 2320.2,
+            "sl_price": 2319.2,
+            "total_risk_money": 40,
+            "rr_order2": 2,
+            "order_count": 1,
+            "order1_ticket": 60001,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["setup_source"] == "manual"
+
+
+def test_sell_trade_closed_by_buy_deal_still_registers_as_sell(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    monkeypatch.setattr("app.services.trade_setup_outcomes.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-REG-RAW-SELL")
+    trade = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=67001,
+        symbol="XAUUSD",
+        side="SELL",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.1,
+        close_price=2319.8,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 13, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 13, 8, tzinfo=timezone.utc),
+    )
+    db_session.add(trade)
+    db_session.commit()
+
+    response = client.post(
+        "/api/trade-setups/manual",
+        headers=auth_headers,
+        json={
+            "trading_account_id": account.id,
+            "symbol": "XAUUSD",
+            "side": "sell",
+            "estimated_entry": 2320.1,
+            "sl_price": 2321.1,
+            "total_risk_money": 30,
+            "rr_order2": 2,
+            "order_count": 1,
+            "order1_ticket": 67001,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["setup_source"] == "manual"
+
+
+def test_closed_synced_manual_trades_with_raw_closing_side_can_be_grouped(client, db_session, created_user, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.services.manual_trade_setups.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    monkeypatch.setattr("app.services.trade_setup_outcomes.default_adapter_factory", lambda account: RawClosingSideAdapter(account))
+    account = _create_account(db_session, created_user, "MAN-REG-RAW-GROUP")
+    trade1 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=66001,
+        symbol="XAUUSD",
+        side="BUY",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.1,
+        close_price=2320.4,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 12, 0, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 12, 9, tzinfo=timezone.utc),
+    )
+    trade2 = MT5TradeHistory(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+        position_ticket=66002,
+        symbol="XAUUSD",
+        side="BUY",
+        trade_source="manual",
+        volume=0.3,
+        open_price=2320.2,
+        close_price=2320.5,
+        realized_pnl=9.0,
+        open_time=datetime(2026, 4, 23, 12, 1, tzinfo=timezone.utc),
+        close_time=datetime(2026, 4, 23, 12, 10, tzinfo=timezone.utc),
+    )
+    db_session.add_all([trade1, trade2])
+    db_session.commit()
+
+    response = client.post(
+        "/api/trade-setups/manual",
+        headers=auth_headers,
+        json={
+            "trading_account_id": account.id,
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "estimated_entry": 2320.15,
+            "sl_price": 2319.2,
+            "total_risk_money": 57,
+            "rr_order2": 2,
+            "order_count": 2,
+            "order1_ticket": 66001,
+            "order2_ticket": 66002,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["order_count"] == 2
 
 
 def test_single_selected_manual_trade_autofills_entry_and_sl(db_session, created_user, monkeypatch):
