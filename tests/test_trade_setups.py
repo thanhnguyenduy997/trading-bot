@@ -357,7 +357,7 @@ def test_manual_setup_creation_links_two_tickets_into_one_setup(client, db_sessi
     assert data["order2_ticket"] == 60002
     assert data["order1_volume"] == 0.4
     assert data["order2_volume"] == 0.4
-    assert data["setup_outcome"] == "stoploss"
+    assert data["setup_outcome"] == "full_loss"
 
 
 def test_synced_buy_trade_registers_successfully_even_if_live_side_lookup_is_blank(client, db_session, created_user, auth_headers, monkeypatch):
@@ -499,7 +499,7 @@ def test_linked_manual_setup_participates_in_outcome_tracking(db_session, create
 
     assert result["order1_outcome"] == "tp_hit"
     assert result["order2_outcome"] == "closed_at_be"
-    assert result["setup_outcome"] == "breakeven"
+    assert result["setup_outcome"] == "managed_win"
     stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
     assert stored is not None
     assert stored.result_status == "non_stoploss"

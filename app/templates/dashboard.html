@@ -95,12 +95,17 @@
     <section class="dashboard-summary-grid">
         <article class="summary-card"><span>Total PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
         <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
-        <article class="summary-card"><span>Win Rate</span><strong>{{ "%.2f"|format(dashboard.summary.win_rate) }}%</strong></article>
         <article class="summary-card"><span>Manual Trades</span><strong>{{ dashboard.summary.manual_trades }}</strong></article>
         <article class="summary-card"><span>System Trades</span><strong>{{ dashboard.summary.system_trades }}</strong></article>
-        <article class="summary-card"><span>Stoploss</span><strong>{{ dashboard.summary.stoploss_count }}</strong></article>
-        <article class="summary-card"><span>Breakeven</span><strong>{{ dashboard.summary.breakeven_count }}</strong></article>
-        <article class="summary-card"><span>Take Profit</span><strong>{{ dashboard.summary.take_profit_count }}</strong></article>
+        <article class="summary-card"><span>Setup Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.setup_win_rate) }}%</strong></article>
+        <article class="summary-card"><span>Full Win Count</span><strong>{{ dashboard.setup_summary.full_win_count }}</strong></article>
+        <article class="summary-card"><span>Managed Win Count</span><strong>{{ dashboard.setup_summary.managed_win_count }}</strong></article>
+        <article class="summary-card"><span>Full Loss Count</span><strong>{{ dashboard.setup_summary.full_loss_count }}</strong></article>
+        <article class="summary-card"><span>Scratch Manual Count</span><strong>{{ dashboard.setup_summary.scratch_manual_count }}</strong></article>
+        <article class="summary-card"><span>Review Required Count</span><strong>{{ dashboard.setup_summary.review_required_count }}</strong></article>
+        <article class="summary-card"><span>Full Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.full_win_rate) }}%</strong></article>
+        <article class="summary-card"><span>Managed Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.managed_win_rate) }}%</strong></article>
+        <article class="summary-card"><span>Scratch Manual Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.scratch_manual_rate) }}%</strong></article>
     </section>
 
     <section class="dashboard-chart-grid">
@@ -149,6 +154,22 @@
                 </div>
                 {% else %}
                 <p class="muted">No source data available.</p>
+                {% endfor %}
+            </div>
+        </article>
+        <article class="detail-panel">
+            <h2>Setup Outcome Breakdown</h2>
+            <div class="mini-chart">
+                {% for item in dashboard.setup_outcome_breakdown %}
+                <div class="chart-row">
+                    <span class="chart-label">{{ item.label }}</span>
+                    <div class="chart-bar-shell">
+                        <div class="chart-bar neutral" style="width: {{ item.width_percent }}%;"></div>
+                    </div>
+                    <span class="chart-value">{{ item.value }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No closed setups in this range.</p>
                 {% endfor %}
             </div>
         </article>

@@ -407,6 +407,41 @@ def test_all_time_returns_full_available_dataset(db_session, created_user):
     assert round(dashboard["summary"]["total_realized_pnl"], 2) == 20.0
 
 
+def test_setup_winrate_uses_only_full_win_managed_win_and_full_loss(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "SETUP-001")
+    setup_full_win = _create_setup(db_session, created_user, account, order1_ticket=91001, order2_ticket=91002, setup_outcome="tp2_hit")
+    setup_managed = _create_setup(db_session, created_user, account, order1_ticket=92001, order2_ticket=92002, setup_outcome="breakeven")
+    setup_loss = _create_setup(db_session, created_user, account, order1_ticket=93001, order2_ticket=93002, setup_outcome="stoploss")
+    setup_review = _create_setup(db_session, created_user, account, order1_ticket=94001, order2_ticket=94002, setup_outcome="mixed")
+    for setup, outcome, pnl1, pnl2 in [
+        (setup_full_win, "full_win", 50.0, 100.0),
+        (setup_managed, "managed_win", 50.0, 0.0),
+        (setup_loss, "full_loss", -50.0, -50.0),
+        (setup_review, "review_required", 50.0, -20.0),
+    ]:
+        setup.setup_outcome = outcome
+        setup.order1_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+        setup.order2_closed_at = datetime(2026, 4, 22, 10, tzinfo=timezone.utc)
+        setup.order1_realized_pnl = pnl1
+        setup.order2_realized_pnl = pnl2
+        setup.setup_outcome_recorded_at = datetime(2026, 4, 22, 10, tzinfo=timezone.utc)
+        db_session.add(setup)
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["setup_summary"]["full_win_count"] == 1
+    assert dashboard["setup_summary"]["managed_win_count"] == 1
+    assert dashboard["setup_summary"]["full_loss_count"] == 1
+    assert dashboard["setup_summary"]["review_required_count"] == 1
+    assert dashboard["setup_summary"]["setup_win_rate"] == 66.67
+
+
 def test_explicit_range_in_query_params_overrides_all_time_default(db_session, created_user):
     service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
     account = _create_account(db_session, created_user, "ALL-003")

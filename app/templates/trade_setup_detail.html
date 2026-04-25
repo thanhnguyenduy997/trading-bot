@@ -89,7 +89,13 @@
                 <div><dt>Order 2 realized PnL</dt><dd>{{ setup.order2_realized_pnl if setup.order2_realized_pnl is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
                 <div><dt>Setup result</dt><dd>{{ setup.result_status or "Pending" }}</dd></div>
-                <div><dt>Setup outcome</dt><dd>{{ setup.setup_outcome or "Unknown" }}</dd></div>
+                <div><dt>Setup outcome</dt><dd>{{ setup_outcome_label }}</dd></div>
+                <div><dt>Setup realized PnL</dt><dd>{{ setup_realized_pnl if setup_realized_pnl is not none else "Unavailable" }}</dd></div>
+                <div><dt>Setup 1R</dt><dd>{{ setup_1r_value }}</dd></div>
+                {% if setup.setup_outcome == "scratch_manual" %}
+                <div><dt>Scratch threshold</dt><dd>{{ scratch_manual_threshold_r }}R (exclusive &lt;)</dd></div>
+                {% endif %}
+                <div><dt>Classification reason</dt><dd>{{ classification_reason }}</dd></div>
                 <div><dt>Outcome recorded</dt><dd>{{ setup.setup_outcome_recorded_at if setup.setup_outcome_recorded_at is not none else "Not recorded" }}</dd></div>
                 <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
             </dl>

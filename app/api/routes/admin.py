@@ -14,7 +14,9 @@ from app.services.admin_audit import log_admin_action
 from app.services.app_settings import (
     get_app_settings_record,
     get_global_max_preview_drift_percent,
+    get_global_scratch_manual_threshold_r,
     update_global_max_preview_drift_percent,
+    update_global_scratch_manual_threshold_r,
 )
 from app.services.risk_management import RiskManagementService
 from app.services.trading_accounts import (
@@ -87,6 +89,7 @@ def admin_settings_page(
             "admin_user": admin_user,
             "settings_record": record,
             "effective_max_preview_drift_percent": get_global_max_preview_drift_percent(db),
+            "effective_scratch_manual_threshold_r": get_global_scratch_manual_threshold_r(db),
         },
     )
 
@@ -96,14 +99,19 @@ def admin_update_settings(
     db: Session = Depends(get_db),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
     max_preview_drift_percent: float = Form(...),
+    scratch_manual_threshold_r: float = Form(...),
 ) -> RedirectResponse:
     update_global_max_preview_drift_percent(db, max_preview_drift_percent)
+    update_global_scratch_manual_threshold_r(db, scratch_manual_threshold_r)
     log_admin_action(
         db,
         admin_user_id=admin_user.id,
         target_user_id=None,
         action="settings_updated",
-        message=f"Updated global max preview drift percent to {max_preview_drift_percent:.2f}%.",
+        message=(
+            f"Updated global max preview drift percent to {max_preview_drift_percent:.2f}% "
+            f"and scratch manual threshold to {scratch_manual_threshold_r:.2f}R."
+        ),
     )
     db.commit()
     return RedirectResponse(url="/admin/settings", status_code=status.HTTP_303_SEE_OTHER)

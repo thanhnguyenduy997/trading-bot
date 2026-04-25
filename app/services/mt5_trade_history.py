@@ -15,6 +15,7 @@ from app.models.trade_setup import TradeSetup
 from app.models.trading_account import TradingAccount
 from app.models.user import User
 from app.services.account_runtime_state import get_recent_account_views
+from app.services.trade_setup_outcomes import FINAL_SETUP_OUTCOMES, compute_setup_realized_pnl, get_setup_1r_value, setup_outcome_label
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.trading_accounts import get_trading_account, list_trading_accounts
@@ -531,6 +532,12 @@ class DashboardService:
         )
         rows = query.order_by(MT5TradeHistory.close_time.desc(), MT5TradeHistory.id.desc()).all()
         items = [self._row_to_item(trade, setup, selected_account) for trade, setup in rows]
+        setup_items = self._setup_items(
+            actor=actor,
+            selected_account=selected_account,
+            range_start=range_start,
+            range_end=range_end,
+        )
         latest_history_sync_at = self._latest_history_sync_at(selected_account.id, actor.id)
         now = self.now_provider()
         return {
@@ -539,10 +546,13 @@ class DashboardService:
             "range_start": range_start,
             "range_end": range_end,
             "summary": self._build_summary(items),
+            "setup_summary": self._build_setup_summary(setup_items),
             "pnl_chart": self._series(items, "close_date", "realized_pnl"),
             "trade_count_chart": self._count_series(items, "close_date"),
             "source_breakdown": self._count_series(items, "trade_source"),
+            "setup_outcome_breakdown": self._count_series(setup_items, "setup_outcome_label"),
             "table_rows": items,
+            "setup_rows": setup_items,
             "accounts": list_trading_accounts(self.db, actor.id),
             "session_badge": self._session_badge(selected_account),
             "account_warning": self._account_warning(selected_account),
@@ -640,19 +650,81 @@ class DashboardService:
             "effective_outcome": effective_outcome,
         }
 
+    def _setup_items(
+        self,
+        *,
+        actor: User,
+        selected_account: TradingAccount,
+        range_start: datetime,
+        range_end: datetime,
+    ) -> list[dict[str, object]]:
+        setups = (
+            self.db.query(TradeSetup)
+            .filter(
+                TradeSetup.user_id == actor.id,
+                TradeSetup.trading_account_id == selected_account.id,
+                TradeSetup.setup_outcome.in_(FINAL_SETUP_OUTCOMES),
+            )
+            .all()
+        )
+        items: list[dict[str, object]] = []
+        for setup in setups:
+            close_time = self._setup_close_time(setup)
+            if close_time is None or close_time < range_start or close_time > range_end:
+                continue
+            if setup.setup_source == "manual" and setup.manual_confirmed_at is None:
+                continue
+            items.append(
+                {
+                    "setup_id": setup.id,
+                    "close_time": close_time,
+                    "setup_outcome": setup.setup_outcome,
+                    "setup_outcome_label": setup_outcome_label(setup.setup_outcome),
+                    "setup_realized_pnl": compute_setup_realized_pnl(setup) or 0.0,
+                    "setup_1r_value": get_setup_1r_value(setup),
+                    "setup_source": setup.setup_source,
+                }
+            )
+        items.sort(key=lambda item: (item["close_time"], item["setup_id"]))
+        return items
+
+    def _setup_close_time(self, setup: TradeSetup) -> datetime | None:
+        close_times = [value for value in (setup.order1_closed_at, setup.order2_closed_at, setup.setup_outcome_recorded_at) if value is not None]
+        if not close_times:
+            return None
+        return max(self._normalize_datetime(value) for value in close_times)
+
     def _build_summary(self, items: list[dict[str, object]]) -> dict[str, object]:
         total_trades = len(items)
         total_pnl = sum(item["realized_pnl"] for item in items)
-        win_trades = sum(1 for item in items if item["realized_pnl"] > MANUAL_BREAKEVEN_PNL_TOLERANCE)
         return {
             "total_realized_pnl": total_pnl,
             "trade_count": total_trades,
-            "win_rate": round((win_trades / total_trades * 100), 2) if total_trades else 0.0,
             "manual_trades": sum(1 for item in items if item["trade_source"] in {"manual", "manual_setup"}),
             "system_trades": sum(1 for item in items if item["trade_source"] == "system"),
             "stoploss_count": sum(1 for item in items if item["effective_outcome"] == "stoploss"),
             "breakeven_count": sum(1 for item in items if item["effective_outcome"] == "breakeven"),
             "take_profit_count": sum(1 for item in items if item["effective_outcome"] in {"tp2_hit", "take_profit"}),
+        }
+
+    def _build_setup_summary(self, items: list[dict[str, object]]) -> dict[str, object]:
+        full_win_count = sum(1 for item in items if item["setup_outcome"] == "full_win")
+        managed_win_count = sum(1 for item in items if item["setup_outcome"] == "managed_win")
+        full_loss_count = sum(1 for item in items if item["setup_outcome"] == "full_loss")
+        scratch_manual_count = sum(1 for item in items if item["setup_outcome"] == "scratch_manual")
+        review_required_count = sum(1 for item in items if item["setup_outcome"] == "review_required")
+        denominator = full_win_count + managed_win_count + full_loss_count
+        return {
+            "closed_setup_count": len(items),
+            "setup_win_rate": round(((full_win_count + managed_win_count) / denominator) * 100, 2) if denominator else 0.0,
+            "full_win_count": full_win_count,
+            "managed_win_count": managed_win_count,
+            "full_loss_count": full_loss_count,
+            "scratch_manual_count": scratch_manual_count,
+            "review_required_count": review_required_count,
+            "full_win_rate": round((full_win_count / denominator) * 100, 2) if denominator else 0.0,
+            "managed_win_rate": round((managed_win_count / denominator) * 100, 2) if denominator else 0.0,
+            "scratch_manual_rate": round((scratch_manual_count / len(items)) * 100, 2) if items else 0.0,
         }
 
     def _series(self, items: list[dict[str, object]], key: str, metric: str) -> list[dict[str, object]]:

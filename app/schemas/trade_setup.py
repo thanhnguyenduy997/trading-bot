@@ -113,6 +113,7 @@ class TradeSetupMonitoringRead(BaseModel):
 class TradeSetupReconciliationRead(BaseModel):
     success: bool
     setup_outcome: str
+    setup_outcome_label: str
     order1_outcome: str
     order2_outcome: str
     order1_closed_at: datetime | None
@@ -121,6 +122,10 @@ class TradeSetupReconciliationRead(BaseModel):
     order2_close_price: float | None
     order1_realized_pnl: float | None
     order2_realized_pnl: float | None
+    setup_realized_pnl: float | None
+    setup_1r_value: float
+    scratch_manual_threshold_r: float
+    classification_reason: str
     setup_outcome_recorded_at: datetime | None
 
 

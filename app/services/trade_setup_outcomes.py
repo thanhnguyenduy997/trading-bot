@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 
 from sqlalchemy.orm import Session
 
+from app.services.app_settings import get_global_scratch_manual_threshold_r
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.risk_management import RiskManagementService
@@ -24,18 +26,38 @@ ORDER_EVENT_TYPES = {
 }
 
 SETUP_MILESTONE_EVENT_TYPES = {
-    "stoploss": "setup_stoploss_recorded",
-    "breakeven": "setup_breakeven_recorded",
-    "tp2_hit": "setup_tp2_recorded",
+    "full_loss": "setup_full_loss_recorded",
+    "managed_win": "setup_managed_win_recorded",
+    "full_win": "setup_full_win_recorded",
+    "scratch_manual": "setup_scratch_manual_recorded",
+    "review_required": "setup_review_required_recorded",
 }
 
 TERMINAL_SETUP_OUTCOMES = {
-    "breakeven",
-    "tp2_hit",
-    "stoploss",
-    "manual_close",
-    "mixed",
-    "unknown",
+    "full_win",
+    "managed_win",
+    "full_loss",
+    "scratch_manual",
+    "review_required",
+}
+
+FINAL_SETUP_OUTCOMES = (
+    "full_win",
+    "managed_win",
+    "full_loss",
+    "scratch_manual",
+    "review_required",
+)
+
+SETUP_OUTCOME_LABELS = {
+    "full_win": "TP1 + TP2",
+    "managed_win": "TP1 + BE2",
+    "full_loss": "SL1 + SL2",
+    "scratch_manual": "Scratch Manual",
+    "review_required": "Review Required",
+    "open": "Open",
+    "tp1_hit_waiting_order2": "TP1 Hit, Waiting Order 2",
+    "execution_failed": "Execution Failed",
 }
 
 
@@ -220,39 +242,12 @@ class TradeSetupOutcomeService:
         if setup.order_count == 1:
             if order1_outcome == "open":
                 return "open"
-            if order1_outcome == "tp_hit":
-                return "tp2_hit"
-            if order1_outcome == "closed_at_be":
-                return "breakeven"
-            if order1_outcome == "sl_hit":
-                return "stoploss"
-            if order1_outcome == "manual_close":
-                return "manual_close"
-            if order1_outcome == "unknown":
-                return "unknown"
-            return "mixed"
+            return self._classify_terminal_setup_outcome(setup, order1_outcome, "not_used")
         if order1_outcome == "open" and order2_outcome == "open":
             return "open"
         if order1_outcome == "tp_hit" and order2_outcome == "open":
             return "tp1_hit_waiting_order2"
-        if order1_outcome == "tp_hit" and order2_outcome == "closed_at_be":
-            return "breakeven"
-        if order1_outcome == "tp_hit" and order2_outcome == "tp_hit":
-            return "tp2_hit"
-        if order1_outcome == "sl_hit" and order2_outcome == "sl_hit":
-            return "stoploss"
-        if "manual_close" in {order1_outcome, order2_outcome}:
-            other_outcome = order2_outcome if order1_outcome == "manual_close" else order1_outcome
-            return "manual_close" if other_outcome in {"manual_close", "open", "unknown", "closed_at_be"} else "mixed"
-        if "unknown" in {order1_outcome, order2_outcome}:
-            return "unknown"
-        if order1_outcome == "tp_hit" and order2_outcome in {"sl_hit", "manual_close"}:
-            return "mixed"
-        if order1_outcome == "sl_hit" and order2_outcome == "open":
-            return "mixed"
-        if order1_outcome == "closed_at_be" and order2_outcome == "closed_at_be":
-            return "breakeven"
-        return "mixed"
+        return self._classify_terminal_setup_outcome(setup, order1_outcome, order2_outcome)
 
     def _unused_order_snapshot(self) -> dict[str, object]:
         return {
@@ -324,7 +319,7 @@ class TradeSetupOutcomeService:
 
     def _record_result_status_if_needed(self, setup) -> None:
         target_result_status = None
-        if setup.setup_outcome == "stoploss":
+        if setup.setup_outcome == "full_loss":
             target_result_status = "stoploss"
         elif setup.setup_outcome in TERMINAL_SETUP_OUTCOMES:
             target_result_status = "non_stoploss"
@@ -485,15 +480,22 @@ class TradeSetupOutcomeService:
 
     def _setup_outcome_message(self, outcome: str) -> str:
         return {
-            "stoploss": "Trade setup recorded as stoploss.",
-            "breakeven": "Trade setup recorded as breakeven.",
-            "tp2_hit": "Trade setup recorded as TP2 hit.",
+            "full_loss": "Trade setup recorded as SL1 + SL2.",
+            "managed_win": "Trade setup recorded as TP1 + BE2.",
+            "full_win": "Trade setup recorded as TP1 + TP2.",
+            "scratch_manual": "Trade setup recorded as Scratch Manual.",
+            "review_required": "Trade setup recorded as Review Required.",
         }[outcome]
 
     def _result(self, setup) -> dict[str, object]:
+        setup_realized_pnl = compute_setup_realized_pnl(setup)
+        setup_1r_value = get_setup_1r_value(setup)
+        scratch_threshold_r = get_global_scratch_manual_threshold_r(self.db)
         return {
             "success": True,
+            "setup_id": setup.id,
             "setup_outcome": setup.setup_outcome or "unknown",
+            "setup_outcome_label": setup_outcome_label(setup.setup_outcome),
             "order1_outcome": setup.order1_outcome or "unknown",
             "order2_outcome": setup.order2_outcome or "unknown",
             "order1_closed_at": setup.order1_closed_at,
@@ -502,5 +504,117 @@ class TradeSetupOutcomeService:
             "order2_close_price": setup.order2_close_price,
             "order1_realized_pnl": setup.order1_realized_pnl,
             "order2_realized_pnl": setup.order2_realized_pnl,
+            "setup_realized_pnl": setup_realized_pnl,
+            "setup_1r_value": setup_1r_value,
+            "scratch_manual_threshold_r": scratch_threshold_r,
+            "classification_reason": describe_setup_classification(setup, scratch_threshold_r=scratch_threshold_r),
             "setup_outcome_recorded_at": setup.setup_outcome_recorded_at,
         }
+
+    def _classify_terminal_setup_outcome(self, setup, order1_outcome: str, order2_outcome: str) -> str:
+        if order1_outcome == "tp_hit" and order2_outcome == "tp_hit":
+            return "full_win"
+        if order1_outcome == "tp_hit" and order2_outcome == "closed_at_be":
+            return "managed_win"
+        if order1_outcome == "sl_hit" and order2_outcome == "sl_hit":
+            return "full_loss"
+        if self._is_scratch_manual_candidate(setup, order1_outcome, order2_outcome):
+            return "scratch_manual"
+        return "review_required"
+
+    def _is_scratch_manual_candidate(self, setup, order1_outcome: str, order2_outcome: str) -> bool:
+        if order1_outcome in {"open", "unknown"} or order2_outcome in {"open", "unknown"}:
+            return False
+        setup_realized_pnl = compute_setup_realized_pnl(setup)
+        setup_1r_value = get_setup_1r_value(setup)
+        if setup_realized_pnl is None or setup_1r_value <= 0:
+            return False
+        # Scratch Manual is reserved for genuinely manual/non-standard exits near flat.
+        # Mixed TP/SL or other broker-driven close combinations should stay review_required.
+        manual_like_close = any(outcome in {"manual_close", "closed_at_be"} for outcome in {order1_outcome, order2_outcome})
+        if not manual_like_close:
+            return False
+        threshold_r = get_global_scratch_manual_threshold_r(self.db)
+        scratch_limit = Decimal(str(setup_1r_value)) * Decimal(str(threshold_r))
+        return Decimal(str(abs(setup_realized_pnl))) < scratch_limit
+
+    def reconcile_historical_setups(
+        self,
+        *,
+        user_id: int | None = None,
+        trading_account_id: int | None = None,
+        setup_ids: list[int] | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        from app.models.trade_setup import TradeSetup
+
+        query = self.db.query(TradeSetup).filter(TradeSetup.status.in_(["executed", "failed"]))
+        if user_id is not None:
+            query = query.filter(TradeSetup.user_id == user_id)
+        if trading_account_id is not None:
+            query = query.filter(TradeSetup.trading_account_id == trading_account_id)
+        if setup_ids:
+            query = query.filter(TradeSetup.id.in_(setup_ids))
+
+        query = query.order_by(TradeSetup.id.asc())
+        if limit is not None:
+            query = query.limit(limit)
+
+        results: list[dict[str, object]] = []
+        for setup in query.all():
+            if setup.setup_source == "manual" and setup.manual_confirmed_at is None:
+                continue
+            results.append(self.reconcile_setup(setup.id, setup.user_id))
+
+        return {
+            "count": len(results),
+            "setup_ids": [int(item["setup_id"]) for item in results],
+            "results": results,
+        }
+
+
+def compute_setup_realized_pnl(setup) -> float | None:
+    values = []
+    for field_name in ("order1_realized_pnl", "order2_realized_pnl"):
+        value = getattr(setup, field_name, None)
+        if value is not None:
+            values.append(float(value))
+    if not values:
+        return None
+    return float(sum(values))
+
+
+def get_setup_1r_value(setup) -> float:
+    return abs(float(setup.total_risk_money or 0.0))
+
+
+def setup_outcome_label(outcome: str | None) -> str:
+    if not outcome:
+        return "Unknown"
+    return SETUP_OUTCOME_LABELS.get(outcome, outcome.replace("_", " ").title())
+
+
+def describe_setup_classification(setup, *, scratch_threshold_r: float | None = None) -> str:
+    effective_threshold = scratch_threshold_r if scratch_threshold_r is not None else 0.5
+    setup_realized_pnl = compute_setup_realized_pnl(setup)
+    setup_1r_value = get_setup_1r_value(setup)
+    if setup.setup_outcome == "full_win":
+        return "Order 1 hit TP1 and Order 2 hit TP2."
+    if setup.setup_outcome == "managed_win":
+        return "Order 1 hit TP1 and Order 2 closed at breakeven."
+    if setup.setup_outcome == "full_loss":
+        return "Order 1 and Order 2 both hit stop loss."
+    if setup.setup_outcome == "scratch_manual":
+        return (
+            f"Non-standard/manual close with |setup realized pnl| below scratch threshold. "
+            f"Realized PnL={setup_realized_pnl}, setup 1R={setup_1r_value}, threshold={effective_threshold}R."
+        )
+    if setup.setup_outcome == "review_required":
+        return "Closed setup did not fit full_win, managed_win, full_loss, or scratch_manual."
+    if setup.setup_outcome == "tp1_hit_waiting_order2":
+        return "Order 1 hit TP1 and Order 2 is still open."
+    if setup.setup_outcome == "open":
+        return "Setup still has open order exposure."
+    if setup.setup_outcome == "execution_failed":
+        return "Execution failed before a valid setup outcome could be recorded."
+    return "Outcome requires review."

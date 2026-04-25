@@ -161,6 +161,26 @@ def reconcile_trade_setup(
     return TradeSetupReconciliationRead.model_validate(result)
 
 
+@router.post("/reconcile-history")
+def reconcile_trade_setup_history(
+    trading_account_id: int | None = None,
+    limit: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    service = TradeSetupOutcomeService(db)
+    try:
+        return service.reconcile_historical_setups(
+            user_id=current_user.id,
+            trading_account_id=trading_account_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AdapterError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.to_dict()) from exc
+
+
 @router.get("/{setup_id}/events", response_model=List[TradeEventRead])
 def read_trade_setup_events(
     setup_id: int,

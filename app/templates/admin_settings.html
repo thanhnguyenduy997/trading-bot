@@ -13,6 +13,9 @@
         <label>Global Max Preview Drift Percent</label>
         <input type="number" name="max_preview_drift_percent" step="0.01" min="0" value="{{ settings_record.max_preview_drift_percent if settings_record.max_preview_drift_percent is not none else effective_max_preview_drift_percent }}" required>
         <p class="muted">Execution is blocked if recalculated live conditions drift beyond this percent, unless the trading account has an override.</p>
+        <label>Global Scratch Manual Threshold (R)</label>
+        <input type="number" name="scratch_manual_threshold_r" step="0.01" min="0" value="{{ settings_record.scratch_manual_threshold_r if settings_record.scratch_manual_threshold_r is not none else effective_scratch_manual_threshold_r }}" required>
+        <p class="muted">Scratch Manual uses an exclusive threshold: |setup realized pnl| &lt; threshold × setup 1R.</p>
         <button type="submit">Save Settings</button>
     </form>
 </section>

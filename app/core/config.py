@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = Field(None, alias="TELEGRAM_CHAT_ID")
     telegram_timeout_seconds: int = Field(5, alias="TELEGRAM_TIMEOUT_SECONDS")
     max_preview_drift_percent: float = Field(25.0, alias="MAX_PREVIEW_DRIFT_PERCENT")
+    scratch_manual_threshold_r: float = Field(0.5, alias="SCRATCH_MANUAL_THRESHOLD_R")
 
     model_config = SettingsConfigDict(
         env_file=".env",

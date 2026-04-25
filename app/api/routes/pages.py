@@ -32,7 +32,13 @@ from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
 from app.services.trade_setup_execution import TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
-from app.services.trade_setup_outcomes import TradeSetupOutcomeService
+from app.services.trade_setup_outcomes import (
+    TradeSetupOutcomeService,
+    compute_setup_realized_pnl,
+    describe_setup_classification,
+    get_setup_1r_value,
+    setup_outcome_label,
+)
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups, update_draft_trade_setup
 from app.services.trading_accounts import (
     DuplicateTradingAccountError,
@@ -41,6 +47,7 @@ from app.services.trading_accounts import (
     list_trading_accounts,
     update_trading_account,
 )
+from app.services.app_settings import get_global_scratch_manual_threshold_r
 
 
 router = APIRouter(tags=["pages"])
@@ -155,6 +162,7 @@ def _render_trade_setup_detail_page(
     error: str | None = None,
     status_code: int = status.HTTP_200_OK,
     generated_at: datetime | None = None,
+    scratch_manual_threshold_r: float = 0.5,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
@@ -167,9 +175,18 @@ def _render_trade_setup_detail_page(
             "message": message,
             "error": error,
             "generated_at": generated_at or datetime.now(timezone.utc),
+            "setup_outcome_label": setup_outcome_label(getattr(setup, "setup_outcome", None)),
+            "setup_realized_pnl": compute_setup_realized_pnl(setup),
+            "setup_1r_value": get_setup_1r_value(setup),
+            "scratch_manual_threshold_r": scratch_manual_threshold_r,
+            "classification_reason": describe_setup_classification(setup, scratch_threshold_r=scratch_manual_threshold_r),
         },
         status_code=status_code,
     )
+
+
+def _current_scratch_manual_threshold_r(db: Session) -> float:
+    return get_global_scratch_manual_threshold_r(db)
 
 
 def _render_manual_trade_setup_form_page(
@@ -793,6 +810,7 @@ def create_manual_trade_setup_page_submit(
             setup,
             list_trade_events(db, setup.id, current_user.id),
             message=f"Manual setup registered. Outcome status: {result['setup_outcome']}.",
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except (ValidationError, ValueError, LookupError, AdapterError) as exc:
         error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
@@ -946,6 +964,7 @@ def edit_manual_trade_setup_page_submit(
             updated,
             list_trade_events(db, updated.id, current_user.id),
             message=f"Manual setup updated. Outcome status: {result['setup_outcome']}.",
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except (ValidationError, ValueError, LookupError, AdapterError) as exc:
         error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
@@ -996,6 +1015,7 @@ def trade_setup_detail_page(
         message=message,
         error=error,
         generated_at=datetime.now(timezone.utc),
+        scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
     )
 
 
@@ -1016,6 +1036,7 @@ def execute_trade_setup_page(
             setup,
             events,
             message=f"Execution completed. Tickets: {setup.order1_ticket}, {setup.order2_ticket}.",
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -1031,6 +1052,7 @@ def execute_trade_setup_page(
             events,
             error=str(exc),
             status_code=status.HTTP_409_CONFLICT,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except AdapterError as exc:
         setup = get_trade_setup(db, setup_id, current_user.id)
@@ -1044,6 +1066,7 @@ def execute_trade_setup_page(
             events,
             error=setup.execution_error or exc.message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
 
 
@@ -1069,7 +1092,14 @@ def monitor_trade_setup_page(
             "order1_closed_not_tp1": "Order 1 is closed, but the close does not look like a TP1 hit.",
             "order2_closed": "Order 2 is already closed. No breakeven change needed.",
         }.get(result["monitoring_status"], f"Monitoring finished with status: {result['monitoring_status']}.")
-        return _render_trade_setup_detail_page(request, current_user, setup, events, message=message)
+        return _render_trade_setup_detail_page(
+            request,
+            current_user,
+            setup,
+            events,
+            message=message,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1084,6 +1114,7 @@ def monitor_trade_setup_page(
             events,
             error=str(exc),
             status_code=status.HTTP_400_BAD_REQUEST,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except AdapterError as exc:
         setup = get_trade_setup(db, setup_id, current_user.id)
@@ -1097,6 +1128,7 @@ def monitor_trade_setup_page(
             events,
             error=setup.order2_be_move_error or exc.message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
 
 
@@ -1120,6 +1152,7 @@ def reconcile_trade_setup_page(
             setup,
             events,
             message=f"Outcome reconciled: {result['setup_outcome']}.",
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -1135,6 +1168,7 @@ def reconcile_trade_setup_page(
             events,
             error=str(exc),
             status_code=status.HTTP_400_BAD_REQUEST,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
     except AdapterError as exc:
         setup = get_trade_setup(db, setup_id, current_user.id)
@@ -1148,6 +1182,7 @@ def reconcile_trade_setup_page(
             events,
             error=exc.message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
 
 
