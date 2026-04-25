@@ -231,14 +231,6 @@ class ManualTradeSetupService:
                     raise ValueError(
                         f"Selected ticket {snapshot.ticket} symbol mismatch: form={normalized_symbol}, live={self._normalize_symbol(snapshot.symbol)}."
                     )
-        if side:
-            canonical_side = self._canonical_side(side)
-            for snapshot in snapshots:
-                snapshot_side = self._canonical_side(snapshot.side)
-                if snapshot_side is not None and canonical_side is not None and snapshot_side != canonical_side:
-                    raise ValueError(
-                        f"Selected ticket {snapshot.ticket} side mismatch: form={canonical_side}, live={snapshot_side}."
-                    )
 
         warning = self._grouping_warning(snapshots)
         if warning:
@@ -672,12 +664,14 @@ class ManualTradeSetupService:
             snapshot_side = self._canonical_side(snapshot.side)
             live_side_missing = snapshot_side is None
             logger.info(
-                "Manual setup trade selection validation ticket=%s payload_side=%s db_side=%s snapshot_side=%s live_side_missing=%s db_symbol=%s snapshot_symbol=%s account_id=%s snapshot_account_check=%s",
+                "Manual setup trade selection validation ticket=%s db_side=%s raw_live_side=%s raw_live_side_canonical=%s live_side_missing=%s raw_side_from_closing_lookup=%s validation_source=%s db_symbol=%s raw_live_symbol=%s account_id=%s snapshot_account_check=%s",
                 trade.position_ticket,
-                None,
                 db_side,
+                snapshot.side,
                 snapshot_side,
                 live_side_missing,
+                snapshot.status == "closed",
+                "synced_manual_trade_history_only",
                 db_symbol,
                 snapshot_symbol,
                 trade.trading_account_id,
@@ -686,10 +680,6 @@ class ManualTradeSetupService:
             if snapshot_symbol != db_symbol:
                 raise ValueError(
                     f"Selected ticket {trade.position_ticket} symbol mismatch: synced={db_symbol}, live={snapshot_symbol}."
-                )
-            if snapshot_side is not None and snapshot_side != db_side:
-                raise ValueError(
-                    f"Selected ticket {trade.position_ticket} side mismatch: synced={db_side}, live={snapshot_side}."
                 )
 
     def _derive_stop_loss(
