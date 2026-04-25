@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from threading import Lock
+import logging
 import re
 
 from sqlalchemy import func
@@ -15,7 +16,13 @@ from app.models.trade_setup import TradeSetup
 from app.models.trading_account import TradingAccount
 from app.models.user import User
 from app.services.account_runtime_state import get_recent_account_views
-from app.services.trade_setup_outcomes import FINAL_SETUP_OUTCOMES, compute_setup_realized_pnl, get_setup_1r_value, setup_outcome_label
+from app.services.trade_setup_outcomes import (
+    FINAL_SETUP_OUTCOMES,
+    TradeSetupOutcomeService,
+    compute_setup_realized_pnl,
+    get_setup_1r_value,
+    setup_outcome_label,
+)
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.trading_accounts import get_trading_account, list_trading_accounts
@@ -37,6 +44,7 @@ VALID_DASHBOARD_RANGE_KEYS = {
 }
 _account_sync_locks: dict[int, Lock] = {}
 _account_sync_locks_guard = Lock()
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -519,6 +527,10 @@ class DashboardService:
         selected_account: TradingAccount,
     ) -> dict[str, object]:
         range_start, range_end = self.resolve_time_range(filters)
+        backfill_result = TradeSetupOutcomeService(self.db).backfill_setup_outcomes_from_stored_data(
+            user_id=actor.id,
+            trading_account_id=selected_account.id,
+        )
         query = (
             self.db.query(MT5TradeHistory, TradeSetup)
             .outerjoin(TradeSetup, TradeSetup.id == MT5TradeHistory.linked_setup_id)
@@ -537,6 +549,16 @@ class DashboardService:
             selected_account=selected_account,
             range_start=range_start,
             range_end=range_end,
+        )
+        logger.debug(
+            "Dashboard setup metrics account_id=%s range_start=%s range_end=%s setup_backfill_examined=%s setup_backfill_updated=%s setup_rows_matched=%s outcome_counts=%s",
+            selected_account.id,
+            range_start,
+            range_end,
+            backfill_result["examined"],
+            backfill_result["updated"],
+            len(setup_items),
+            self._debug_setup_outcome_counts(setup_items),
         )
         latest_history_sync_at = self._latest_history_sync_at(selected_account.id, actor.id)
         now = self.now_provider()
@@ -658,6 +680,14 @@ class DashboardService:
         range_start: datetime,
         range_end: datetime,
     ) -> list[dict[str, object]]:
+        candidate_setups = (
+            self.db.query(TradeSetup)
+            .filter(
+                TradeSetup.user_id == actor.id,
+                TradeSetup.trading_account_id == selected_account.id,
+            )
+            .count()
+        )
         setups = (
             self.db.query(TradeSetup)
             .filter(
@@ -686,13 +716,30 @@ class DashboardService:
                 }
             )
         items.sort(key=lambda item: (item["close_time"], item["setup_id"]))
+        logger.debug(
+            "Dashboard setup query account_id=%s range_start=%s range_end=%s candidate_setups=%s final_outcome_setups=%s in_range_setups=%s",
+            selected_account.id,
+            range_start,
+            range_end,
+            candidate_setups,
+            len(setups),
+            len(items),
+        )
         return items
 
     def _setup_close_time(self, setup: TradeSetup) -> datetime | None:
-        close_times = [value for value in (setup.order1_closed_at, setup.order2_closed_at, setup.setup_outcome_recorded_at) if value is not None]
-        if not close_times:
-            return None
-        return max(self._normalize_datetime(value) for value in close_times)
+        if setup.setup_outcome_recorded_at is not None:
+            return self._normalize_datetime(setup.setup_outcome_recorded_at)
+        if setup.result_recorded_at is not None:
+            return self._normalize_datetime(setup.result_recorded_at)
+
+        close_times = [value for value in (setup.order1_closed_at, setup.order2_closed_at) if value is not None]
+        if close_times:
+            return max(self._normalize_datetime(value) for value in close_times)
+
+        if setup.executed_at is not None:
+            return self._normalize_datetime(setup.executed_at)
+        return None
 
     def _build_summary(self, items: list[dict[str, object]]) -> dict[str, object]:
         total_trades = len(items)
@@ -747,6 +794,12 @@ class DashboardService:
         for item in values:
             item["width_percent"] = 0 if max_value == 0 else round(item["value"] / max_value * 100, 2)
         return values
+
+    def _debug_setup_outcome_counts(self, items: list[dict[str, object]]) -> dict[str, int]:
+        counts: dict[str, int] = defaultdict(int)
+        for item in items:
+            counts[str(item["setup_outcome"])] += 1
+        return dict(sorted(counts.items()))
 
     def _session_badge(self, account: TradingAccount) -> dict[str, str]:
         status = account.mt5_session_status or "unknown"

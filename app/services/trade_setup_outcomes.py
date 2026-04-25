@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -59,6 +60,14 @@ SETUP_OUTCOME_LABELS = {
     "tp1_hit_waiting_order2": "TP1 Hit, Waiting Order 2",
     "execution_failed": "Execution Failed",
 }
+
+LEGACY_SETUP_OUTCOME_MAP = {
+    "tp2_hit": "full_win",
+    "breakeven": "managed_win",
+    "stoploss": "full_loss",
+}
+
+logger = logging.getLogger(__name__)
 
 
 class TradeSetupOutcomeService:
@@ -571,6 +580,118 @@ class TradeSetupOutcomeService:
             "setup_ids": [int(item["setup_id"]) for item in results],
             "results": results,
         }
+
+    def backfill_setup_outcomes_from_stored_data(
+        self,
+        *,
+        user_id: int | None = None,
+        trading_account_id: int | None = None,
+        setup_ids: list[int] | None = None,
+    ) -> dict[str, object]:
+        from app.models.trade_setup import TradeSetup
+
+        query = self.db.query(TradeSetup)
+        if user_id is not None:
+            query = query.filter(TradeSetup.user_id == user_id)
+        if trading_account_id is not None:
+            query = query.filter(TradeSetup.trading_account_id == trading_account_id)
+        if setup_ids:
+            query = query.filter(TradeSetup.id.in_(setup_ids))
+
+        examined = 0
+        updated = 0
+        updated_ids: list[int] = []
+
+        for setup in query.order_by(TradeSetup.id.asc()).all():
+            examined += 1
+            if setup.setup_source == "manual" and setup.manual_confirmed_at is None:
+                continue
+            normalized_outcome = self._normalize_stored_setup_outcome(setup)
+            if normalized_outcome is None:
+                continue
+
+            changed = False
+            previous_outcome = setup.setup_outcome
+            if setup.setup_outcome != normalized_outcome:
+                setup.setup_outcome = normalized_outcome
+                changed = True
+
+            inferred_time = self._inferred_setup_outcome_time(setup)
+            if setup.setup_outcome_recorded_at is None and inferred_time is not None:
+                setup.setup_outcome_recorded_at = inferred_time
+                changed = True
+
+            if changed:
+                self._record_result_status_if_needed(setup)
+                self.db.add(setup)
+                updated += 1
+                updated_ids.append(setup.id)
+                logger.debug(
+                    "Backfilled stored setup outcome setup_id=%s previous_outcome=%s normalized_outcome=%s trading_account_id=%s",
+                    setup.id,
+                    previous_outcome,
+                    normalized_outcome,
+                    setup.trading_account_id,
+                )
+
+        if updated:
+            self.db.commit()
+
+        return {
+            "examined": examined,
+            "updated": updated,
+            "setup_ids": updated_ids,
+        }
+
+    def _normalize_stored_setup_outcome(self, setup) -> str | None:
+        if setup.setup_outcome in FINAL_SETUP_OUTCOMES:
+            return setup.setup_outcome
+        if setup.status == "failed":
+            return "execution_failed"
+
+        order1_outcome = setup.order1_outcome
+        order2_outcome = setup.order2_outcome if setup.order_count == 2 else "not_used"
+
+        if setup.order_count == 1:
+            if order1_outcome and order1_outcome not in {"open", "unknown"}:
+                return self._classify_terminal_setup_outcome(setup, order1_outcome, "not_used")
+        else:
+            if (
+                order1_outcome
+                and order2_outcome
+                and order1_outcome not in {"open", "unknown"}
+                and order2_outcome not in {"open", "unknown"}
+            ):
+                return self._classify_terminal_setup_outcome(setup, order1_outcome, order2_outcome)
+
+        if setup.setup_outcome in LEGACY_SETUP_OUTCOME_MAP:
+            return LEGACY_SETUP_OUTCOME_MAP[setup.setup_outcome]
+        if setup.result_status == "stoploss":
+            return "full_loss"
+        if setup.result_status == "non_stoploss":
+            return "review_required"
+        return None
+
+    def _inferred_setup_outcome_time(self, setup) -> datetime | None:
+        if setup.setup_outcome_recorded_at is not None:
+            return self._normalize_datetime(setup.setup_outcome_recorded_at)
+        if setup.result_recorded_at is not None:
+            return self._normalize_datetime(setup.result_recorded_at)
+
+        close_times = [value for value in (setup.order1_closed_at, setup.order2_closed_at) if value is not None]
+        if close_times:
+            return max(self._normalize_datetime(value) for value in close_times)
+
+        if setup.executed_at is not None:
+            return self._normalize_datetime(setup.executed_at)
+        if setup.updated_at is not None:
+            return self._normalize_datetime(setup.updated_at)
+        return None
+
+    def _normalize_datetime(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 def compute_setup_realized_pnl(setup) -> float | None:

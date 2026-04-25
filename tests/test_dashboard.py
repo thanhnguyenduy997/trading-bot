@@ -442,6 +442,83 @@ def test_setup_winrate_uses_only_full_win_managed_win_and_full_loss(db_session, 
     assert dashboard["setup_summary"]["setup_win_rate"] == 66.67
 
 
+def test_dashboard_backfills_legacy_setup_outcomes_for_historical_setup_metrics(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "SETUP-LEGACY-001")
+
+    setup_full_win = _create_setup(db_session, created_user, account, order1_ticket=95001, order2_ticket=95002, setup_outcome="tp2_hit")
+    setup_managed = _create_setup(db_session, created_user, account, order1_ticket=96001, order2_ticket=96002, setup_outcome="breakeven")
+    setup_loss = _create_setup(db_session, created_user, account, order1_ticket=97001, order2_ticket=97002, setup_outcome="stoploss")
+
+    setup_full_win.order1_closed_at = datetime(2026, 4, 21, 9, tzinfo=timezone.utc)
+    setup_full_win.order2_closed_at = datetime(2026, 4, 21, 10, tzinfo=timezone.utc)
+    setup_full_win.order1_realized_pnl = 50.0
+    setup_full_win.order2_realized_pnl = 100.0
+
+    setup_managed.order1_outcome = "tp_hit"
+    setup_managed.order2_outcome = "closed_at_be"
+    setup_managed.setup_outcome = None
+    setup_managed.order1_closed_at = datetime(2026, 4, 21, 11, tzinfo=timezone.utc)
+    setup_managed.order2_closed_at = datetime(2026, 4, 21, 12, tzinfo=timezone.utc)
+    setup_managed.order1_realized_pnl = 50.0
+    setup_managed.order2_realized_pnl = 0.0
+
+    setup_loss.order1_outcome = "sl_hit"
+    setup_loss.order2_outcome = "sl_hit"
+    setup_loss.order1_closed_at = datetime(2026, 4, 21, 13, tzinfo=timezone.utc)
+    setup_loss.order2_closed_at = datetime(2026, 4, 21, 14, tzinfo=timezone.utc)
+    setup_loss.order1_realized_pnl = -50.0
+    setup_loss.order2_realized_pnl = -50.0
+
+    db_session.add_all([setup_full_win, setup_managed, setup_loss])
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="all_time", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    db_session.refresh(setup_full_win)
+    db_session.refresh(setup_managed)
+    db_session.refresh(setup_loss)
+
+    assert setup_full_win.setup_outcome == "full_win"
+    assert setup_managed.setup_outcome == "managed_win"
+    assert setup_loss.setup_outcome == "full_loss"
+    assert dashboard["setup_summary"]["full_win_count"] == 1
+    assert dashboard["setup_summary"]["managed_win_count"] == 1
+    assert dashboard["setup_summary"]["full_loss_count"] == 1
+    assert len(dashboard["setup_rows"]) == 3
+
+
+def test_dashboard_setup_metrics_use_order_close_time_when_outcome_recorded_at_missing(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "SETUP-TIME-001")
+    setup = _create_setup(db_session, created_user, account, order1_ticket=98001, order2_ticket=98002, setup_outcome=None)
+    setup.order1_outcome = "sl_hit"
+    setup.order2_outcome = "sl_hit"
+    setup.order1_closed_at = datetime(2026, 4, 22, 8, tzinfo=timezone.utc)
+    setup.order2_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+    setup.order1_realized_pnl = -50.0
+    setup.order2_realized_pnl = -50.0
+    setup.setup_outcome = None
+    setup.setup_outcome_recorded_at = None
+    db_session.add(setup)
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    db_session.refresh(setup)
+    assert setup.setup_outcome == "full_loss"
+    assert dashboard["setup_summary"]["full_loss_count"] == 1
+    assert len(dashboard["setup_rows"]) == 1
+
+
 def test_explicit_range_in_query_params_overrides_all_time_default(db_session, created_user):
     service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
     account = _create_account(db_session, created_user, "ALL-003")
