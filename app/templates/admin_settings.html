@@ -9,6 +9,13 @@
         <a class="button-link" href="/admin/users">Back to Users</a>
     </div>
 
+    {% if message %}
+    <div class="banner banner-success">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="banner banner-danger">{{ error }}</div>
+    {% endif %}
+
     <form action="/admin/settings" method="post" class="stack">
         <label>Global Max Preview Drift Percent</label>
         <input type="number" name="max_preview_drift_percent" step="0.01" min="0" value="{{ settings_record.max_preview_drift_percent if settings_record.max_preview_drift_percent is not none else effective_max_preview_drift_percent }}" required>
@@ -17,6 +24,13 @@
         <input type="number" name="scratch_manual_threshold_r" step="0.01" min="0" value="{{ settings_record.scratch_manual_threshold_r if settings_record.scratch_manual_threshold_r is not none else effective_scratch_manual_threshold_r }}" required>
         <p class="muted">Scratch Manual uses an exclusive threshold: |setup realized pnl| &lt; threshold × setup 1R.</p>
         <button type="submit">Save Settings</button>
+    </form>
+
+    <form action="/admin/setup-outcomes/recalculate" method="post" class="stack" style="margin-top: 1.5rem;">
+        <label>Manual Setup Outcome Recalculation</label>
+        <input type="text" name="trading_account_id" placeholder="Leave blank to recalculate all accounts">
+        <p class="muted">Reclassifies historical trade setups into full_win, managed_win, full_loss, scratch_manual, or review_required using stored setup/order data.</p>
+        <button type="submit">Recalculate Setup Outcomes</button>
     </form>
 </section>
 {% endblock %}

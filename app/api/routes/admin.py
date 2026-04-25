@@ -19,6 +19,7 @@ from app.services.app_settings import (
     update_global_scratch_manual_threshold_r,
 )
 from app.services.risk_management import RiskManagementService
+from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trading_accounts import (
     DuplicateTradingAccountError,
     create_trading_account,
@@ -75,6 +76,8 @@ def admin_home() -> RedirectResponse:
 @router.get("/settings", response_class=HTMLResponse)
 def admin_settings_page(
     request: Request,
+    message: str | None = None,
+    error: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
@@ -90,6 +93,8 @@ def admin_settings_page(
             "settings_record": record,
             "effective_max_preview_drift_percent": get_global_max_preview_drift_percent(db),
             "effective_scratch_manual_threshold_r": get_global_scratch_manual_threshold_r(db),
+            "message": message,
+            "error": error,
         },
     )
 
@@ -115,6 +120,45 @@ def admin_update_settings(
     )
     db.commit()
     return RedirectResponse(url="/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/setup-outcomes/recalculate")
+def admin_recalculate_setup_outcomes(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin_user_from_cookie),
+    trading_account_id: str = Form(""),
+) -> RedirectResponse:
+    try:
+        parsed_account_id = int(trading_account_id) if trading_account_id.strip() else None
+    except ValueError as exc:
+        return RedirectResponse(
+            url="/admin/settings?error=Trading+account+id+must+be+a+number.",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    result = TradeSetupOutcomeService(db).backfill_setup_outcomes_from_stored_data(
+        trading_account_id=parsed_account_id,
+    )
+    scope_label = f"account {parsed_account_id}" if parsed_account_id is not None else "all accounts"
+    log_admin_action(
+        db,
+        admin_user_id=admin_user.id,
+        target_user_id=None,
+        action="setup_outcomes_recalculated",
+        message=(
+            f"Recalculated setup outcomes for {scope_label}. "
+            f"Examined {result['examined']} setups, updated {result['updated']}."
+        ),
+    )
+    db.commit()
+    return RedirectResponse(
+        url=(
+            "/admin/settings?"
+            f"message=Recalculated+setup+outcomes+for+{scope_label.replace(' ', '+')}."
+            f"+Examined+{result['examined']}+setups,+updated+{result['updated']}."
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/users", response_class=HTMLResponse)

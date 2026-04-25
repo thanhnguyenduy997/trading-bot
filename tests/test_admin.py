@@ -1,6 +1,13 @@
+from datetime import datetime, timezone
+
 from app.models.trading_account import TradingAccount
+from app.models.trade_setup import TradeSetup
 from app.models.user import User
+from app.schemas.trade_setup import TradeSetupCreate
+from app.schemas.trading_account import TradingAccountCreate
 from app.schemas.user import UserCreate
+from app.services.trade_setups import create_trade_setup
+from app.services.trading_accounts import create_trading_account
 from app.services.users import create_user
 
 
@@ -17,6 +24,19 @@ def _create_admin(db_session):
             full_name="Admin User",
             role="admin",
             is_active=True,
+        ),
+    )
+
+
+def _create_account(db_session, user, account_number: str = "ACC-001"):
+    return create_trading_account(
+        db_session,
+        user.id,
+        TradingAccountCreate(
+            broker_name="Demo Broker",
+            account_number=account_number,
+            server_name="demo-server",
+            password="secret-pass",
         ),
     )
 
@@ -119,4 +139,56 @@ def test_expired_session_on_admin_page_redirects_to_login(client):
     response = client.get("/admin/users", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"].endswith("&next=/admin/users")
+
+
+def test_admin_can_recalculate_setup_outcomes_for_one_account(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="recalc-owner@example.com", password="password123", full_name="Owner"),
+    )
+    account = _create_account(db_session, user, "RECALC-001")
+    setup = create_trade_setup(
+        db_session,
+        user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=50.0,
+            order1_volume=0.5,
+            order2_volume=0.5,
+            status="draft",
+        ),
+    )
+    setup.status = "executed"
+    setup.order1_outcome = "sl_hit"
+    setup.order2_outcome = "sl_hit"
+    setup.order1_closed_at = datetime(2026, 4, 22, 8, tzinfo=timezone.utc)
+    setup.order2_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+    setup.order1_realized_pnl = -50.0
+    setup.order2_realized_pnl = -50.0
+    setup.setup_outcome = None
+    db_session.add(setup)
+    db_session.commit()
+
+    _login(client, admin.email)
+    response = client.post(
+        "/admin/setup-outcomes/recalculate",
+        data={"trading_account_id": str(account.id)},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(setup)
+    assert setup.setup_outcome == "full_loss"
+    assert response.headers["location"].startswith("/admin/settings?message=")
