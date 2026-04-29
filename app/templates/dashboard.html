@@ -9,12 +9,9 @@
     {% endif %}
 
     {% if dashboard.selected_account %}
-    <section class="dashboard-hero">
+    <section class="dashboard-hero account-status-header">
         <div>
-            <p class="eyebrow">Owner Context</p>
             <h1>Trading Dashboard</h1>
-            <p class="muted">Focused on the currently selected trading account only.</p>
-            <div class="dashboard-hero-divider"></div>
             <h2>{{ dashboard.selected_account.broker_name }} · {{ dashboard.selected_account.account_number }}</h2>
             <p class="muted">
                 {{ user.full_name or user.email }}
@@ -25,6 +22,7 @@
         </div>
         <div class="dashboard-hero-actions">
             <span class="status-pill status-pill-{{ dashboard.session_badge.tone }}">{{ dashboard.session_badge.label }}</span>
+            <span class="status-pill status-pill-{{ dashboard.history_freshness.tone }}">{{ dashboard.history_freshness.label }}</span>
             <form action="/dashboard/sync" method="post" class="inline-form">
                 <input type="hidden" name="range" value="{{ dashboard.filters.range_key }}">
                 <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
@@ -39,7 +37,9 @@
     <div class="banner banner-warning">{{ dashboard.account_warning }}</div>
     {% endif %}
 
-    <section class="detail-panel dashboard-meta-panel">
+    <details class="detail-panel dashboard-meta-panel dashboard-advanced-meta">
+        <summary>Account Status / Sync Details</summary>
+        <div class="dashboard-meta-grid">
         <div><span class="muted">Trading Account</span><strong>{{ dashboard.selected_account.account_number }}</strong></div>
         <div><span class="muted">Server</span><strong>{{ dashboard.selected_account.server_name }}</strong></div>
         <div><span class="muted">Current MT5 Login</span><strong>{{ dashboard.selected_account.current_mt5_login or "Unknown" }}</strong></div>
@@ -60,7 +60,8 @@
                 {% endif %}
             </strong>
         </div>
-    </section>
+        </div>
+    </details>
 
     <form action="/dashboard" method="get" class="dashboard-compact-filters">
         <div>
@@ -92,20 +93,15 @@
         </div>
     </form>
 
-    <section class="dashboard-summary-grid">
-        <article class="summary-card"><span>Total PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
-        <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
-        <article class="summary-card"><span>Manual Trades</span><strong>{{ dashboard.summary.manual_trades }}</strong></article>
-        <article class="summary-card"><span>System Trades</span><strong>{{ dashboard.summary.system_trades }}</strong></article>
+    <section class="dashboard-summary-grid kpi-row">
+        <article class="summary-card kpi-primary"><span>Total PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
         <article class="summary-card"><span>Setup Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.setup_win_rate) }}%</strong></article>
-        <article class="summary-card"><span>Full Win Count</span><strong>{{ dashboard.setup_summary.full_win_count }}</strong></article>
-        <article class="summary-card"><span>Managed Win Count</span><strong>{{ dashboard.setup_summary.managed_win_count }}</strong></article>
-        <article class="summary-card"><span>Full Loss Count</span><strong>{{ dashboard.setup_summary.full_loss_count }}</strong></article>
-        <article class="summary-card"><span>Scratch Manual Count</span><strong>{{ dashboard.setup_summary.scratch_manual_count }}</strong></article>
-        <article class="summary-card"><span>Review Required Count</span><strong>{{ dashboard.setup_summary.review_required_count }}</strong></article>
-        <article class="summary-card"><span>Full Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.full_win_rate) }}%</strong></article>
-        <article class="summary-card"><span>Managed Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.managed_win_rate) }}%</strong></article>
-        <article class="summary-card"><span>Scratch Manual Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.scratch_manual_rate) }}%</strong></article>
+        <article class="summary-card"><span>Managed Wins</span><strong>{{ dashboard.setup_summary.managed_win_count }}</strong></article>
+        <article class="summary-card"><span>Full Wins</span><strong>{{ dashboard.setup_summary.full_win_count }}</strong></article>
+        <article class="summary-card"><span>Full Losses</span><strong>{{ dashboard.setup_summary.full_loss_count }}</strong></article>
+        <article class="summary-card"><span>Review Required</span><strong>{{ dashboard.setup_summary.review_required_count }}</strong></article>
+        <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
+        <article class="summary-card"><span>System / Manual</span><strong>{{ dashboard.summary.system_trades }} / {{ dashboard.summary.manual_trades }}</strong></article>
     </section>
 
     <section class="dashboard-chart-grid">
@@ -175,8 +171,10 @@
         </article>
     </section>
 
-    <section class="detail-panel results-card">
-        <h2>Trades</h2>
+    <section class="detail-panel results-card trade-list-section">
+        <div class="section-header compact-header">
+            <h2>Trades</h2>
+        </div>
         <div class="table-wrap dashboard-trade-table-wrap desktop-table-only">
             <table class="accounts-table dashboard-trade-table">
                 <colgroup>
@@ -304,7 +302,7 @@
     {% endif %}
 
     {% if daily_risk_state %}
-    <section class="detail-panel results-card">
+    <section class="detail-panel results-card daily-risk-panel {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
         <h2>Daily Risk State</h2>
         <dl class="compact-details">
             <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>

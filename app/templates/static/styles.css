@@ -11,6 +11,7 @@
     --success: #0f7a4f;
     --danger: #b42318;
     --warning: #b54708;
+    --radius: 8px;
 }
 
 * {
@@ -25,9 +26,7 @@ body {
 body {
     margin: 0;
     font-family: "Aptos", "Segoe UI", sans-serif;
-    background:
-        radial-gradient(circle at top left, rgba(18, 103, 214, 0.1), transparent 34rem),
-        linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
+    background: #f5f7fb;
     color: var(--ink);
     line-height: 1.5;
 }
@@ -156,9 +155,9 @@ body {
 .card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 18px;
+    border-radius: var(--radius);
     padding: 1.45rem;
-    box-shadow: 0 14px 38px rgba(16, 24, 40, 0.06);
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.05);
     overflow-wrap: anywhere;
     min-width: 0;
     max-width: 100%;
@@ -227,7 +226,7 @@ button {
     max-width: 100%;
     padding: 0.72rem 0.85rem;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--radius);
     font: inherit;
 }
 
@@ -266,7 +265,7 @@ button:hover {
 
 .button-link.secondary-button {
     padding: 0.72rem 0.85rem;
-    border-radius: 10px;
+    border-radius: var(--radius);
     font-weight: 700;
 }
 
@@ -1728,5 +1727,302 @@ button:hover {
 
     .dashboard-trade-table td[data-label]::before {
         content: none;
+    }
+}
+
+.workflow-page {
+    display: grid;
+    gap: 1rem;
+}
+
+.workflow-header {
+    margin-bottom: 0.25rem;
+}
+
+.workflow-block {
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+.block-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.block-title-row h2 {
+    margin: 0;
+}
+
+.step-chip,
+.auto-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: auto;
+    border-radius: 999px;
+    padding: 0.22rem 0.55rem;
+    background: #eef4ff;
+    border: 1px solid #c7d7fe;
+    color: #155eef;
+    font-size: 0.72rem;
+    font-weight: 850;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.step-chip-warning {
+    color: var(--warning);
+    background: #fffaeb;
+    border-color: #fedf89;
+}
+
+.action-row-primary {
+    align-items: center;
+}
+
+.compact-summary-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.primary-summary-item {
+    border-color: #bfdbfe;
+    background: #f5f9ff;
+}
+
+.warning-block {
+    background: #fbfcfe;
+}
+
+.warning-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.setup-header-card {
+    align-items: center;
+    background: #fff;
+    border-radius: var(--radius);
+}
+
+.status-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.setup-summary-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.sticky-actions {
+    position: sticky;
+    bottom: 0.75rem;
+    z-index: 4;
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+}
+
+.compact-note {
+    padding: 0.75rem;
+    background: #f8fafc;
+}
+
+.compact-note p {
+    margin: 0.65rem 0 0;
+}
+
+.account-status-header {
+    background: #fff;
+    border-radius: var(--radius);
+}
+
+.dashboard-advanced-meta {
+    display: block;
+    padding: 0;
+    overflow: hidden;
+}
+
+.dashboard-advanced-meta summary {
+    cursor: pointer;
+    padding: 0.9rem 1rem;
+    font-weight: 850;
+    list-style: none;
+}
+
+.dashboard-advanced-meta summary::-webkit-details-marker {
+    display: none;
+}
+
+.dashboard-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.9rem;
+    padding: 0 1rem 1rem;
+}
+
+.dashboard-meta-grid div {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.kpi-row {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.kpi-primary {
+    border-color: #bfdbfe;
+    background: #f5f9ff;
+}
+
+.summary-card {
+    border-radius: var(--radius);
+}
+
+.summary-card span,
+.metric-card span,
+.preview-summary-item span {
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.summary-card strong {
+    font-size: 1.45rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.trade-list-section {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.daily-risk-panel {
+    border-left: 4px solid var(--success);
+    background: #f6fef9;
+}
+
+.daily-risk-locked {
+    border-left-color: var(--danger);
+    background: #fff7f7;
+}
+
+.manual-setup-page .preview-primary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.manual-trade-card {
+    border-radius: var(--radius);
+}
+
+.account-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 0.9rem;
+}
+
+.account-operation-card {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+.account-operation-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.account-operation-header h2 {
+    margin: 0 0 0.2rem;
+}
+
+.account-operation-header strong {
+    font-size: 1.1rem;
+}
+
+.accounts-table-details {
+    background: #fbfcfe;
+}
+
+.trade-pill-outcome-full-win,
+.trade-pill-outcome-managed-win {
+    color: #0f7a4f;
+    background: #ecfdf3;
+    border-color: #abefc6;
+}
+
+.trade-pill-outcome-full-loss,
+.trade-pill-outcome-review-required,
+.trade-pill-outcome-invalid,
+.trade-pill-outcome-locked {
+    color: var(--danger);
+    background: #fef3f2;
+    border-color: #fecdca;
+}
+
+.trade-pill-outcome-scratch-manual {
+    color: var(--warning);
+    background: #fffaeb;
+    border-color: #fedf89;
+}
+
+@media (max-width: 1100px) {
+    .compact-summary-grid,
+    .setup-summary-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .workflow-block {
+        padding: 0.85rem;
+    }
+
+    .compact-summary-grid,
+    .setup-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .status-stack,
+    .account-operation-header {
+        justify-content: flex-start;
+    }
+
+    .sticky-actions {
+        position: static;
+    }
+
+    .account-card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .accounts-table-details {
+        display: none;
+    }
+}
+
+@media (max-width: 520px) {
+    .compact-summary-grid,
+    .setup-summary-grid,
+    .dashboard-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .block-title-row {
+        align-items: flex-start;
+    }
+
+    .summary-card strong {
+        font-size: 1.25rem;
     }
 }

@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card setup-detail-card layout-tier-medium" data-auto-refresh-interval="30">
-    <div class="section-header">
+<section class="card setup-detail-card layout-tier-medium workflow-page" data-auto-refresh-interval="30">
+    <div class="section-header workflow-header">
         <div>
             <h1>Trade Setup #{{ setup.id }}</h1>
-            <p class="muted">{{ setup.symbol }} {{ setup.side|upper }} control panel</p>
         </div>
         <a class="button-link" href="/trade-setups">Back to Setups</a>
     </div>
@@ -16,12 +15,15 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <div class="setup-hero">
+    <div class="setup-hero setup-header-card">
         <div>
             <div class="setup-symbol">{{ setup.symbol }}</div>
-            <div class="setup-subtitle">{{ setup.side|upper }} · {{ setup.setup_source|replace("_", " ")|title }} · Account {{ setup.trading_account_id }}</div>
+            <div class="setup-subtitle">{{ setup.side|upper }} · Account {{ setup.trading_account_id }} · {{ setup.setup_source|replace("_", " ")|title }}</div>
         </div>
-        <div class="status-pill status-{{ setup.status }}">{{ setup.status }}</div>
+        <div class="status-stack">
+            <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
+            <span class="status-pill trade-pill-outcome-{{ (setup.setup_outcome or 'unknown')|lower|replace('_', '-') }}">{{ setup_outcome_label }}</span>
+        </div>
     </div>
 
     <div class="page-freshness">
@@ -31,7 +33,7 @@
         <strong data-auto-refresh-status>Auto refresh every 30s</strong>
     </div>
 
-    <div class="metric-grid">
+    <div class="metric-grid setup-summary-grid">
         <div class="metric-card primary-metric">
             <span>Entry</span>
             <strong>{{ setup.estimated_entry }}</strong>
@@ -53,14 +55,37 @@
             <strong>{{ setup.total_risk_money }}</strong>
         </div>
         <div class="metric-card">
-            <span>Risk / order</span>
-            <strong>{{ setup.risk_per_order }}</strong>
+            <span>Setup realized PnL</span>
+            <strong>{{ setup_realized_pnl if setup_realized_pnl is not none else "Unavailable" }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>Setup 1R</span>
+            <strong>{{ setup_1r_value }}</strong>
+        </div>
+        <div class="metric-card">
+            <span>RR order 2</span>
+            <strong>{{ setup.rr_order2 }}</strong>
         </div>
     </div>
 
     <div class="detail-section-grid">
         <section class="detail-panel">
-            <h2>Setup</h2>
+            <h2>Execution</h2>
+            <dl class="compact-details">
+                <div><dt>Order 1</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
+                <div><dt>Order 1 outcome</dt><dd>{{ setup.order1_outcome or "Unknown" }}</dd></div>
+                <div><dt>Order 1 close time</dt><dd>{{ setup.order1_closed_at if setup.order1_closed_at is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 1 realized PnL</dt><dd>{{ setup.order1_realized_pnl if setup.order1_realized_pnl is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 2</dt><dd>{{ setup.order2_ticket or "Not opened" }}</dd></div>
+                <div><dt>Order 2 outcome</dt><dd>{{ setup.order2_outcome or "Unknown" }}</dd></div>
+                <div><dt>Order 2 close time</dt><dd>{{ setup.order2_closed_at if setup.order2_closed_at is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>Order 2 realized PnL</dt><dd>{{ setup.order2_realized_pnl if setup.order2_realized_pnl is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
+            </dl>
+        </section>
+
+        <details class="detail-panel preview-advanced-panel">
+            <summary>Setup Metadata</summary>
             <dl class="compact-details">
                 <div><dt>Source</dt><dd>{{ setup.setup_source|replace("_", " ")|title }}</dd></div>
                 <div><dt>Order count</dt><dd>{{ setup.order_count }}</dd></div>
@@ -69,37 +94,19 @@
                 <div><dt>Risk mode</dt><dd>{{ setup.risk_mode }}</dd></div>
                 <div><dt>Risk value</dt><dd>{{ setup.risk_value }}</dd></div>
                 <div><dt>R value</dt><dd>{{ setup.r_value }}</dd></div>
-                <div><dt>RR order 2</dt><dd>{{ setup.rr_order2 }}</dd></div>
+                <div><dt>Risk / order</dt><dd>{{ setup.risk_per_order }}</dd></div>
                 <div><dt>Volumes</dt><dd>{{ setup.order1_volume }} / {{ setup.order2_volume }}</dd></div>
-            </dl>
-        </section>
-
-        <section class="detail-panel">
-            <h2>Execution</h2>
-            <dl class="compact-details">
-                <div><dt>Order 1</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
-                <div><dt>Order 2</dt><dd>{{ setup.order2_ticket or "Not opened" }}</dd></div>
-                <div><dt>Order 1 outcome</dt><dd>{{ setup.order1_outcome or "Unknown" }}</dd></div>
-                <div><dt>Order 1 close time</dt><dd>{{ setup.order1_closed_at if setup.order1_closed_at is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Order 1 close price</dt><dd>{{ setup.order1_close_price if setup.order1_close_price is not none else "Open / unavailable" }}</dd></div>
-                <div><dt>Order 1 realized PnL</dt><dd>{{ setup.order1_realized_pnl if setup.order1_realized_pnl is not none else "Open / unavailable" }}</dd></div>
-                <div><dt>Order 2 outcome</dt><dd>{{ setup.order2_outcome or "Unknown" }}</dd></div>
-                <div><dt>Order 2 close time</dt><dd>{{ setup.order2_closed_at if setup.order2_closed_at is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Order 2 close price</dt><dd>{{ setup.order2_close_price if setup.order2_close_price is not none else "Open / unavailable" }}</dd></div>
-                <div><dt>Order 2 realized PnL</dt><dd>{{ setup.order2_realized_pnl if setup.order2_realized_pnl is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
                 <div><dt>Setup result</dt><dd>{{ setup.result_status or "Pending" }}</dd></div>
-                <div><dt>Setup outcome</dt><dd>{{ setup_outcome_label }}</dd></div>
-                <div><dt>Setup realized PnL</dt><dd>{{ setup_realized_pnl if setup_realized_pnl is not none else "Unavailable" }}</dd></div>
-                <div><dt>Setup 1R</dt><dd>{{ setup_1r_value }}</dd></div>
                 {% if setup.setup_outcome == "scratch_manual" %}
                 <div><dt>Scratch threshold</dt><dd>{{ scratch_manual_threshold_r }}R (exclusive &lt;)</dd></div>
                 {% endif %}
                 <div><dt>Classification reason</dt><dd>{{ classification_reason }}</dd></div>
                 <div><dt>Outcome recorded</dt><dd>{{ setup.setup_outcome_recorded_at if setup.setup_outcome_recorded_at is not none else "Not recorded" }}</dd></div>
-                <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
             </dl>
-        </section>
+        </details>
     </div>
 
     {% if setup.execution_error or setup.order2_be_move_error %}
@@ -123,7 +130,7 @@
     </section>
     {% endif %}
 
-    <section class="detail-panel actions-panel">
+    <section class="detail-panel actions-panel sticky-actions">
         <h2>Actions</h2>
         <div class="action-row">
             {% if setup.setup_source == "manual" and setup.result_status is none %}

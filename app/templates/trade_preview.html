@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card layout-tier-wide" id="preview-form">
-    <div class="section-header">
+<section class="card layout-tier-wide workflow-page" id="preview-form">
+    <div class="section-header workflow-header">
         <div>
             <h1>Trade Preview</h1>
         </div>
@@ -18,71 +18,77 @@
         {% if setup %}
         <input type="hidden" name="draft_setup_id" value="{{ setup.id }}">
         {% endif %}
-        <div class="preview-primary-grid">
-            <label>
-                Trading account
-                <select id="preview-account-select" name="trading_account_id" required {% if not accounts %}disabled{% endif %}>
-                    {% for account in accounts %}
-                    <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
-                        {{ account.broker_name }} / {{ account.account_number }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label>
-                Symbol
-                <select id="preview-symbol-select" name="symbol" required {% if not symbols %}disabled{% endif %}>
-                    {% for item in symbols %}
-                    <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.symbol_name }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label>
-                Side
-                <select name="side" id="preview-side-select" required>
-                    {% for item in ["buy", "sell"] %}
-                    <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label>
-                Stop loss price
-                <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
-            </label>
-            <label>
-                Risk mode
-                <select name="risk_mode" id="preview-risk-mode-select" required>
-                    {% for item in ["fixed_money", "balance_percent"] %}
-                    <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label>
-                Risk value
-                <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
-            </label>
-            <label>
-                RR order 2
-                <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
-            </label>
-        </div>
-        <p id="preview-symbol-help" class="muted preview-symbol-status">
-            {% if not symbols %}
-            {{ symbol_message or "No symbols are synced for this account yet. Add symbols in MT5 Market Watch first, then click Refresh Symbols from MT5." }}
-            {% elif symbol_message %}
-            {{ symbol_message }}
-            {% endif %}
-        </p>
-        <div class="action-row">
-            <button type="submit" {% if not accounts or not symbols %}disabled{% endif %}>{{ "Update Review" if setup else "Preview Setup" }}</button>
-            <button id="reset-preview-defaults-button" type="button" class="secondary-button" {% if not accounts %}disabled{% endif %}>Reset to Account Defaults</button>
-            <button id="save-preview-defaults-button" type="button" class="secondary-button" {% if not accounts or not symbols %}disabled{% endif %}>Save Current Values as Defaults</button>
-        </div>
+        <section class="workflow-block">
+            <div class="block-title-row">
+                <span class="step-chip">Input</span>
+                <h2>Setup Parameters</h2>
+            </div>
+            <div class="preview-primary-grid">
+                <label>
+                    Trading account
+                    <select id="preview-account-select" name="trading_account_id" required {% if not accounts %}disabled{% endif %}>
+                        {% for account in accounts %}
+                        <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
+                            {{ account.broker_name }} / {{ account.account_number }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Symbol
+                    <select id="preview-symbol-select" name="symbol" required {% if not symbols %}disabled{% endif %}>
+                        {% for item in symbols %}
+                        <option value="{{ item.symbol_name }}" {% if form_data.symbol == item.symbol_name %}selected{% endif %}>{{ item.symbol_name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Side
+                    <select name="side" id="preview-side-select" required>
+                        {% for item in ["buy", "sell"] %}
+                        <option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Stop loss price
+                    <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
+                </label>
+                <label>
+                    Risk mode
+                    <select name="risk_mode" id="preview-risk-mode-select" required>
+                        {% for item in ["fixed_money", "balance_percent"] %}
+                        <option value="{{ item }}" {% if form_data.risk_mode == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>
+                    Risk value
+                    <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
+                </label>
+                <label>
+                    RR order 2
+                    <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
+                </label>
+            </div>
+            <p id="preview-symbol-help" class="muted preview-symbol-status">
+                {% if not symbols %}
+                {{ symbol_message or "No symbols synced for this account." }}
+                {% elif symbol_message %}
+                {{ symbol_message }}
+                {% endif %}
+            </p>
+            <div class="action-row">
+                <button type="submit" {% if not accounts or not symbols %}disabled{% endif %}>{{ "Update Review" if setup else "Preview Setup" }}</button>
+                <button id="reset-preview-defaults-button" type="button" class="secondary-button" {% if not accounts %}disabled{% endif %}>Reset Defaults</button>
+                <button id="save-preview-defaults-button" type="button" class="secondary-button" {% if not accounts or not symbols %}disabled{% endif %}>Save Defaults</button>
+            </div>
+        </section>
     </form>
 </section>
 
 {% if preview and setup %}
-<section class="card results-card setup-detail-card layout-tier-wide">
+<section class="card results-card setup-detail-card layout-tier-wide workflow-page">
     <div class="section-header compact-header">
         <div>
             <h2>Review Setup #{{ setup.id }}</h2>
@@ -90,56 +96,68 @@
         <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
     </div>
 
-    {% if preview.warnings %}
-    <div class="alert alert-error">
-        {{ preview.warnings|join(", ") }}
-    </div>
-    {% endif %}
-
-    <div class="setup-hero preview-summary-card">
-        <div class="preview-summary-header">
-            <div>
-                <div class="setup-symbol">{{ preview.symbol }}</div>
-                <div class="setup-subtitle">{{ preview.side|upper }}</div>
-            </div>
-            <div class="status-pill">{{ preview.validation_status }}</div>
+    <section class="workflow-block">
+        <div class="block-title-row">
+            <span class="step-chip">Preview</span>
+            <h2>Order Plan</h2>
         </div>
+        <div class="setup-hero preview-summary-card">
+            <div class="preview-summary-header">
+                <div>
+                    <div class="setup-symbol">{{ preview.symbol }}</div>
+                    <div class="setup-subtitle">{{ preview.side|upper }}</div>
+                </div>
+                <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
+            </div>
 
-        <div class="preview-summary-grid">
-            <div class="preview-summary-item">
-                <span>Estimated entry</span>
-                <strong>{{ preview.estimated_entry }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>Stop loss</span>
-                <strong>{{ preview.sl_price }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>TP1</span>
-                <strong>{{ preview.tp1_price }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>TP2</span>
-                <strong>{{ preview.tp2_price }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>Total risk</span>
-                <strong>{{ preview.total_risk_money }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>Order 1 volume</span>
-                <strong>{{ preview.order1_volume }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>Order 2 volume</span>
-                <strong>{{ preview.order2_volume }}</strong>
-            </div>
-            <div class="preview-summary-item">
-                <span>RR order 2</span>
-                <strong>{{ preview.rr_order2 }}</strong>
+            <div class="preview-summary-grid compact-summary-grid">
+                <div class="preview-summary-item primary-summary-item">
+                    <span>Estimated entry</span>
+                    <strong>{{ preview.estimated_entry }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>SL</span>
+                    <strong>{{ preview.sl_price }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>TP1</span>
+                    <strong>{{ preview.tp1_price }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>TP2</span>
+                    <strong>{{ preview.tp2_price }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>Total risk</span>
+                    <strong>{{ preview.total_risk_money }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>Order 1 volume</span>
+                    <strong>{{ preview.order1_volume }}</strong>
+                </div>
+                <div class="preview-summary-item">
+                    <span>Order 2 volume</span>
+                    <strong>{{ preview.order2_volume }}</strong>
+                </div>
             </div>
         </div>
-    </div>
+    </section>
+
+    <section class="workflow-block warning-block">
+        <div class="block-title-row">
+            <span class="step-chip step-chip-warning">Warnings</span>
+            <h2>Review Flags</h2>
+        </div>
+        {% if preview.warnings %}
+        <div class="warning-list">
+            {% for warning in preview.warnings %}
+            <span class="status-pill status-pill-warning">{{ warning }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <span class="status-pill status-pill-success">No active warnings</span>
+        {% endif %}
+    </section>
 
     <details class="detail-panel preview-advanced-panel">
         <summary>Advanced Details</summary>
