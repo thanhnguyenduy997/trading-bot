@@ -19,10 +19,25 @@
                 · effective dashboard scope
                 {% endif %}
             </p>
+            <div class="dashboard-time-scope">
+                {% if dashboard.filters.range_key == "all_time" %}
+                All time
+                {% elif dashboard.filters.range_key == "today" %}
+                Today · {{ dashboard.range_start.strftime("%b %d, %Y") }}
+                {% elif dashboard.filters.range_key == "yesterday" %}
+                Yesterday · {{ dashboard.range_start.strftime("%b %d, %Y") }}
+                {% elif dashboard.range_start.strftime("%Y-%m-%d") == dashboard.range_end.strftime("%Y-%m-%d") %}
+                {{ dashboard.range_start.strftime("%b %d, %Y") }}
+                {% else %}
+                {{ dashboard.range_start.strftime("%b %d") }} to {{ dashboard.range_end.strftime("%b %d, %Y") }}
+                {% endif %}
+            </div>
         </div>
         <div class="dashboard-hero-actions">
-            <span class="status-pill status-pill-{{ dashboard.session_badge.tone }}">{{ dashboard.session_badge.label }}</span>
-            <span class="status-pill status-pill-{{ dashboard.history_freshness.tone }}">{{ dashboard.history_freshness.label }}</span>
+            <div class="dashboard-status-group">
+                <span class="status-pill status-pill-{{ dashboard.session_badge.tone }}">{{ dashboard.session_badge.label }}</span>
+                <span class="status-pill status-pill-{{ dashboard.history_freshness.tone }}">{{ dashboard.history_freshness.label }}</span>
+            </div>
             <form action="/dashboard/sync" method="post" class="inline-form">
                 <input type="hidden" name="range" value="{{ dashboard.filters.range_key }}">
                 <input type="hidden" name="start_date" value="{{ dashboard.filters.start_date or '' }}">
@@ -38,7 +53,7 @@
     {% endif %}
 
     <details class="detail-panel dashboard-meta-panel dashboard-advanced-meta">
-        <summary>Account Status / Sync Details</summary>
+        <summary><span>Account Status / Sync Details</span><span class="details-chevron">v</span></summary>
         <div class="dashboard-meta-grid">
         <div><span class="muted">Trading Account</span><strong>{{ dashboard.selected_account.account_number }}</strong></div>
         <div><span class="muted">Server</span><strong>{{ dashboard.selected_account.server_name }}</strong></div>
@@ -96,13 +111,33 @@
     <section class="dashboard-summary-grid kpi-row">
         <article class="summary-card kpi-primary"><span>Total PnL</span><strong>{{ "%.2f"|format(dashboard.summary.total_realized_pnl) }}</strong></article>
         <article class="summary-card"><span>Setup Win Rate</span><strong>{{ "%.2f"|format(dashboard.setup_summary.setup_win_rate) }}%</strong></article>
+        <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
         <article class="summary-card"><span>Managed Wins</span><strong>{{ dashboard.setup_summary.managed_win_count }}</strong></article>
         <article class="summary-card"><span>Full Wins</span><strong>{{ dashboard.setup_summary.full_win_count }}</strong></article>
         <article class="summary-card"><span>Full Losses</span><strong>{{ dashboard.setup_summary.full_loss_count }}</strong></article>
         <article class="summary-card"><span>Review Required</span><strong>{{ dashboard.setup_summary.review_required_count }}</strong></article>
-        <article class="summary-card"><span>Trade Count</span><strong>{{ dashboard.summary.trade_count }}</strong></article>
         <article class="summary-card"><span>System / Manual</span><strong>{{ dashboard.summary.system_trades }} / {{ dashboard.summary.manual_trades }}</strong></article>
     </section>
+
+    {% if daily_risk_state %}
+    <section class="daily-risk-panel {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
+        <div class="daily-risk-head">
+            <div>
+                <span class="eyebrow">Daily Risk State</span>
+                <h2>Risk Control</h2>
+            </div>
+            <div class="daily-lock-value {% if daily_risk_state.daily_lock_active %}is-locked{% endif %}">
+                <span>Daily lock</span>
+                <strong>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</strong>
+            </div>
+        </div>
+        <dl class="daily-risk-grid">
+            <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>
+            <div><dt>Consecutive stoploss today</dt><dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd></div>
+            <div><dt>Reset timing</dt><dd>Next UTC trading day or next non-stoploss setup</dd></div>
+        </dl>
+    </section>
+    {% endif %}
 
     <section class="dashboard-chart-grid">
         <article class="detail-panel">
@@ -210,7 +245,7 @@
                 <tbody>
                     {% for row in dashboard.table_rows %}
                     <tr class="trade-row">
-                        <td data-label="Open Time" class="time-cell">
+                        <td data-label="Open Time" class="time-cell secondary-cell">
                             {% if row.open_time %}
                             <span class="time-date">{{ row.open_time.strftime("%d/%m") }}</span>
                             <span class="time-clock">{{ row.open_time.strftime("%H:%M") }}</span>
@@ -218,7 +253,7 @@
                             <span class="placeholder-dash">-</span>
                             {% endif %}
                         </td>
-                        <td data-label="Close Time" class="time-cell">
+                        <td data-label="Close Time" class="time-cell secondary-cell">
                             {% if row.close_time %}
                             <span class="time-date">{{ row.close_time.strftime("%d/%m") }}</span>
                             <span class="time-clock">{{ row.close_time.strftime("%H:%M") }}</span>
@@ -230,9 +265,9 @@
                         <td data-label="Side">
                             <span class="trade-pill trade-pill-side trade-pill-side-{{ row.side|lower }}">{{ row.side|upper }}</span>
                         </td>
-                        <td data-label="Volume" class="numeric-cell">{{ "%.2f"|format(row.volume) }}</td>
-                        <td data-label="Open Price" class="numeric-cell">{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</td>
-                        <td data-label="Close Price" class="numeric-cell">{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</td>
+                        <td data-label="Volume" class="numeric-cell secondary-cell">{{ "%.2f"|format(row.volume) }}</td>
+                        <td data-label="Open Price" class="numeric-cell secondary-cell">{{ "%.5f"|format(row.open_price) if row.open_price is not none else "-" }}</td>
+                        <td data-label="Close Price" class="numeric-cell secondary-cell">{{ "%.5f"|format(row.close_price) if row.close_price is not none else "-" }}</td>
                         <td data-label="Realized PnL" class="numeric-cell pnl-cell {% if row.realized_pnl > 1 %}pnl-profit{% elif row.realized_pnl < -1 %}pnl-loss{% else %}pnl-flat{% endif %}">
                             {{ "%.2f"|format(row.realized_pnl) }}
                         </td>
@@ -244,7 +279,7 @@
                         </td>
                         <td data-label="Linked Setup" class="setup-link-cell">
                             {% if row.linked_setup_id %}
-                            <a class="setup-link-pill" href="/trade-setups/{{ row.linked_setup_id }}">#{{ row.linked_setup_id }}</a>
+                            <a class="setup-link-pill" href="/trade-setups/{{ row.linked_setup_id }}">Setup #{{ row.linked_setup_id }}</a>
                             {% else %}
                             <span class="placeholder-dash">-</span>
                             {% endif %}
@@ -301,17 +336,6 @@
     </section>
     {% endif %}
 
-    {% if daily_risk_state %}
-    <section class="detail-panel results-card daily-risk-panel {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
-        <h2>Daily Risk State</h2>
-        <dl class="compact-details">
-            <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>
-            <div><dt>Consecutive stoploss today</dt><dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd></div>
-            <div><dt>Daily lock</dt><dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd></div>
-            <div><dt>Reset timing</dt><dd>Next UTC trading day or next non-stoploss setup</dd></div>
-        </dl>
-    </section>
-    {% endif %}
 </section>
 <script>
     const dashboardRangeSelect = document.getElementById("dashboard-range");

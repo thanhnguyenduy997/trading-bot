@@ -1214,7 +1214,7 @@ button:hover {
 }
 
 .dashboard-shell {
-    gap: 1rem;
+    gap: 0.85rem;
     min-width: 0;
     box-sizing: border-box;
 }
@@ -1222,16 +1222,26 @@ button:hover {
 .dashboard-hero {
     display: flex;
     justify-content: space-between;
-    gap: 1rem;
-    align-items: flex-start;
-    padding: 1.2rem;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.9rem 1rem;
     border: 1px solid var(--line);
-    border-radius: 16px;
-    background:
-        radial-gradient(circle at top right, rgba(18, 103, 214, 0.12), transparent 16rem),
-        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    border-radius: var(--radius);
+    background: #fff;
     min-width: 0;
     max-width: 100%;
+}
+
+.dashboard-hero h1 {
+    margin-bottom: 0.18rem;
+}
+
+.dashboard-hero h2 {
+    margin: 0 0 0.12rem;
+}
+
+.dashboard-hero p {
+    margin: 0;
 }
 
 .dashboard-hero > * {
@@ -1240,9 +1250,29 @@ button:hover {
 
 .dashboard-hero-actions {
     display: grid;
-    gap: 0.75rem;
+    gap: 0.55rem;
     justify-items: end;
     min-width: 0;
+}
+
+.dashboard-status-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    justify-content: flex-end;
+}
+
+.dashboard-time-scope {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.45rem;
+    padding: 0.25rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #475467;
+    font-size: 0.8rem;
+    font-weight: 800;
 }
 
 .dashboard-meta-panel {
@@ -1433,17 +1463,17 @@ button:hover {
     background: rgba(248, 250, 252, 0.96);
     backdrop-filter: blur(6px);
     border-bottom: 1px solid #d8e1ee;
-    color: #475467;
-    font-size: 0.78rem;
+    color: #667085;
+    font-size: 0.73rem;
     font-weight: 800;
-    letter-spacing: 0.03em;
+    letter-spacing: 0;
     text-transform: uppercase;
     white-space: nowrap;
 }
 
 .dashboard-trade-table th,
 .dashboard-trade-table td {
-    padding: 0.85rem 0.9rem;
+    padding: 0.68rem 0.78rem;
     overflow-wrap: normal;
 }
 
@@ -1494,8 +1524,8 @@ button:hover {
 }
 
 .time-date {
-    color: var(--ink);
-    font-weight: 700;
+    color: #475467;
+    font-weight: 650;
     line-height: 1.05;
 }
 
@@ -1511,6 +1541,12 @@ button:hover {
     letter-spacing: 0.01em;
 }
 
+.secondary-cell {
+    color: #667085;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
 .numeric-cell {
     text-align: right;
     white-space: nowrap;
@@ -1519,6 +1555,7 @@ button:hover {
 
 .pnl-cell {
     font-weight: 800;
+    font-size: 0.94rem;
 }
 
 .pnl-profit {
@@ -1537,12 +1574,12 @@ button:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 78px;
+    min-width: 76px;
     max-width: 100%;
-    padding: 0.34rem 0.6rem;
+    padding: 0.32rem 0.58rem;
     border-radius: 999px;
     border: 1px solid transparent;
-    font-size: 0.77rem;
+    font-size: 0.75rem;
     font-weight: 800;
     line-height: 1;
     white-space: nowrap;
@@ -1616,13 +1653,13 @@ button:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.34rem 0.58rem;
+    padding: 0.34rem 0.62rem;
     border-radius: 999px;
-    background: #eef5ff;
-    border: 1px solid #c9defc;
+    background: #fff;
+    border: 1px solid #9cc7ff;
     color: var(--accent);
     text-decoration: none;
-    font-weight: 800;
+    font-weight: 850;
     white-space: nowrap;
 }
 
@@ -1633,6 +1670,7 @@ button:hover {
 
 .comment-cell {
     max-width: 240px;
+    color: var(--muted);
 }
 
 .comment-text {
@@ -1641,7 +1679,8 @@ button:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--muted);
+    color: #98a2b3;
+    font-size: 0.84rem;
 }
 
 .placeholder-dash {
@@ -1847,17 +1886,40 @@ button:hover {
     display: block;
     padding: 0;
     overflow: hidden;
+    background: #fbfcfe;
 }
 
 .dashboard-advanced-meta summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
     cursor: pointer;
-    padding: 0.9rem 1rem;
+    padding: 0.72rem 0.9rem;
     font-weight: 850;
     list-style: none;
+    color: #344054;
 }
 
 .dashboard-advanced-meta summary::-webkit-details-marker {
     display: none;
+}
+
+.dashboard-advanced-meta .details-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.dashboard-advanced-meta[open] .details-chevron {
+    transform: rotate(180deg);
 }
 
 .dashboard-meta-grid {
@@ -1874,6 +1936,7 @@ button:hover {
 
 .kpi-row {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.7rem;
 }
 
 .kpi-primary {
@@ -1897,19 +1960,93 @@ button:hover {
     font-variant-numeric: tabular-nums;
 }
 
-.trade-list-section {
-    display: grid;
-    gap: 0.75rem;
-}
-
 .daily-risk-panel {
-    border-left: 4px solid var(--success);
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+    border: 1px solid #abefc6;
+    border-left: 5px solid var(--success);
+    border-radius: var(--radius);
     background: #f6fef9;
 }
 
 .daily-risk-locked {
+    border-color: #fecdca;
     border-left-color: var(--danger);
     background: #fff7f7;
+}
+
+.daily-risk-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.daily-risk-head h2 {
+    margin: 0;
+}
+
+.daily-lock-value {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 150px;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid #abefc6;
+    border-radius: var(--radius);
+    background: #fff;
+    color: var(--success);
+    text-align: right;
+}
+
+.daily-lock-value span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.daily-lock-value strong {
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.daily-lock-value.is-locked {
+    border-color: #fecdca;
+    background: #fff1f0;
+    color: var(--danger);
+}
+
+.daily-risk-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin: 0;
+}
+
+.daily-risk-grid div {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 1px solid rgba(208, 213, 221, 0.8);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.daily-risk-grid dt {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.daily-risk-grid dd {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 850;
+}
+
+.trade-list-section {
+    display: grid;
+    gap: 0.75rem;
 }
 
 .manual-setup-page .preview-primary-grid {
@@ -2008,6 +2145,19 @@ button:hover {
 
     .accounts-table-details {
         display: none;
+    }
+
+    .daily-risk-head {
+        display: grid;
+    }
+
+    .daily-lock-value {
+        min-width: 0;
+        text-align: left;
+    }
+
+    .daily-risk-grid {
+        grid-template-columns: 1fr;
     }
 }
 
