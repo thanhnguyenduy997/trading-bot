@@ -492,6 +492,39 @@ def test_dashboard_backfills_legacy_setup_outcomes_for_historical_setup_metrics(
     assert len(dashboard["setup_rows"]) == 3
 
 
+def test_dashboard_reclassifies_stale_review_required_tp1_be_as_managed_win(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "SETUP-STALE-001")
+    setup = _create_setup(db_session, created_user, account, order1_ticket=96501, order2_ticket=96502, setup_outcome="review_required")
+    setup.order1_outcome = "sl_hit"
+    setup.order2_outcome = "open"
+    setup.order1_closed_at = datetime(2026, 4, 22, 8, tzinfo=timezone.utc)
+    setup.order2_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+    setup.order1_close_price = 2321.18
+    setup.order2_close_price = 2320.18
+    setup.order1_realized_pnl = 48.0
+    setup.order2_realized_pnl = -0.4
+    setup.setup_outcome_recorded_at = None
+    db_session.add(setup)
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    db_session.refresh(setup)
+    assert setup.order1_outcome == "tp_hit"
+    assert setup.order2_outcome == "closed_at_be"
+    assert setup.setup_outcome == "managed_win"
+    assert dashboard["setup_summary"]["managed_win_count"] == 1
+    assert dashboard["setup_summary"]["review_required_count"] == 0
+    assert dashboard["setup_summary"]["setup_win_rate"] == 100.0
+    assert dashboard["setup_outcome_breakdown"][0]["label"] == "TP1 + BE2"
+    assert dashboard["setup_outcome_breakdown"][0]["value"] == 1
+
+
 def test_dashboard_setup_metrics_use_order_close_time_when_outcome_recorded_at_missing(db_session, created_user):
     service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
     account = _create_account(db_session, created_user, "SETUP-TIME-001")

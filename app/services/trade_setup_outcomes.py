@@ -7,6 +7,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.execution.base import AdapterError
 from app.services.app_settings import get_global_scratch_manual_threshold_r
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
@@ -210,7 +211,7 @@ class TradeSetupOutcomeService:
             outcome = "tp_hit"
         elif self._is_closed_at_be(setup, order_index, close_deal, close_price, reference_be, point, realized_pnl):
             outcome = "closed_at_be"
-        elif self._matches_target(close_deal, close_price, reference_sl, point, reasons={"sl", "stop_loss", 4}):
+        elif self._matches_stop_loss(close_deal, close_price, reference_sl, point, realized_pnl, setup):
             outcome = "sl_hit"
         else:
             outcome = "manual_close"
@@ -384,6 +385,19 @@ class TradeSetupOutcomeService:
             if reason in {"sl", "stop_loss", 4, "client", "expert", "mobile"}:
                 return True
         return False
+
+    def _matches_stop_loss(
+        self,
+        close_deal: dict[str, object],
+        close_price: float | None,
+        reference_sl: float,
+        point: float,
+        realized_pnl: float | None,
+        setup,
+    ) -> bool:
+        if realized_pnl is not None and realized_pnl > self._be_pnl_tolerance(setup):
+            return False
+        return self._matches_target(close_deal, close_price, reference_sl, point, reasons={"sl", "stop_loss", 4})
 
     def _looks_like_tp_hit_from_price_and_pnl(
         self,
@@ -606,15 +620,29 @@ class TradeSetupOutcomeService:
             examined += 1
             if setup.setup_source == "manual" and setup.manual_confirmed_at is None:
                 continue
-            normalized_outcome = self._normalize_stored_setup_outcome(setup)
+            history_changed = self._hydrate_setup_order_closes_from_linked_history(setup)
+            stored_order_outcomes = self._reclassify_stored_order_outcomes(setup)
+            normalized_outcome = self._normalize_stored_setup_outcome(setup, stored_order_outcomes=stored_order_outcomes)
             if normalized_outcome is None:
                 continue
 
-            changed = False
+            changed = history_changed
             previous_outcome = setup.setup_outcome
+            previous_order1_outcome = setup.order1_outcome
+            previous_order2_outcome = setup.order2_outcome
+
+            if stored_order_outcomes["order1_outcome"] and setup.order1_outcome != stored_order_outcomes["order1_outcome"]:
+                setup.order1_outcome = stored_order_outcomes["order1_outcome"]
+                changed = True
+            if stored_order_outcomes["order2_outcome"] and setup.order2_outcome != stored_order_outcomes["order2_outcome"]:
+                setup.order2_outcome = stored_order_outcomes["order2_outcome"]
+                changed = True
+
             if setup.setup_outcome != normalized_outcome:
                 setup.setup_outcome = normalized_outcome
                 changed = True
+
+            changed = self._sync_linked_trade_history_outcomes(setup) or changed
 
             inferred_time = self._inferred_setup_outcome_time(setup)
             if setup.setup_outcome_recorded_at is None and inferred_time is not None:
@@ -627,12 +655,30 @@ class TradeSetupOutcomeService:
                 updated += 1
                 updated_ids.append(setup.id)
                 logger.debug(
-                    "Backfilled stored setup outcome setup_id=%s previous_outcome=%s normalized_outcome=%s trading_account_id=%s",
+                    "Backfilled stored setup outcome setup_id=%s previous_outcome=%s normalized_outcome=%s "
+                    "previous_order1_outcome=%s order1_outcome=%s order1_realized_pnl=%s "
+                    "previous_order2_outcome=%s order2_outcome=%s order2_realized_pnl=%s trading_account_id=%s",
                     setup.id,
                     previous_outcome,
                     normalized_outcome,
+                    previous_order1_outcome,
+                    setup.order1_outcome,
+                    setup.order1_realized_pnl,
+                    previous_order2_outcome,
+                    setup.order2_outcome,
+                    setup.order2_realized_pnl,
                     setup.trading_account_id,
                 )
+            logger.debug(
+                "Setup reclassification setup_id=%s order1_realized_pnl=%s order2_realized_pnl=%s "
+                "order1_computed_outcome=%s order2_computed_outcome=%s final_setup_outcome=%s",
+                setup.id,
+                setup.order1_realized_pnl,
+                setup.order2_realized_pnl,
+                stored_order_outcomes["order1_outcome"],
+                stored_order_outcomes["order2_outcome"],
+                normalized_outcome,
+            )
 
         if updated:
             self.db.commit()
@@ -643,14 +689,17 @@ class TradeSetupOutcomeService:
             "setup_ids": updated_ids,
         }
 
-    def _normalize_stored_setup_outcome(self, setup) -> str | None:
-        if setup.setup_outcome in FINAL_SETUP_OUTCOMES:
-            return setup.setup_outcome
+    def _normalize_stored_setup_outcome(self, setup, *, stored_order_outcomes: dict[str, str | None] | None = None) -> str | None:
         if setup.status == "failed":
             return "execution_failed"
 
-        order1_outcome = setup.order1_outcome
-        order2_outcome = setup.order2_outcome if setup.order_count == 2 else "not_used"
+        stored_order_outcomes = stored_order_outcomes or self._reclassify_stored_order_outcomes(setup)
+        order1_outcome = stored_order_outcomes["order1_outcome"] or setup.order1_outcome
+        order2_outcome = (
+            stored_order_outcomes["order2_outcome"] or setup.order2_outcome
+            if setup.order_count == 2
+            else "not_used"
+        )
 
         if setup.order_count == 1:
             if order1_outcome and order1_outcome not in {"open", "unknown"}:
@@ -664,6 +713,8 @@ class TradeSetupOutcomeService:
             ):
                 return self._classify_terminal_setup_outcome(setup, order1_outcome, order2_outcome)
 
+        if setup.setup_outcome in FINAL_SETUP_OUTCOMES:
+            return setup.setup_outcome
         if setup.setup_outcome in LEGACY_SETUP_OUTCOME_MAP:
             return LEGACY_SETUP_OUTCOME_MAP[setup.setup_outcome]
         if setup.result_status == "stoploss":
@@ -671,6 +722,181 @@ class TradeSetupOutcomeService:
         if setup.result_status == "non_stoploss":
             return "review_required"
         return None
+
+    def _reclassify_stored_order_outcomes(self, setup) -> dict[str, str | None]:
+        return {
+            "order1_outcome": self._reclassify_stored_order_outcome(setup, order_index=1),
+            "order2_outcome": (
+                self._reclassify_stored_order_outcome(setup, order_index=2)
+                if setup.order_count == 2 and setup.order2_ticket
+                else None
+            ),
+        }
+
+    def _reclassify_stored_order_outcome(self, setup, *, order_index: int) -> str | None:
+        ticket = getattr(setup, f"order{order_index}_ticket", None)
+        if not ticket:
+            return None
+
+        closed_at = getattr(setup, f"order{order_index}_closed_at", None)
+        close_price = self._coerce_float(getattr(setup, f"order{order_index}_close_price", None))
+        realized_pnl = self._coerce_float(getattr(setup, f"order{order_index}_realized_pnl", None))
+        if closed_at is None:
+            return "open"
+
+        reference_tp = float(setup.tp1_price if order_index == 1 else setup.tp2_price)
+        reference_sl = float(setup.sl_price)
+        reference_be = float(setup.estimated_entry)
+        point = self._stored_price_point(setup)
+
+        if self._stored_order_hit_tp(setup, close_price=close_price, realized_pnl=realized_pnl, reference_tp=reference_tp, reference_sl=reference_sl, point=point):
+            return "tp_hit"
+        if self._stored_order_closed_at_be(setup, order_index=order_index, close_price=close_price, realized_pnl=realized_pnl, reference_be=reference_be, point=point):
+            return "closed_at_be"
+        if self._stored_order_hit_sl(setup, close_price=close_price, realized_pnl=realized_pnl, reference_sl=reference_sl, point=point):
+            return "sl_hit"
+        return "manual_close"
+
+    def _stored_order_hit_tp(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_tp: float,
+        reference_sl: float,
+        point: float,
+    ) -> bool:
+        if close_price is not None and abs(close_price - reference_tp) <= self._be_price_tolerance(reference_tp, point):
+            return True
+        expected_1r = abs(float(setup.risk_per_order or 0.0))
+        if expected_1r <= 0 or realized_pnl is None:
+            return False
+        if realized_pnl >= expected_1r - self._be_pnl_tolerance(setup):
+            return True
+        return self._looks_like_tp_hit_from_price_and_pnl(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=reference_sl,
+            point=point,
+        )
+
+    def _stored_order_closed_at_be(
+        self,
+        setup,
+        *,
+        order_index: int,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_be: float,
+        point: float,
+    ) -> bool:
+        if order_index != 2:
+            return False
+        if close_price is not None and abs(close_price - reference_be) <= self._be_price_tolerance(reference_be, point):
+            return True
+        return realized_pnl is not None and abs(realized_pnl) <= self._be_pnl_tolerance(setup)
+
+    def _stored_order_hit_sl(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_sl: float,
+        point: float,
+    ) -> bool:
+        if realized_pnl is not None and realized_pnl > self._be_pnl_tolerance(setup):
+            return False
+        if close_price is not None and abs(close_price - reference_sl) <= self._be_price_tolerance(reference_sl, point):
+            return True
+        return realized_pnl is not None and realized_pnl < -self._be_pnl_tolerance(setup)
+
+    def _stored_price_point(self, setup) -> float:
+        price_values = [
+            self._coerce_float(getattr(setup, field_name, None))
+            for field_name in ("estimated_entry", "sl_price", "tp1_price", "tp2_price")
+        ]
+        decimal_places = 0
+        for value in price_values:
+            if value is None:
+                continue
+            text = f"{value:.10f}".rstrip("0")
+            if "." in text:
+                decimal_places = max(decimal_places, len(text.rsplit(".", 1)[1]))
+        if decimal_places <= 0:
+            return 0.01
+        return 10 ** (-decimal_places)
+
+    def _sync_linked_trade_history_outcomes(self, setup) -> bool:
+        from app.models.mt5_trade_history import MT5TradeHistory
+
+        changed = False
+        order_outcomes = {}
+        if setup.order1_ticket:
+            order_outcomes[int(setup.order1_ticket)] = setup.order1_outcome
+        if setup.order2_ticket:
+            order_outcomes[int(setup.order2_ticket)] = setup.order2_outcome
+        if not order_outcomes:
+            return False
+
+        trades = (
+            self.db.query(MT5TradeHistory)
+            .filter(MT5TradeHistory.linked_setup_id == setup.id)
+            .all()
+        )
+        for trade in trades:
+            outcome = order_outcomes.get(int(trade.position_ticket))
+            if outcome and trade.close_time is not None and trade.outcome != outcome:
+                trade.outcome = outcome
+                self.db.add(trade)
+                changed = True
+        return changed
+
+    def _hydrate_setup_order_closes_from_linked_history(self, setup) -> bool:
+        from app.models.mt5_trade_history import MT5TradeHistory
+
+        tickets = {
+            int(ticket)
+            for ticket in (setup.order1_ticket, setup.order2_ticket)
+            if ticket is not None
+        }
+        if not tickets:
+            return False
+
+        trades = (
+            self.db.query(MT5TradeHistory)
+            .filter(
+                MT5TradeHistory.linked_setup_id == setup.id,
+                MT5TradeHistory.position_ticket.in_(tickets),
+                MT5TradeHistory.close_time.isnot(None),
+            )
+            .all()
+        )
+        changed = False
+        for trade in trades:
+            if setup.order1_ticket and int(trade.position_ticket) == int(setup.order1_ticket):
+                changed = self._hydrate_order_close_from_trade(setup, order_index=1, trade=trade) or changed
+            elif setup.order2_ticket and int(trade.position_ticket) == int(setup.order2_ticket):
+                changed = self._hydrate_order_close_from_trade(setup, order_index=2, trade=trade) or changed
+        return changed
+
+    def _hydrate_order_close_from_trade(self, setup, *, order_index: int, trade) -> bool:
+        changed = False
+        for setup_field, trade_field in (
+            (f"order{order_index}_closed_at", "close_time"),
+            (f"order{order_index}_close_price", "close_price"),
+            (f"order{order_index}_realized_pnl", "realized_pnl"),
+        ):
+            trade_value = getattr(trade, trade_field)
+            if trade_value is None:
+                continue
+            if getattr(setup, setup_field) != trade_value:
+                setattr(setup, setup_field, trade_value)
+                changed = True
+        return changed
 
     def _inferred_setup_outcome_time(self, setup) -> datetime | None:
         if setup.setup_outcome_recorded_at is not None:

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from app.models.trade_event import TradeEvent
 from app.models.app_setting import AppSetting
+from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate
@@ -535,3 +536,76 @@ def test_reconcile_historical_setups_backfills_existing_setup_outcomes(db_sessio
     db_session.refresh(setup_loss)
     assert setup_win.setup_outcome == "full_win"
     assert setup_loss.setup_outcome == "full_loss"
+
+
+def test_stored_backfill_reclassifies_stale_review_required_tp1_be_setup(db_session, created_user):
+    account = _create_account(db_session, created_user, "OUT-114")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9941
+    setup.order2_ticket = 9942
+    setup.order1_outcome = "sl_hit"
+    setup.order2_outcome = "open"
+    setup.setup_outcome = "review_required"
+    setup.order1_closed_at = datetime(2026, 4, 22, 8, tzinfo=timezone.utc)
+    setup.order2_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+    setup.order1_close_price = 2321.18
+    setup.order2_close_price = 2320.19
+    setup.order1_realized_pnl = 48.0
+    setup.order2_realized_pnl = -0.35
+    setup.setup_outcome_recorded_at = None
+    db_session.add_all(
+        [
+            setup,
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                linked_setup_id=setup.id,
+                position_ticket=9941,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="system",
+                outcome="sl_hit",
+                volume=0.5,
+                open_price=2320.2,
+                close_price=2321.18,
+                realized_pnl=48.0,
+                open_time=datetime(2026, 4, 22, 7, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                linked_setup_id=setup.id,
+                position_ticket=9942,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="system",
+                outcome="open",
+                volume=0.5,
+                open_price=2320.2,
+                close_price=2320.19,
+                realized_pnl=-0.35,
+                open_time=datetime(2026, 4, 22, 7, tzinfo=timezone.utc),
+                close_time=datetime(2026, 4, 22, 9, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = TradeSetupOutcomeService(db_session).backfill_setup_outcomes_from_stored_data(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+    )
+
+    db_session.refresh(setup)
+    trades = {
+        trade.position_ticket: trade
+        for trade in db_session.query(MT5TradeHistory).filter(MT5TradeHistory.linked_setup_id == setup.id).all()
+    }
+    assert result["updated"] == 1
+    assert setup.order1_outcome == "tp_hit"
+    assert setup.order2_outcome == "closed_at_be"
+    assert setup.setup_outcome == "managed_win"
+    assert setup.result_status == "non_stoploss"
+    assert trades[9941].outcome == "tp_hit"
+    assert trades[9942].outcome == "closed_at_be"
