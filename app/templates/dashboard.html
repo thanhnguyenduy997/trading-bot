@@ -121,20 +121,26 @@
 
     {% if daily_risk_state %}
     <section class="daily-risk-panel {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
-        <div class="daily-risk-head">
-            <div>
-                <span class="eyebrow">Daily Risk State</span>
-                <h2>Risk Control</h2>
-            </div>
-            <div class="daily-lock-value {% if daily_risk_state.daily_lock_active %}is-locked{% endif %}">
-                <span>Daily lock</span>
-                <strong>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</strong>
-            </div>
+        <div class="daily-risk-title">
+            <span class="eyebrow">Daily Risk State</span>
         </div>
         <dl class="daily-risk-grid">
-            <div><dt>Trading day</dt><dd>{{ daily_risk_state.trading_day }}</dd></div>
-            <div><dt>Consecutive stoploss today</dt><dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd></div>
-            <div><dt>Reset timing</dt><dd>Next UTC trading day or next non-stoploss setup</dd></div>
+            <div class="daily-risk-tile daily-lock-tile {% if daily_risk_state.daily_lock_active %}is-locked{% endif %}">
+                <dt>Daily lock</dt>
+                <dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd>
+            </div>
+            <div class="daily-risk-tile">
+                <dt>Consecutive stoploss today</dt>
+                <dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd>
+            </div>
+            <div class="daily-risk-tile">
+                <dt>Trading day</dt>
+                <dd>{{ daily_risk_state.trading_day }}</dd>
+            </div>
+            <div class="daily-risk-tile reset-tile">
+                <dt>Reset timing</dt>
+                <dd>Next UTC day or non-stoploss setup</dd>
+            </div>
         </dl>
     </section>
     {% endif %}
