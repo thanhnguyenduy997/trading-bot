@@ -30,7 +30,7 @@ from app.services.mt5_trade_history import (
 from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
-from app.services.trade_setup_execution import TradeSetupExecutionService
+from app.services.trade_setup_execution import PreviewDriftExceededError, TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setup_outcomes import (
     TradeSetupOutcomeService,
@@ -357,6 +357,67 @@ def _get_preview_context(
     return account, symbols, resolved_message, defaults
 
 
+def _preview_modal_payload(preview, setup) -> dict[str, object]:
+    preview_timestamp = setup.updated_at or datetime.now(timezone.utc)
+    if preview_timestamp.tzinfo is None:
+        preview_timestamp = preview_timestamp.replace(tzinfo=timezone.utc)
+    warnings = list(preview.warnings or [])
+    return {
+        "state": "preview_review",
+        "setup_id": setup.id,
+        "preview_timestamp": preview_timestamp.isoformat(),
+        "preview": {
+            "symbol": preview.symbol,
+            "side": preview.side,
+            "estimated_entry": float(preview.estimated_entry),
+            "sl_price": float(preview.sl_price),
+            "tp1_price": float(preview.tp1_price),
+            "tp2_price": float(preview.tp2_price),
+            "total_risk_money": float(preview.total_risk_money),
+            "order1_volume": float(preview.order1_volume),
+            "order2_volume": float(preview.order2_volume),
+            "validation_status": preview.validation_status,
+            "warnings": warnings,
+        },
+        "advanced": {
+            "r_value": float(preview.r_value),
+            "risk_per_order": float(preview.risk_per_order),
+            "bid": float(preview.bid),
+            "ask": float(preview.ask),
+            "point": float(preview.point) if preview.point is not None else None,
+            "digits": preview.digits,
+            "trade_contract_size": float(preview.trade_contract_size) if preview.trade_contract_size is not None else None,
+            "volume_min": float(preview.volume_min) if preview.volume_min is not None else None,
+            "volume_max": float(preview.volume_max) if preview.volume_max is not None else None,
+            "volume_step": float(preview.volume_step) if preview.volume_step is not None else None,
+        },
+    }
+
+
+def _drift_warning_payload(setup_id: int, error: PreviewDriftExceededError) -> dict[str, object]:
+    drift = error.drift
+    details = drift["details"]
+    preview = details["preview"]
+    live = details["live"]
+    return {
+        "state": "drift_warning",
+        "setup_id": setup_id,
+        "message": str(error),
+        "drift": {
+            "preview_entry": preview["estimated_entry"],
+            "current_entry": live["estimated_entry"],
+            "preview_order1_volume": preview["order1_volume"],
+            "current_order1_volume": live["order1_volume"],
+            "preview_order2_volume": preview["order2_volume"],
+            "current_order2_volume": live["order2_volume"],
+            "detected_drift_percent": round(float(drift["detected_drift_percent"]), 4),
+            "threshold_percent": round(float(drift["threshold_percent"]), 4),
+            "stop_distance_drift_percent": round(float(drift["stop_distance_drift_percent"]), 4),
+            "total_setup_volume_drift_percent": round(float(drift["total_setup_volume_drift_percent"]), 4),
+        },
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
 def root() -> RedirectResponse:
     return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
@@ -629,6 +690,77 @@ def trade_preview_page_submit(
         symbols=symbols,
         symbol_message=symbol_message,
     )
+
+
+@router.post("/trade-setups/preview/modal")
+def trade_preview_modal_submit(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    trading_account_id: int = Form(...),
+    symbol: str = Form(...),
+    side: str = Form(...),
+    sl_price: float = Form(...),
+    risk_mode: str = Form(...),
+    risk_value: float = Form(...),
+    rr_order2: float = Form(...),
+    draft_setup_id: int | None = Form(None),
+) -> JSONResponse:
+    form_data = {
+        "trading_account_id": trading_account_id,
+        "symbol": symbol,
+        "side": side,
+        "sl_price": sl_price,
+        "risk_mode": risk_mode,
+        "risk_value": risk_value,
+        "rr_order2": rr_order2,
+    }
+    if draft_setup_id:
+        form_data["draft_setup_id"] = draft_setup_id
+
+    try:
+        payload = TradePreviewRequest(**form_data)
+        preview = PreviewService(db).build_preview(current_user.id, payload)
+    except ValidationError as exc:
+        return JSONResponse(
+            {"state": "preview_error", "message": exc.errors()[0]["msg"]},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except (LookupError, ValueError) as exc:
+        return JSONResponse(
+            {"state": "preview_error", "message": str(exc)},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    setup_payload = TradeSetupCreate(
+        trading_account_id=trading_account_id,
+        symbol=preview.symbol,
+        side=preview.side,
+        sl_price=preview.sl_price,
+        risk_mode=risk_mode,
+        risk_value=risk_value,
+        rr_order2=rr_order2,
+        estimated_entry=preview.estimated_entry,
+        r_value=preview.r_value,
+        tp1_price=preview.tp1_price,
+        tp2_price=preview.tp2_price,
+        total_risk_money=preview.total_risk_money,
+        risk_per_order=preview.risk_per_order,
+        order1_volume=preview.order1_volume,
+        order2_volume=preview.order2_volume,
+        status="draft",
+    )
+    try:
+        if draft_setup_id:
+            setup = update_draft_trade_setup(db, draft_setup_id, current_user.id, setup_payload)
+        else:
+            setup = create_trade_setup(db, current_user.id, setup_payload)
+    except (LookupError, ValueError) as exc:
+        return JSONResponse(
+            {"state": "preview_error", "message": str(exc)},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return JSONResponse(_preview_modal_payload(preview, setup))
 
 
 @router.post("/trade-setups/save")
@@ -1068,6 +1200,56 @@ def execute_trade_setup_page(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             scratch_manual_threshold_r=_current_scratch_manual_threshold_r(db),
         )
+
+
+@router.post("/trade-setups/{setup_id}/execute/modal")
+def execute_trade_setup_modal(
+    setup_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    accept_preview_drift: bool = Form(False),
+) -> JSONResponse:
+    service = TradeSetupExecutionService(db)
+    try:
+        setup = service.execute_setup(
+            setup_id,
+            current_user.id,
+            accept_preview_drift=accept_preview_drift,
+        )
+    except PreviewDriftExceededError as exc:
+        return JSONResponse(
+            _drift_warning_payload(setup_id, exc),
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    except LookupError as exc:
+        return JSONResponse(
+            {"state": "execution_result", "success": False, "message": str(exc)},
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            {"state": "execution_result", "success": False, "message": str(exc)},
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    except AdapterError as exc:
+        return JSONResponse(
+            {"state": "execution_result", "success": False, "message": exc.message, "details": exc.to_dict()},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    return JSONResponse(
+        {
+            "state": "execution_result",
+            "success": True,
+            "setup_id": setup.id,
+            "status": setup.status,
+            "order1_ticket": setup.order1_ticket,
+            "order2_ticket": setup.order2_ticket,
+            "executed_at": setup.executed_at.isoformat() if setup.executed_at else None,
+            "redirect_url": f"/trade-setups/{setup.id}",
+            "message": f"Execution completed. Tickets: {setup.order1_ticket}, {setup.order2_ticket}.",
+        }
+    )
 
 
 @router.post("/trade-setups/{setup_id}/monitor", response_class=HTMLResponse)

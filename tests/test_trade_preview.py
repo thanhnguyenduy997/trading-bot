@@ -555,6 +555,46 @@ def test_preview_page_keeps_primary_results_visible_and_moves_secondary_details_
     assert "Execute within 5 minutes or refresh the preview to avoid stale quote risk." not in response.text
 
 
+def test_preview_modal_endpoint_returns_compact_review_payload(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user, account_number="ACC-203")
+    sync_account_symbols(account, "XAUUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        "/trade-setups/preview/modal",
+        data={
+            "trading_account_id": str(account.id),
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "sl_price": "2319.2",
+            "risk_mode": "fixed_money",
+            "risk_value": "100",
+            "rr_order2": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["state"] == "preview_review"
+    assert data["setup_id"]
+    assert data["preview"]["symbol"] == "XAUUSD"
+    assert data["preview"]["estimated_entry"] == 2320.2
+    assert data["preview"]["order1_volume"] == 0.5
+    assert data["preview"]["order2_volume"] == 0.5
+    assert data["preview_timestamp"]
+    assert data["advanced"]["risk_per_order"] == 50.0
+
+
 def test_preview_uses_only_synced_symbols_for_selected_account(
     client,
     db_session,

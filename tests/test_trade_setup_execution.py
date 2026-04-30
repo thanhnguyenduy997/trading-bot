@@ -372,6 +372,85 @@ def test_preview_drift_reject_event_is_logged(
     assert '"configured_threshold_percent": 5.0' in (event.details or "")
 
 
+def test_html_modal_execute_returns_drift_warning_with_comparison_fields(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: HighDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123466")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        f"/trade-setups/{setup.id}/execute/modal",
+        data={"accept_preview_drift": "false"},
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["state"] == "drift_warning"
+    assert data["drift"]["preview_entry"] == 2320.2
+    assert data["drift"]["current_entry"] == 2329.2
+    assert data["drift"]["preview_order1_volume"] == 0.5
+    assert data["drift"]["current_order1_volume"] == 0.05
+    assert data["drift"]["preview_order2_volume"] == 0.5
+    assert data["drift"]["current_order2_volume"] == 0.05
+    assert data["drift"]["detected_drift_percent"] > data["drift"]["threshold_percent"]
+
+
+def test_html_modal_accepts_drift_and_executes_with_recalculated_values(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_execution.default_adapter_factory",
+        lambda account: HighDriftExecutionAdapter(account),
+    )
+    db_session.add(AppSetting(id=1, max_preview_drift_percent=5))
+    db_session.commit()
+    account = _create_account(db_session, created_user, "123467")
+    sync_account_symbols(account, "XAUUSD")
+    setup = _create_setup(db_session, created_user, account)
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        f"/trade-setups/{setup.id}/execute/modal",
+        data={"accept_preview_drift": "true"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["state"] == "execution_result"
+    assert data["success"] is True
+    stored = db_session.query(TradeSetup).filter(TradeSetup.id == setup.id).first()
+    assert stored is not None
+    assert stored.status == "executed"
+    assert float(stored.estimated_entry) == 2329.2
+    assert float(stored.order1_volume) == 0.05
+    assert float(stored.order2_volume) == 0.05
+    event = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id, TradeEvent.event_type == "preview_drift_accept_execute")
+        .first()
+    )
+    assert event is not None
+    assert '"user_explicitly_accepted_drift": true' in (event.details or "")
+    assert '"order1_volume": 0.5' in (event.details or "")
+    assert '"order1_volume": 0.05' in (event.details or "")
+
+
 def test_preview_drift_rejection_message_is_shown_on_html_execute_flow(
     client,
     db_session,

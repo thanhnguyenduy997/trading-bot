@@ -87,104 +87,99 @@
     </form>
 </section>
 
-{% if preview and setup %}
-<section class="card results-card setup-detail-card layout-tier-wide workflow-page">
-    <div class="section-header compact-header">
-        <div>
-            <h2>Review Setup #{{ setup.id }}</h2>
+<dialog id="trade-preview-modal" class="trade-preview-modal" {% if preview and setup %}open{% endif %}>
+    <div class="trade-preview-modal-shell">
+        <div class="section-header compact-header modal-header">
+            <div>
+                <h2 id="preview-modal-title">{% if preview and setup %}Review Setup #{{ setup.id }}{% else %}Review Setup{% endif %}</h2>
+                <p id="preview-modal-subtitle" class="muted">Fast execution review</p>
+            </div>
+            <button id="preview-modal-close" type="button" class="icon-button modal-close-button" aria-label="Close preview">x</button>
         </div>
-        <span class="status-pill status-{{ setup.status }}">{{ setup.status }}</span>
+
+        <div id="preview-modal-alert" class="alert alert-error preview-modal-alert" hidden></div>
+
+        <div id="preview-modal-content" class="preview-modal-content">
+            {% if preview and setup %}
+            <div class="preview-modal-review" data-setup-id="{{ setup.id }}">
+                <div class="setup-hero preview-summary-card modal-preview-card">
+                    <div class="preview-summary-header">
+                        <div>
+                            <div class="setup-symbol">{{ preview.symbol }}</div>
+                            <div class="setup-subtitle">{{ preview.side|upper }}</div>
+                        </div>
+                        <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
+                    </div>
+                    <div class="preview-summary-grid compact-summary-grid modal-summary-grid">
+                        <div class="preview-summary-item primary-summary-item">
+                            <span>Estimated entry</span>
+                            <strong>{{ preview.estimated_entry }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>Stop loss</span>
+                            <strong>{{ preview.sl_price }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>TP1</span>
+                            <strong>{{ preview.tp1_price }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>TP2</span>
+                            <strong>{{ preview.tp2_price }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>Total risk</span>
+                            <strong>{{ preview.total_risk_money }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>Order 1 volume</span>
+                            <strong>{{ preview.order1_volume }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>Order 2 volume</span>
+                            <strong>{{ preview.order2_volume }}</strong>
+                        </div>
+                        <div class="preview-summary-item">
+                            <span>Preview timestamp</span>
+                            <strong>{{ setup.updated_at.strftime("%Y-%m-%d %H:%M:%S") if setup.updated_at else "Now" }}</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-warning-row">
+                    {% if preview.warnings %}
+                    {% for warning in preview.warnings %}
+                    <span class="status-pill status-pill-warning">{{ warning }}</span>
+                    {% endfor %}
+                    {% else %}
+                    <span class="status-pill status-pill-success">No active warnings</span>
+                    {% endif %}
+                </div>
+                <details class="detail-panel preview-advanced-panel">
+                    <summary>Advanced Details</summary>
+                    <dl class="compact-details">
+                        <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
+                        <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
+                        <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
+                        <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
+                        <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
+                        <div><dt>Contract size</dt><dd>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</dd></div>
+                        <div><dt>Volume min / max</dt><dd>{{ preview.volume_min if preview.volume_min is not none else "N/A" }} / {{ preview.volume_max if preview.volume_max is not none else "N/A" }}</dd></div>
+                        <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
+                    </dl>
+                </details>
+            </div>
+            {% endif %}
+        </div>
+
+        <div id="preview-modal-actions" class="modal-actions">
+            {% if preview and setup %}
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel</button>
+            <button id="preview-modal-refresh" type="button" class="secondary-button">Refresh Preview</button>
+            <button id="preview-modal-execute" type="button">Execute Now</button>
+            {% endif %}
+        </div>
     </div>
-
-    <section class="workflow-block">
-        <div class="block-title-row">
-            <span class="step-chip">Preview</span>
-            <h2>Order Plan</h2>
-        </div>
-        <div class="setup-hero preview-summary-card">
-            <div class="preview-summary-header">
-                <div>
-                    <div class="setup-symbol">{{ preview.symbol }}</div>
-                    <div class="setup-subtitle">{{ preview.side|upper }}</div>
-                </div>
-                <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
-            </div>
-
-            <div class="preview-summary-grid compact-summary-grid">
-                <div class="preview-summary-item primary-summary-item">
-                    <span>Estimated entry</span>
-                    <strong>{{ preview.estimated_entry }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>SL</span>
-                    <strong>{{ preview.sl_price }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>TP1</span>
-                    <strong>{{ preview.tp1_price }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>TP2</span>
-                    <strong>{{ preview.tp2_price }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>Total risk</span>
-                    <strong>{{ preview.total_risk_money }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>Order 1 volume</span>
-                    <strong>{{ preview.order1_volume }}</strong>
-                </div>
-                <div class="preview-summary-item">
-                    <span>Order 2 volume</span>
-                    <strong>{{ preview.order2_volume }}</strong>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="workflow-block warning-block">
-        <div class="block-title-row">
-            <span class="step-chip step-chip-warning">Warnings</span>
-            <h2>Review Flags</h2>
-        </div>
-        {% if preview.warnings %}
-        <div class="warning-list">
-            {% for warning in preview.warnings %}
-            <span class="status-pill status-pill-warning">{{ warning }}</span>
-            {% endfor %}
-        </div>
-        {% else %}
-        <span class="status-pill status-pill-success">No active warnings</span>
-        {% endif %}
-    </section>
-
-    <details class="detail-panel preview-advanced-panel">
-        <summary>Advanced Details</summary>
-        <dl class="compact-details">
-            <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
-            <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
-            <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
-            <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
-            <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
-            <div><dt>Contract size</dt><dd>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</dd></div>
-            <div><dt>Volume min / max</dt><dd>{{ preview.volume_min if preview.volume_min is not none else "N/A" }} / {{ preview.volume_max if preview.volume_max is not none else "N/A" }}</dd></div>
-            <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
-            <div><dt>Warnings</dt><dd>{{ preview.warnings|join(", ") if preview.warnings else "None" }}</dd></div>
-        </dl>
-    </details>
-
-    <section class="detail-panel actions-panel">
-        <h2>Actions</h2>
-        <div class="action-row">
-            <a class="button-link secondary-button" href="#preview-form">Edit setup</a>
-            <form action="/trade-setups/{{ setup.id }}/execute" method="post">
-                <button type="submit">Execute Now</button>
-            </form>
-        </div>
-    </section>
-</section>
-{% endif %}
+</dialog>
 
 <script>
     const previewAccountSelect = document.getElementById("preview-account-select");
@@ -197,7 +192,308 @@
     const previewRrOrder2Input = document.getElementById("preview-rr-order-2-input");
     const savePreviewDefaultsButton = document.getElementById("save-preview-defaults-button");
     const resetPreviewDefaultsButton = document.getElementById("reset-preview-defaults-button");
+    const previewForm = document.querySelector(".preview-form");
+    const previewModal = document.getElementById("trade-preview-modal");
+    const previewModalTitle = document.getElementById("preview-modal-title");
+    const previewModalSubtitle = document.getElementById("preview-modal-subtitle");
+    const previewModalContent = document.getElementById("preview-modal-content");
+    const previewModalActions = document.getElementById("preview-modal-actions");
+    const previewModalAlert = document.getElementById("preview-modal-alert");
+    const previewModalClose = document.getElementById("preview-modal-close");
+    let currentPreviewSetupId = document.querySelector(".preview-modal-review")?.dataset.setupId || null;
     let accountPreviewDefaults = {{ preview_defaults|tojson }};
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function formatModalValue(value) {
+        if (value === null || value === undefined || value === "") {
+            return "N/A";
+        }
+        if (typeof value === "number") {
+            return Number.isInteger(value) ? value.toString() : value.toFixed(5).replace(/0+$/, "").replace(/\.$/, "");
+        }
+        return escapeHtml(value);
+    }
+
+    function formatModalTime(value) {
+        if (!value) {
+            return "Now";
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return escapeHtml(value);
+        }
+        return parsed.toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        });
+    }
+
+    function showPreviewModal() {
+        if (!previewModal) {
+            return;
+        }
+        if (typeof previewModal.showModal === "function" && !previewModal.open) {
+            previewModal.showModal();
+        } else {
+            previewModal.setAttribute("open", "");
+        }
+    }
+
+    function closePreviewModal() {
+        if (!previewModal) {
+            return;
+        }
+        if (typeof previewModal.close === "function") {
+            previewModal.close();
+        } else {
+            previewModal.removeAttribute("open");
+        }
+    }
+
+    function setPreviewModalAlert(message) {
+        if (!previewModalAlert) {
+            return;
+        }
+        if (!message) {
+            previewModalAlert.hidden = true;
+            previewModalAlert.textContent = "";
+            return;
+        }
+        previewModalAlert.hidden = false;
+        previewModalAlert.textContent = message;
+    }
+
+    function setDraftSetupId(setupId) {
+        if (!previewForm || !setupId) {
+            return;
+        }
+        let input = previewForm.querySelector("input[name='draft_setup_id']");
+        if (!input) {
+            input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "draft_setup_id";
+            previewForm.prepend(input);
+        }
+        input.value = setupId;
+        currentPreviewSetupId = String(setupId);
+    }
+
+    function renderPreviewReview(data) {
+        const preview = data.preview || {};
+        const advanced = data.advanced || {};
+        const warnings = preview.warnings || [];
+        currentPreviewSetupId = data.setup_id;
+        setDraftSetupId(data.setup_id);
+        if (previewModalTitle) {
+            previewModalTitle.textContent = `Review Setup #${data.setup_id}`;
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = "Confirm the current plan before execution.";
+        }
+        setPreviewModalAlert("");
+        previewModalContent.innerHTML = `
+            <div class="preview-modal-review" data-setup-id="${escapeHtml(data.setup_id)}">
+                <div class="setup-hero preview-summary-card modal-preview-card">
+                    <div class="preview-summary-header">
+                        <div>
+                            <div class="setup-symbol">${escapeHtml(preview.symbol)}</div>
+                            <div class="setup-subtitle">${escapeHtml(String(preview.side || "").toUpperCase())}</div>
+                        </div>
+                        <div class="status-pill status-pill-success">${escapeHtml(preview.validation_status || "valid")}</div>
+                    </div>
+                    <div class="preview-summary-grid compact-summary-grid modal-summary-grid">
+                        ${summaryItem("Estimated entry", preview.estimated_entry, true)}
+                        ${summaryItem("Stop loss", preview.sl_price)}
+                        ${summaryItem("TP1", preview.tp1_price)}
+                        ${summaryItem("TP2", preview.tp2_price)}
+                        ${summaryItem("Total risk", preview.total_risk_money)}
+                        ${summaryItem("Order 1 volume", preview.order1_volume)}
+                        ${summaryItem("Order 2 volume", preview.order2_volume)}
+                        ${summaryItem("Preview timestamp", formatModalTime(data.preview_timestamp))}
+                    </div>
+                </div>
+                <div class="modal-warning-row">
+                    ${warnings.length ? warnings.map((warning) => `<span class="status-pill status-pill-warning">${escapeHtml(warning)}</span>`).join("") : `<span class="status-pill status-pill-success">No active warnings</span>`}
+                </div>
+                <details class="detail-panel preview-advanced-panel">
+                    <summary>Advanced Details</summary>
+                    <dl class="compact-details">
+                        ${detailItem("R value", advanced.r_value)}
+                        ${detailItem("Risk / order", advanced.risk_per_order)}
+                        ${detailItem("Live bid", advanced.bid)}
+                        ${detailItem("Live ask", advanced.ask)}
+                        ${detailItem("Point / digits", `${formatModalValue(advanced.point)} / ${formatModalValue(advanced.digits)}`)}
+                        ${detailItem("Contract size", advanced.trade_contract_size)}
+                        ${detailItem("Volume min / max", `${formatModalValue(advanced.volume_min)} / ${formatModalValue(advanced.volume_max)}`)}
+                        ${detailItem("Volume step", advanced.volume_step)}
+                    </dl>
+                </details>
+            </div>
+        `;
+        previewModalActions.innerHTML = `
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel</button>
+            <button id="preview-modal-refresh" type="button" class="secondary-button">Refresh Preview</button>
+            <button id="preview-modal-execute" type="button">Execute Now</button>
+        `;
+        showPreviewModal();
+    }
+
+    function summaryItem(label, value, isPrimary = false) {
+        return `
+            <div class="preview-summary-item ${isPrimary ? "primary-summary-item" : ""}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${formatModalValue(value)}</strong>
+            </div>
+        `;
+    }
+
+    function detailItem(label, value) {
+        return `<div><dt>${escapeHtml(label)}</dt><dd>${formatModalValue(value)}</dd></div>`;
+    }
+
+    function renderExecutionProgress(message = "Rechecking current quote and executing...") {
+        if (previewModalTitle) {
+            previewModalTitle.textContent = "Execution in Progress";
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = "The app is validating live price and volume before sending orders.";
+        }
+        setPreviewModalAlert("");
+        previewModalContent.innerHTML = `<div class="modal-state-panel"><strong>${escapeHtml(message)}</strong></div>`;
+        previewModalActions.innerHTML = `<button type="button" disabled>Executing...</button>`;
+        showPreviewModal();
+    }
+
+    function renderDriftWarning(data) {
+        const drift = data.drift || {};
+        if (previewModalTitle) {
+            previewModalTitle.textContent = "Confirm Price Drift";
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = "Current market values moved beyond the configured tolerance.";
+        }
+        setPreviewModalAlert(data.message || "Preview drift exceeded the configured tolerance.");
+        previewModalContent.innerHTML = `
+            <div class="modal-state-panel drift-warning-panel">
+                <p class="muted">Accepting continues with recalculated current values. Cancelling leaves the setup in draft for review.</p>
+                <div class="drift-comparison-grid">
+                    ${driftComparison("Entry", drift.preview_entry, drift.current_entry)}
+                    ${driftComparison("Order 1 volume", drift.preview_order1_volume, drift.current_order1_volume)}
+                    ${driftComparison("Order 2 volume", drift.preview_order2_volume, drift.current_order2_volume)}
+                    ${driftComparison("Detected drift", `${formatModalValue(drift.detected_drift_percent)}%`, `${formatModalValue(drift.threshold_percent)}% allowed`)}
+                </div>
+                <div class="modal-warning-row">
+                    <span class="status-pill status-pill-warning">Stop distance drift ${formatModalValue(drift.stop_distance_drift_percent)}%</span>
+                    <span class="status-pill status-pill-warning">Volume drift ${formatModalValue(drift.total_setup_volume_drift_percent)}%</span>
+                </div>
+            </div>
+        `;
+        previewModalActions.innerHTML = `
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel preview</button>
+            <button id="preview-modal-refresh" type="button" class="secondary-button">Refresh Preview</button>
+            <button id="preview-modal-accept-drift" type="button" class="danger-button">Accept new volume and execute now</button>
+        `;
+        showPreviewModal();
+    }
+
+    function driftComparison(label, previousValue, currentValue) {
+        return `
+            <div class="drift-comparison-item">
+                <span>${escapeHtml(label)}</span>
+                <div><small>Preview</small><strong>${formatModalValue(previousValue)}</strong></div>
+                <div><small>Current</small><strong>${formatModalValue(currentValue)}</strong></div>
+            </div>
+        `;
+    }
+
+    function renderExecutionResult(data, ok) {
+        if (previewModalTitle) {
+            previewModalTitle.textContent = ok && data.success ? "Execution Sent" : "Execution Blocked";
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = ok && data.success ? "Orders were submitted with the current reviewed values." : "No orders were submitted.";
+        }
+        setPreviewModalAlert(ok && data.success ? "" : (data.message || "Execution failed."));
+        previewModalContent.innerHTML = `
+            <div class="modal-state-panel execution-result-panel">
+                <strong>${escapeHtml(data.message || "Execution completed.")}</strong>
+                ${data.order1_ticket ? `<div class="preview-summary-grid modal-summary-grid">${summaryItem("Order 1 ticket", data.order1_ticket)}${summaryItem("Order 2 ticket", data.order2_ticket)}${summaryItem("Status", data.status)}${summaryItem("Executed", formatModalTime(data.executed_at))}</div>` : ""}
+            </div>
+        `;
+        previewModalActions.innerHTML = ok && data.success
+            ? `<a class="button-link" href="${escapeHtml(data.redirect_url || `/trade-setups/${data.setup_id}`)}">Open Setup</a>`
+            : `<button id="preview-modal-cancel" type="button" class="secondary-button">Close</button><button id="preview-modal-refresh" type="button">Refresh Preview</button>`;
+        showPreviewModal();
+    }
+
+    async function submitPreviewModal() {
+        if (!previewForm) {
+            return;
+        }
+        const formData = new FormData(previewForm);
+        if (previewModalTitle) {
+            previewModalTitle.textContent = "Building Preview";
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = "Fetching quote and calculating plan.";
+        }
+        setPreviewModalAlert("");
+        previewModalContent.innerHTML = `<div class="modal-state-panel"><strong>Building current preview...</strong></div>`;
+        previewModalActions.innerHTML = `<button type="button" disabled>Previewing...</button>`;
+        showPreviewModal();
+
+        const response = await fetch("/trade-setups/preview/modal", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
+            body: formData,
+        });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            renderExecutionResult({message: data.message || "Unable to build preview."}, false);
+            return;
+        }
+        renderPreviewReview(data);
+    }
+
+    async function executePreviewModal(acceptPreviewDrift = false) {
+        if (!currentPreviewSetupId) {
+            setPreviewModalAlert("Build a preview before executing.");
+            return;
+        }
+        renderExecutionProgress(acceptPreviewDrift ? "Executing with explicitly accepted recalculated values..." : "Rechecking quote and volume drift...");
+        const payload = new FormData();
+        payload.set("accept_preview_drift", acceptPreviewDrift ? "true" : "false");
+        const response = await fetch(`/trade-setups/${currentPreviewSetupId}/execute/modal`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"X-Requested-With": "XMLHttpRequest"},
+            body: payload,
+        });
+        if (await window.handleExpiredSessionResponse(response)) {
+            return;
+        }
+        const data = await response.json();
+        if (response.status === 409 && data.state === "drift_warning") {
+            renderDriftWarning(data);
+            return;
+        }
+        renderExecutionResult(data, response.ok);
+    }
 
     function applyPreviewDefaults(defaults) {
         if (!defaults) {
@@ -334,6 +630,35 @@
                 previewSymbolSelect.value = accountPreviewDefaults.symbol;
             }
             applyPreviewDefaults(accountPreviewDefaults);
+        });
+    }
+    if (previewForm) {
+        previewForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            submitPreviewModal();
+        });
+    }
+    if (previewModalClose) {
+        previewModalClose.addEventListener("click", closePreviewModal);
+    }
+    if (previewModalActions) {
+        previewModalActions.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target.id === "preview-modal-cancel") {
+                closePreviewModal();
+            }
+            if (target.id === "preview-modal-refresh") {
+                submitPreviewModal();
+            }
+            if (target.id === "preview-modal-execute") {
+                executePreviewModal(false);
+            }
+            if (target.id === "preview-modal-accept-drift") {
+                executePreviewModal(true);
+            }
         });
     }
 </script>

@@ -16,6 +16,12 @@ from app.services.trade_setups import get_trade_setup
 from app.services.trading_accounts import get_trading_account
 
 
+class PreviewDriftExceededError(ValueError):
+    def __init__(self, message: str, drift: dict[str, object]) -> None:
+        super().__init__(message)
+        self.drift = drift
+
+
 class TradeSetupExecutionService:
     preview_ttl = timedelta(minutes=5)
     PREVIEW_DRIFT_REJECT_MESSAGE = (
@@ -29,7 +35,7 @@ class TradeSetupExecutionService:
         self.risk_management = RiskManagementService(db)
         self.account_symbols = TradingAccountSymbolService(db)
 
-    def execute_setup(self, setup_id: int, user_id: int):
+    def execute_setup(self, setup_id: int, user_id: int, *, accept_preview_drift: bool = False):
         setup = get_trade_setup(self.db, setup_id, user_id)
         if not setup:
             raise LookupError("Trade setup not found")
@@ -50,7 +56,13 @@ class TradeSetupExecutionService:
         adapter = self.adapter_factory(account)
         try:
             self.risk_management.assert_execute_allowed(setup=setup, account=account)
-            self._validate_preview_drift(setup=setup, account=account, user_id=user_id)
+            drift = self.evaluate_preview_drift(setup=setup, account=account, user_id=user_id)
+            if drift["exceeds_threshold"] and not accept_preview_drift:
+                self._record_preview_drift_reject(setup=setup, user_id=user_id, drift=drift)
+                raise PreviewDriftExceededError(self._format_preview_drift_reject_message(drift["detected_drift_percent"], drift["threshold_percent"]), drift)
+            if drift["exceeds_threshold"] and accept_preview_drift:
+                self._apply_live_preview_to_setup(setup, drift["live_preview"])
+                self._record_preview_drift_accept(setup=setup, user_id=user_id, drift=drift)
             account_info = adapter.get_account_info()
             persist_session_matched(self.db, account, account_info=account_info)
             create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
@@ -266,7 +278,7 @@ class TradeSetupExecutionService:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) - updated_at > self.preview_ttl
 
-    def _validate_preview_drift(self, *, setup, account, user_id: int) -> None:
+    def evaluate_preview_drift(self, *, setup, account, user_id: int) -> dict[str, object]:
         execution_service = TradingAccountExecutionService(self.db, adapter_factory=self.adapter_factory)
         try:
             live_preview = PreviewService(self.db, execution_service=execution_service).build_preview(
@@ -296,9 +308,6 @@ class TradeSetupExecutionService:
         detected_drift_percent = max(stop_distance_drift_percent, total_setup_volume_drift_percent)
         threshold_percent = get_effective_max_preview_drift_percent(self.db, account)
 
-        if detected_drift_percent <= threshold_percent:
-            return
-
         details = {
             "setup_id": setup.id,
             "account_id": account.id,
@@ -307,15 +316,23 @@ class TradeSetupExecutionService:
             "detected_drift_percent": round(detected_drift_percent, 4),
             "comparison_basis": "max(stop_distance_drift_percent, total_setup_volume_drift_percent)",
             "preview": {
+                "symbol": setup.symbol,
+                "side": setup.side,
                 "estimated_entry": float(setup.estimated_entry),
                 "stop_distance": saved_stop_distance,
                 "total_risk_money": float(setup.total_risk_money),
+                "order1_volume": float(setup.order1_volume),
+                "order2_volume": float(setup.order2_volume),
                 "total_setup_volume": saved_total_volume,
             },
             "live": {
+                "symbol": live_preview.symbol,
+                "side": live_preview.side,
                 "estimated_entry": float(live_preview.estimated_entry),
                 "stop_distance": live_stop_distance,
                 "total_risk_money": float(live_preview.total_risk_money),
+                "order1_volume": float(live_preview.order1_volume),
+                "order2_volume": float(live_preview.order2_volume),
                 "total_setup_volume": live_total_volume,
             },
             "drift_components": {
@@ -323,15 +340,49 @@ class TradeSetupExecutionService:
                 "total_setup_volume_drift_percent": round(total_setup_volume_drift_percent, 4),
             },
         }
+        return {
+            "exceeds_threshold": detected_drift_percent > threshold_percent,
+            "detected_drift_percent": detected_drift_percent,
+            "threshold_percent": threshold_percent,
+            "stop_distance_drift_percent": stop_distance_drift_percent,
+            "total_setup_volume_drift_percent": total_setup_volume_drift_percent,
+            "live_preview": live_preview,
+            "details": details,
+        }
+
+    def _record_preview_drift_reject(self, *, setup, user_id: int, drift: dict[str, object]) -> None:
         create_trade_event(
             self.db,
             user_id,
             setup.id,
             "preview_drift_reject",
-            self._format_preview_drift_reject_message(detected_drift_percent, threshold_percent),
+            self._format_preview_drift_reject_message(drift["detected_drift_percent"], drift["threshold_percent"]),
+            details=json.dumps(drift["details"], indent=2, sort_keys=True),
+        )
+
+    def _record_preview_drift_accept(self, *, setup, user_id: int, drift: dict[str, object]) -> None:
+        details = dict(drift["details"])
+        details["user_explicitly_accepted_drift"] = True
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "preview_drift_accept_execute",
+            "User accepted recalculated preview values and execution continued.",
             details=json.dumps(details, indent=2, sort_keys=True),
         )
-        raise ValueError(self._format_preview_drift_reject_message(detected_drift_percent, threshold_percent))
+
+    def _apply_live_preview_to_setup(self, setup, live_preview) -> None:
+        setup.estimated_entry = live_preview.estimated_entry
+        setup.r_value = live_preview.r_value
+        setup.tp1_price = live_preview.tp1_price
+        setup.tp2_price = live_preview.tp2_price
+        setup.total_risk_money = live_preview.total_risk_money
+        setup.risk_per_order = live_preview.risk_per_order
+        setup.order1_volume = live_preview.order1_volume
+        setup.order2_volume = live_preview.order2_volume
+        self.db.add(setup)
+        self.db.flush()
 
     def _preview_request_from_setup(self, setup):
         from app.schemas.trade_preview import TradePreviewRequest
