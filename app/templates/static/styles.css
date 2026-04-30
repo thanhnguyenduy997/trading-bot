@@ -487,6 +487,7 @@ button:hover {
 
 .trade-preview-modal {
     width: min(780px, calc(100vw - 2rem));
+    height: min(86dvh, 760px);
     max-height: min(86dvh, 760px);
     padding: 0;
     border: 1px solid rgba(142, 169, 209, 0.58);
@@ -503,7 +504,8 @@ button:hover {
 
 .trade-preview-modal-shell {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100%;
     max-height: min(86dvh, 760px);
     background: #fff;
 }
@@ -555,17 +557,21 @@ button:hover {
 }
 
 .preview-modal-alert {
-    margin: 0.75rem 1rem 0;
+    margin: 0 0 0.75rem;
     padding: 0.62rem 0.75rem;
     border-radius: 10px;
     font-size: 0.88rem;
 }
 
-.preview-modal-content {
+.modal-body {
     min-height: 0;
     padding: 0.85rem 1rem 1rem;
     overflow: auto;
     overscroll-behavior: contain;
+}
+
+.preview-modal-content {
+    min-height: 0;
 }
 
 .preview-modal-review {
@@ -649,9 +655,6 @@ button:hover {
 }
 
 .modal-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
     display: flex;
     justify-content: flex-end;
     gap: 0.65rem;
@@ -659,6 +662,7 @@ button:hover {
     border-top: 1px solid var(--line);
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 -10px 28px rgba(16, 24, 40, 0.08);
+    flex: 0 0 auto;
 }
 
 .modal-actions button,
@@ -1209,7 +1213,7 @@ button:hover {
     .trade-preview-modal-shell {
         height: 100dvh;
         max-height: 100dvh;
-        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        grid-template-rows: auto minmax(0, 1fr) auto;
     }
 
     .modal-header {
@@ -1231,12 +1235,12 @@ button:hover {
         font-size: 1.08rem;
     }
 
-    .preview-modal-content {
+    .modal-body {
         padding: 0.65rem 0.7rem 0.75rem;
     }
 
     .preview-modal-alert {
-        margin: 0.6rem 0.7rem 0;
+        margin: 0 0 0.6rem;
         padding: 0.55rem 0.65rem;
     }
 

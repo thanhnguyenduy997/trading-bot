@@ -97,87 +97,89 @@
             <button id="preview-modal-close" type="button" class="modal-close-button" aria-label="Close preview">&times;</button>
         </div>
 
-        <div id="preview-modal-alert" class="alert alert-error preview-modal-alert" hidden></div>
+        <div class="modal-body">
+            <div id="preview-modal-alert" class="alert alert-error preview-modal-alert" hidden></div>
 
-        <div id="preview-modal-content" class="preview-modal-content">
-            {% if preview and setup %}
-            <div class="preview-modal-review" data-setup-id="{{ setup.id }}">
-                <section class="modal-section modal-summary-section">
-                    <div class="modal-trade-strip">
-                        <div>
-                            <div class="setup-symbol">{{ preview.symbol }}</div>
-                            <div class="setup-subtitle">{{ preview.side|upper }}</div>
+            <div id="preview-modal-content" class="preview-modal-content">
+                {% if preview and setup %}
+                <div class="preview-modal-review" data-setup-id="{{ setup.id }}">
+                    <section class="modal-section modal-summary-section">
+                        <div class="modal-trade-strip">
+                            <div>
+                                <div class="setup-symbol">{{ preview.symbol }}</div>
+                                <div class="setup-subtitle">{{ preview.side|upper }}</div>
+                            </div>
+                            <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
                         </div>
-                        <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
-                    </div>
-                    <div class="modal-summary-grid">
-                        <div class="preview-summary-item primary-summary-item">
-                            <span>Estimated entry</span>
-                            <strong>{{ preview.estimated_entry }}</strong>
+                        <div class="modal-summary-grid">
+                            <div class="preview-summary-item primary-summary-item">
+                                <span>Estimated entry</span>
+                                <strong>{{ preview.estimated_entry }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Stop loss</span>
+                                <strong>{{ preview.sl_price }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>TP1</span>
+                                <strong>{{ preview.tp1_price }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>TP2</span>
+                                <strong>{{ preview.tp2_price }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Total risk</span>
+                                <strong>{{ preview.total_risk_money }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Order 1 volume</span>
+                                <strong>{{ preview.order1_volume }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Order 2 volume</span>
+                                <strong>{{ preview.order2_volume }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Preview timestamp</span>
+                                <strong>{{ setup.updated_at.strftime("%Y-%m-%d %H:%M:%S") if setup.updated_at else "Now" }}</strong>
+                            </div>
                         </div>
-                        <div class="preview-summary-item">
-                            <span>Stop loss</span>
-                            <strong>{{ preview.sl_price }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>TP1</span>
-                            <strong>{{ preview.tp1_price }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>TP2</span>
-                            <strong>{{ preview.tp2_price }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>Total risk</span>
-                            <strong>{{ preview.total_risk_money }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>Order 1 volume</span>
-                            <strong>{{ preview.order1_volume }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>Order 2 volume</span>
-                            <strong>{{ preview.order2_volume }}</strong>
-                        </div>
-                        <div class="preview-summary-item">
-                            <span>Preview timestamp</span>
-                            <strong>{{ setup.updated_at.strftime("%Y-%m-%d %H:%M:%S") if setup.updated_at else "Now" }}</strong>
-                        </div>
-                    </div>
-                </section>
-                <section class="modal-warning-block">
-                    {% if preview.warnings %}
-                    {% for warning in preview.warnings %}
-                    <span class="status-pill status-pill-warning">{{ warning }}</span>
-                    {% endfor %}
-                    {% else %}
-                    <span class="status-pill status-pill-success">No active warnings</span>
-                    {% endif %}
-                </section>
-                <details class="preview-advanced-panel modal-advanced-panel">
-                    <summary>Advanced Details</summary>
-                    <dl class="compact-details">
-                        <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
-                        <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
-                        <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
-                        <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
-                        <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
-                        <div><dt>Contract size</dt><dd>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</dd></div>
-                        <div><dt>Volume min / max</dt><dd>{{ preview.volume_min if preview.volume_min is not none else "N/A" }} / {{ preview.volume_max if preview.volume_max is not none else "N/A" }}</dd></div>
-                        <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
-                    </dl>
-                </details>
+                    </section>
+                    <section class="modal-warning-block">
+                        {% if preview.warnings %}
+                        {% for warning in preview.warnings %}
+                        <span class="status-pill status-pill-warning">{{ warning }}</span>
+                        {% endfor %}
+                        {% else %}
+                        <span class="status-pill status-pill-success">No active warnings</span>
+                        {% endif %}
+                    </section>
+                    <details class="preview-advanced-panel modal-advanced-panel">
+                        <summary>Advanced Details</summary>
+                        <dl class="compact-details">
+                            <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
+                            <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
+                            <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
+                            <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
+                            <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
+                            <div><dt>Contract size</dt><dd>{{ preview.trade_contract_size if preview.trade_contract_size is not none else "N/A" }}</dd></div>
+                            <div><dt>Volume min / max</dt><dd>{{ preview.volume_min if preview.volume_min is not none else "N/A" }} / {{ preview.volume_max if preview.volume_max is not none else "N/A" }}</dd></div>
+                            <div><dt>Volume step</dt><dd>{{ preview.volume_step if preview.volume_step is not none else "N/A" }}</dd></div>
+                        </dl>
+                    </details>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
 
-        <div id="preview-modal-actions" class="modal-actions">
+        <footer id="preview-modal-actions" class="modal-footer modal-actions">
             {% if preview and setup %}
             <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel</button>
             <button id="preview-modal-refresh" type="button" class="secondary-button">Refresh Preview</button>
             <button id="preview-modal-execute" type="button">Execute Now</button>
             {% endif %}
-        </div>
+        </footer>
     </div>
 </dialog>
 
@@ -376,7 +378,11 @@
         }
         setPreviewModalAlert("");
         previewModalContent.innerHTML = `<div class="modal-state-panel"><strong>${escapeHtml(message)}</strong></div>`;
-        previewModalActions.innerHTML = `<button type="button" disabled>Executing...</button>`;
+        previewModalActions.innerHTML = `
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel</button>
+            <button id="preview-modal-refresh" type="button" class="secondary-button" disabled>Refresh Preview</button>
+            <button id="preview-modal-execute" type="button" disabled>Executing...</button>
+        `;
         showPreviewModal();
     }
 
@@ -455,7 +461,11 @@
         }
         setPreviewModalAlert("");
         previewModalContent.innerHTML = `<div class="modal-state-panel"><strong>Building current preview...</strong></div>`;
-        previewModalActions.innerHTML = `<button type="button" disabled>Previewing...</button>`;
+        previewModalActions.innerHTML = `
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel</button>
+            <button id="preview-modal-refresh" type="button" class="secondary-button" disabled>Refresh Preview</button>
+            <button id="preview-modal-execute" type="button" disabled>Previewing...</button>
+        `;
         showPreviewModal();
 
         const response = await fetch("/trade-setups/preview/modal", {
