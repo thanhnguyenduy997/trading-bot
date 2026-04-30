@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, sanitize_next_value
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, set_auth_cookie, verify_password
 from app.models.user import User
 from app.schemas.auth import Token
 from app.schemas.user import UserCreate, UserRead
@@ -36,14 +36,8 @@ def login_for_access_token(
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
-    access_token = create_access_token(subject=str(user.id))
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-    )
+    access_token = create_access_token(subject=str(user.id), hashed_password=user.hashed_password)
+    set_auth_cookie(response, "access_token", access_token)
     return Token(access_token=access_token)
 
 
@@ -60,16 +54,10 @@ def login_from_form(
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
-    access_token = create_access_token(subject=str(user.id))
+    access_token = create_access_token(subject=str(user.id), hashed_password=user.hashed_password)
     redirect_target = sanitize_next_value(next) or "/dashboard"
     response = RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-    )
+    set_auth_cookie(response, "access_token", access_token)
     return response
 
 

@@ -10,6 +10,11 @@ from app.core.dependencies import (
     build_login_redirect_url,
     is_api_like_request,
 )
+from app.core.security import (
+    create_access_token,
+    set_auth_cookie,
+    token_expires_soon,
+)
 from app.services.background_monitor import TradeMonitorRunner
 
 
@@ -19,6 +24,21 @@ trade_monitor = TradeMonitorRunner(settings)
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 app.include_router(api_router)
 app.mount("/static", StaticFiles(directory="app/templates/static"), name="static")
+
+
+@app.middleware("http")
+async def refresh_expiring_cookie_session(request: Request, call_next):
+    response = await call_next(request)
+    for session in getattr(request.state, "auth_cookie_sessions", []):
+        payload = session["payload"]
+        if not token_expires_soon(payload):
+            continue
+        refreshed_token = create_access_token(
+            str(session["user_id"]),
+            hashed_password=session["hashed_password"],
+        )
+        set_auth_cookie(response, session["cookie_name"], refreshed_token)
+    return response
 
 
 @app.exception_handler(SessionExpiredError)

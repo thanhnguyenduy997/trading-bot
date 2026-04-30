@@ -6,7 +6,10 @@ from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import decode_access_token
+from app.core.security import (
+    decode_access_token,
+    password_session_fingerprint,
+)
 from app.models.user import User
 
 
@@ -49,24 +52,54 @@ def is_api_like_request(request: Request) -> bool:
     return request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
-def _user_id_from_token(token: str | None) -> int:
+def _payload_from_token(token: str | None) -> dict:
     if not token:
         raise SessionExpiredError(REAUTH_MESSAGE)
     try:
-        payload = decode_access_token(token)
-        return int(payload["sub"])
+        return decode_access_token(token)
     except (JWTError, KeyError, ValueError):
         raise SessionExpiredError() from None
 
 
-def _resolve_user(db: Session, token: str | None) -> User:
-    user_id = _user_id_from_token(token)
+def _user_id_from_payload(payload: dict) -> int:
+    try:
+        return int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise SessionExpiredError() from None
+
+
+def _resolve_user_with_payload(db: Session, token: str | None) -> tuple[User, dict]:
+    payload = _payload_from_token(token)
+    user_id = _user_id_from_payload(payload)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise SessionExpiredError()
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+    password_fingerprint = payload.get("pwd")
+    if password_fingerprint is not None and password_fingerprint != password_session_fingerprint(user.hashed_password):
+        raise SessionExpiredError()
+    return user, payload
+
+
+def _resolve_user(db: Session, token: str | None) -> User:
+    user, _payload = _resolve_user_with_payload(db, token)
     return user
+
+
+def _remember_cookie_session(request: Request, cookie_name: str, user: User, payload: dict) -> None:
+    sessions = getattr(request.state, "auth_cookie_sessions", None)
+    if sessions is None:
+        sessions = []
+        request.state.auth_cookie_sessions = sessions
+    sessions.append(
+        {
+            "cookie_name": cookie_name,
+            "user_id": user.id,
+            "hashed_password": user.hashed_password,
+            "payload": payload,
+        }
+    )
 
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
@@ -79,11 +112,13 @@ def get_current_user_from_cookie(
     admin_access_token: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ) -> User:
-    user = _resolve_user(db, access_token)
+    user, user_payload = _resolve_user_with_payload(db, access_token)
+    _remember_cookie_session(request, "access_token", user, user_payload)
     if admin_access_token:
-        admin = _resolve_user(db, admin_access_token)
+        admin, admin_payload = _resolve_user_with_payload(db, admin_access_token)
         if admin.role == "admin" and admin.id != user.id:
             setattr(user, "impersonator", admin)
+            _remember_cookie_session(request, "admin_access_token", admin, admin_payload)
     return user
 
 

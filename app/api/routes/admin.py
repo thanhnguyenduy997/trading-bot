@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_admin_user_from_cookie, get_current_user_from_cookie
-from app.core.security import create_access_token
+from app.core.security import create_access_token, set_auth_cookie
 from app.models.user import User
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.schemas.user import UserCreate, UserUpdate
@@ -304,14 +304,12 @@ def admin_start_impersonation(
     if target.id == admin_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot impersonate yourself")
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie("access_token", create_access_token(str(target.id)), httponly=True, samesite="lax", secure=False)
+    set_auth_cookie(response, "access_token", create_access_token(str(target.id), hashed_password=target.hashed_password))
     if not getattr(current_user, "impersonator", None):
-        response.set_cookie(
+        set_auth_cookie(
+            response,
             "admin_access_token",
-            create_access_token(str(admin_user.id)),
-            httponly=True,
-            samesite="lax",
-            secure=False,
+            create_access_token(str(admin_user.id), hashed_password=admin_user.hashed_password),
         )
     log_admin_action(
         db,
@@ -331,7 +329,7 @@ def admin_stop_impersonation(
     admin_user: User = Depends(get_current_admin_user_from_cookie),
 ) -> RedirectResponse:
     response = RedirectResponse(url="/admin/users", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie("access_token", create_access_token(str(admin_user.id)), httponly=True, samesite="lax", secure=False)
+    set_auth_cookie(response, "access_token", create_access_token(str(admin_user.id), hashed_password=admin_user.hashed_password))
     response.delete_cookie("admin_access_token")
     log_admin_action(
         db,
