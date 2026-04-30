@@ -89,12 +89,12 @@
 
 <dialog id="trade-preview-modal" class="trade-preview-modal" {% if preview and setup %}open{% endif %}>
     <div class="trade-preview-modal-shell">
-        <div class="section-header compact-header modal-header">
+        <div class="modal-header">
             <div>
                 <h2 id="preview-modal-title">{% if preview and setup %}Review Setup #{{ setup.id }}{% else %}Review Setup{% endif %}</h2>
                 <p id="preview-modal-subtitle" class="muted">Fast execution review</p>
             </div>
-            <button id="preview-modal-close" type="button" class="icon-button modal-close-button" aria-label="Close preview">x</button>
+            <button id="preview-modal-close" type="button" class="modal-close-button" aria-label="Close preview">&times;</button>
         </div>
 
         <div id="preview-modal-alert" class="alert alert-error preview-modal-alert" hidden></div>
@@ -102,15 +102,15 @@
         <div id="preview-modal-content" class="preview-modal-content">
             {% if preview and setup %}
             <div class="preview-modal-review" data-setup-id="{{ setup.id }}">
-                <div class="setup-hero preview-summary-card modal-preview-card">
-                    <div class="preview-summary-header">
+                <section class="modal-section modal-summary-section">
+                    <div class="modal-trade-strip">
                         <div>
                             <div class="setup-symbol">{{ preview.symbol }}</div>
                             <div class="setup-subtitle">{{ preview.side|upper }}</div>
                         </div>
                         <div class="status-pill status-pill-success">{{ preview.validation_status }}</div>
                     </div>
-                    <div class="preview-summary-grid compact-summary-grid modal-summary-grid">
+                    <div class="modal-summary-grid">
                         <div class="preview-summary-item primary-summary-item">
                             <span>Estimated entry</span>
                             <strong>{{ preview.estimated_entry }}</strong>
@@ -144,8 +144,8 @@
                             <strong>{{ setup.updated_at.strftime("%Y-%m-%d %H:%M:%S") if setup.updated_at else "Now" }}</strong>
                         </div>
                     </div>
-                </div>
-                <div class="modal-warning-row">
+                </section>
+                <section class="modal-warning-block">
                     {% if preview.warnings %}
                     {% for warning in preview.warnings %}
                     <span class="status-pill status-pill-warning">{{ warning }}</span>
@@ -153,8 +153,8 @@
                     {% else %}
                     <span class="status-pill status-pill-success">No active warnings</span>
                     {% endif %}
-                </div>
-                <details class="detail-panel preview-advanced-panel">
+                </section>
+                <details class="preview-advanced-panel modal-advanced-panel">
                     <summary>Advanced Details</summary>
                     <dl class="compact-details">
                         <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
@@ -202,6 +202,9 @@
     const previewModalClose = document.getElementById("preview-modal-close");
     let currentPreviewSetupId = document.querySelector(".preview-modal-review")?.dataset.setupId || null;
     let accountPreviewDefaults = {{ preview_defaults|tojson }};
+    if (previewModal?.open) {
+        document.body.classList.add("modal-open");
+    }
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -248,6 +251,7 @@
         } else {
             previewModal.setAttribute("open", "");
         }
+        document.body.classList.add("modal-open");
     }
 
     function closePreviewModal() {
@@ -259,6 +263,7 @@
         } else {
             previewModal.removeAttribute("open");
         }
+        document.body.classList.remove("modal-open");
     }
 
     function setPreviewModalAlert(message) {
@@ -304,15 +309,15 @@
         setPreviewModalAlert("");
         previewModalContent.innerHTML = `
             <div class="preview-modal-review" data-setup-id="${escapeHtml(data.setup_id)}">
-                <div class="setup-hero preview-summary-card modal-preview-card">
-                    <div class="preview-summary-header">
+                <section class="modal-section modal-summary-section">
+                    <div class="modal-trade-strip">
                         <div>
                             <div class="setup-symbol">${escapeHtml(preview.symbol)}</div>
                             <div class="setup-subtitle">${escapeHtml(String(preview.side || "").toUpperCase())}</div>
                         </div>
                         <div class="status-pill status-pill-success">${escapeHtml(preview.validation_status || "valid")}</div>
                     </div>
-                    <div class="preview-summary-grid compact-summary-grid modal-summary-grid">
+                    <div class="modal-summary-grid">
                         ${summaryItem("Estimated entry", preview.estimated_entry, true)}
                         ${summaryItem("Stop loss", preview.sl_price)}
                         ${summaryItem("TP1", preview.tp1_price)}
@@ -322,11 +327,11 @@
                         ${summaryItem("Order 2 volume", preview.order2_volume)}
                         ${summaryItem("Preview timestamp", formatModalTime(data.preview_timestamp))}
                     </div>
-                </div>
-                <div class="modal-warning-row">
+                </section>
+                <section class="modal-warning-block">
                     ${warnings.length ? warnings.map((warning) => `<span class="status-pill status-pill-warning">${escapeHtml(warning)}</span>`).join("") : `<span class="status-pill status-pill-success">No active warnings</span>`}
-                </div>
-                <details class="detail-panel preview-advanced-panel">
+                </section>
+                <details class="preview-advanced-panel modal-advanced-panel">
                     <summary>Advanced Details</summary>
                     <dl class="compact-details">
                         ${detailItem("R value", advanced.r_value)}
@@ -640,6 +645,14 @@
     }
     if (previewModalClose) {
         previewModalClose.addEventListener("click", closePreviewModal);
+    }
+    if (previewModal) {
+        previewModal.addEventListener("close", () => {
+            document.body.classList.remove("modal-open");
+        });
+        previewModal.addEventListener("cancel", () => {
+            document.body.classList.remove("modal-open");
+        });
     }
     if (previewModalActions) {
         previewModalActions.addEventListener("click", (event) => {

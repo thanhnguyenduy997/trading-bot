@@ -31,6 +31,10 @@ body {
     line-height: 1.5;
 }
 
+body.modal-open {
+    overflow: hidden;
+}
+
 .site-header {
     position: sticky;
     top: 0;
@@ -482,13 +486,13 @@ button:hover {
 }
 
 .trade-preview-modal {
-    width: min(760px, calc(100vw - 2rem));
-    max-height: min(88vh, 780px);
+    width: min(780px, calc(100vw - 2rem));
+    max-height: min(86dvh, 760px);
     padding: 0;
-    border: 1px solid rgba(142, 169, 209, 0.5);
-    border-radius: 16px;
+    border: 1px solid rgba(142, 169, 209, 0.58);
+    border-radius: 18px;
     background: var(--card);
-    box-shadow: 0 24px 80px rgba(16, 24, 40, 0.24);
+    box-shadow: 0 28px 90px rgba(16, 24, 40, 0.28);
     overflow: hidden;
 }
 
@@ -500,28 +504,49 @@ button:hover {
 .trade-preview-modal-shell {
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr) auto;
-    max-height: min(88vh, 780px);
+    max-height: min(86dvh, 760px);
+    background: #fff;
 }
 
 .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
     margin: 0;
-    padding: 1rem 1rem 0.85rem;
+    padding: 0.9rem 1rem 0.78rem;
     border-bottom: 1px solid var(--line);
+    background: #fff;
 }
 
 .modal-header h2 {
     margin: 0;
+    font-size: 1.08rem;
+    letter-spacing: 0;
+    line-height: 1.2;
+}
+
+.modal-header p {
+    margin: 0.18rem 0 0;
+    font-size: 0.84rem;
 }
 
 .modal-close-button {
-    min-height: 2.15rem;
-    width: 2.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 1.9rem;
+    width: 1.9rem;
     padding: 0;
     border-radius: 999px;
-    background: #f2f4f7;
+    background: #fff;
     border-color: var(--line);
     color: var(--muted);
     box-shadow: none;
+    font-size: 1.2rem;
+    font-weight: 650;
+    line-height: 1;
 }
 
 .modal-close-button:hover {
@@ -530,13 +555,52 @@ button:hover {
 }
 
 .preview-modal-alert {
-    margin: 0.85rem 1rem 0;
+    margin: 0.75rem 1rem 0;
+    padding: 0.62rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
 }
 
 .preview-modal-content {
     min-height: 0;
-    padding: 1rem;
+    padding: 0.85rem 1rem 1rem;
     overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.preview-modal-review {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.modal-section {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.modal-summary-section {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.85rem;
+}
+
+.modal-trade-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.8rem;
+}
+
+.modal-trade-strip .setup-symbol {
+    font-size: 1.45rem;
+    letter-spacing: 0;
+    line-height: 1.05;
+}
+
+.modal-trade-strip .setup-subtitle {
+    font-size: 0.86rem;
+    line-height: 1.2;
 }
 
 .modal-preview-card {
@@ -546,23 +610,60 @@ button:hover {
 }
 
 .modal-summary-grid {
+    display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.55rem;
 }
 
+.modal-summary-grid .preview-summary-item {
+    padding: 0.64rem 0.68rem;
+    border-radius: 10px;
+    background: #f8fafc;
+    border-color: #e6ebf2;
+}
+
+.modal-summary-grid .primary-summary-item {
+    background: #eef5ff;
+    border-color: #c9defc;
+}
+
+.modal-warning-block,
 .modal-warning-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.85rem;
+    gap: 0.45rem;
+}
+
+.modal-warning-block {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #fedf89;
+    border-radius: 12px;
+    background: #fffcf5;
+}
+
+.modal-warning-block .status-pill,
+.modal-warning-row .status-pill {
+    min-width: 0;
+    padding: 0.26rem 0.56rem;
+    font-size: 0.76rem;
 }
 
 .modal-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
     display: flex;
     justify-content: flex-end;
     gap: 0.65rem;
-    padding: 0.85rem 1rem 1rem;
+    padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
     border-top: 1px solid var(--line);
-    background: #fff;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -10px 28px rgba(16, 24, 40, 0.08);
+}
+
+.modal-actions button,
+.modal-actions .button-link {
+    min-height: 2.65rem;
 }
 
 .modal-state-panel {
@@ -572,6 +673,24 @@ button:hover {
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #f8fafc;
+}
+
+.modal-advanced-panel {
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8fafc;
+    overflow: hidden;
+}
+
+.modal-advanced-panel summary {
+    padding: 0.68rem 0.78rem;
+}
+
+.modal-advanced-panel .compact-details {
+    margin: 0;
+    padding: 0 0.78rem 0.75rem;
+    border-top: 1px solid var(--line);
 }
 
 .drift-warning-panel {
@@ -1081,27 +1200,108 @@ button:hover {
 
     .trade-preview-modal {
         width: 100vw;
+        height: 100dvh;
         max-height: 100dvh;
         border-radius: 0;
+        border: 0;
     }
 
     .trade-preview-modal-shell {
+        height: 100dvh;
         max-height: 100dvh;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+
+    .modal-header {
+        padding: 0.72rem 0.8rem 0.62rem;
+        gap: 0.65rem;
+    }
+
+    .modal-header h2 {
+        font-size: 1rem;
+    }
+
+    .modal-header p {
+        font-size: 0.78rem;
+    }
+
+    .modal-close-button {
+        min-height: 1.75rem;
+        width: 1.75rem;
+        font-size: 1.08rem;
     }
 
     .preview-modal-content {
-        padding: 0.8rem;
+        padding: 0.65rem 0.7rem 0.75rem;
+    }
+
+    .preview-modal-alert {
+        margin: 0.6rem 0.7rem 0;
+        padding: 0.55rem 0.65rem;
+    }
+
+    .preview-modal-review {
+        gap: 0.6rem;
+    }
+
+    .modal-summary-section {
+        gap: 0.62rem;
+        padding: 0.65rem;
+    }
+
+    .modal-trade-strip {
+        align-items: center;
+    }
+
+    .modal-trade-strip .setup-symbol {
+        font-size: 1.2rem;
+    }
+
+    .modal-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem;
+    }
+
+    .modal-summary-grid .preview-summary-item {
+        padding: 0.52rem 0.55rem;
+    }
+
+    .modal-summary-grid .preview-summary-item span {
+        font-size: 0.7rem;
+        line-height: 1.15;
+    }
+
+    .modal-summary-grid .preview-summary-item strong {
+        font-size: 0.9rem;
+    }
+
+    .modal-warning-block {
+        padding: 0.55rem 0.62rem;
+    }
+
+    .modal-advanced-panel summary {
+        min-height: 2.4rem;
+        padding: 0.58rem 0.68rem;
     }
 
     .modal-actions {
         display: grid;
-        grid-template-columns: 1fr;
-        padding: 0.75rem 0.8rem;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        padding: 0.62rem 0.7rem max(0.62rem, env(safe-area-inset-bottom));
     }
 
     .modal-actions button,
     .modal-actions .button-link {
         width: 100%;
+        min-height: 2.75rem;
+        padding: 0.56rem 0.6rem;
+    }
+
+    .modal-actions button:last-child,
+    .modal-actions .button-link:last-child {
+        grid-column: 1 / -1;
+        order: -1;
     }
 
     .drift-comparison-grid,
