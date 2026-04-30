@@ -80,6 +80,19 @@ class TradeSetupMonitoringService:
                     "Order 1 appears to have closed at TP1.",
                     details=json.dumps(tp1_details, indent=2, sort_keys=True, default=str),
                 )
+            if setup.monitoring_status == "manual_live_monitor_only":
+                setup.monitoring_status = "manual_live_tp1_detected"
+                setup.order2_be_move_error = None
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "be_move_skipped_monitor_only",
+                    "TP1 detected, but recovered setup is configured for monitor-only mode.",
+                )
+                self._persist(setup)
+                self.outcomes.reconcile_setup(setup.id, user_id)
+                return self._result(setup, order1_status="closed", order2_status="open")
             be_price = float(order2_position["price_open"])
             current_sl = float(order2_position.get("sl") or 0.0)
             if setup.order2_be_moved_at is not None:

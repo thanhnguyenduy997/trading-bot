@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card layout-tier-wide stack workflow-page">
+    <div class="section-header workflow-header">
+        <div>
+            <h1>Recover Live Manual Setup</h1>
+            <p class="muted">Attach running MT5 positions so the app can monitor them without placing new entry orders.</p>
+        </div>
+        <a class="button-link secondary-button" href="/trade-setups">Back to Setups</a>
+    </div>
+
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    {% for notice in notices %}<div class="alert alert-success">{{ notice }}</div>{% endfor %}
+
+    <section class="detail-panel workflow-block">
+        <div class="block-title-row">
+            <span class="step-chip">Step 1</span>
+            <h2>Select Open MT5 Positions</h2>
+        </div>
+        <form action="/trade-setups/recover-live" method="get" class="stack">
+            <label>
+                Trading account
+                <select name="trading_account_id" required>
+                    {% for account in accounts %}
+                    <option value="{{ account.id }}" {% if form_data.trading_account_id == account.id %}selected{% endif %}>
+                        {{ account.broker_name }} / {{ account.account_number }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% if positions %}
+            <div class="table-wrap desktop-table-only">
+                <table class="accounts-table">
+                    <thead>
+                        <tr>
+                            <th>Pick</th><th>Ticket</th><th>Symbol</th><th>Side</th><th>Volume</th><th>Open</th><th>SL</th><th>TP</th><th>PnL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for position in positions %}
+                        <tr>
+                            <td><input type="checkbox" name="selected_ticket" value="{{ position.ticket }}" {% if position.ticket in selected_tickets %}checked{% endif %}></td>
+                            <td>{{ position.ticket }}</td>
+                            <td>{{ position.symbol }}</td>
+                            <td>{{ position.side|upper }}</td>
+                            <td>{{ position.volume }}</td>
+                            <td>{{ position.open_price if position.open_price is not none else "-" }}</td>
+                            <td>{{ position.sl_price if position.sl_price is not none else "-" }}</td>
+                            <td>{{ position.tp_price if position.tp_price is not none else "-" }}</td>
+                            <td>{{ position.current_pnl if position.current_pnl is not none else "-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mobile-card-list mobile-only">
+                {% for position in positions %}
+                <label class="mobile-select-card">
+                    <input type="checkbox" name="selected_ticket" value="{{ position.ticket }}" {% if position.ticket in selected_tickets %}checked{% endif %}>
+                    <div class="mobile-select-card-body">
+                        <div class="mobile-data-card-header">
+                            <div><h3>{{ position.symbol }}</h3><p>{{ position.side|upper }} · Ticket {{ position.ticket }}</p></div>
+                            <strong>{{ position.current_pnl if position.current_pnl is not none else "-" }}</strong>
+                        </div>
+                        <dl class="mobile-data-pairs">
+                            <div><dt>Volume</dt><dd>{{ position.volume }}</dd></div>
+                            <div><dt>Open</dt><dd>{{ position.open_price if position.open_price is not none else "-" }}</dd></div>
+                            <div><dt>SL</dt><dd>{{ position.sl_price if position.sl_price is not none else "-" }}</dd></div>
+                            <div><dt>TP</dt><dd>{{ position.tp_price if position.tp_price is not none else "-" }}</dd></div>
+                        </dl>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="muted">No unlinked open MT5 positions were found for this account.</p>
+            {% endif %}
+            <div class="action-row">
+                <button type="submit" class="secondary-button">Use Selected Positions</button>
+            </div>
+        </form>
+    </section>
+
+    {% if selected_positions %}
+    <section class="detail-panel workflow-block">
+        <div class="block-title-row">
+            <span class="step-chip">Step 2</span>
+            <h2>Selected Live Positions</h2>
+        </div>
+        <div class="preview-summary-grid">
+            {% for position in selected_positions %}
+            <article class="metric-card">
+                <span>Ticket {{ position.ticket }}</span>
+                <strong>{{ position.symbol }} {{ position.side|upper }}</strong>
+                <div class="muted">Volume {{ position.volume }} · Open {{ position.open_price if position.open_price is not none else "-" }}</div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <form action="/trade-setups/recover-live" method="post" class="stack workflow-block">
+        <div class="block-title-row">
+            <span class="step-chip">Step 3</span>
+            <h2>Confirm Live Setup Plan</h2>
+        </div>
+        <div class="preview-primary-grid">
+            <input type="hidden" name="trading_account_id" value="{{ form_data.trading_account_id or '' }}">
+            <label>Symbol<input type="text" name="symbol" value="{{ form_data.symbol or '' }}" required></label>
+            <label>Side<select name="side">{% for item in ["buy", "sell"] %}<option value="{{ item }}" {% if form_data.side == item %}selected{% endif %}>{{ item|upper }}</option>{% endfor %}</select></label>
+            <label>Entry plan<input type="number" name="estimated_entry" step="0.0001" min="0" value="{{ form_data.estimated_entry or '' }}" required></label>
+            <label>Stop loss plan<input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required></label>
+            <label>Total risk plan<input type="number" name="total_risk_money" step="0.01" min="0.01" value="{{ form_data.total_risk_money or '' }}" required></label>
+            <label>RR order 2<input type="number" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required></label>
+            <label>TP1<input type="number" name="tp1_price" step="0.0001" min="0" value="{{ form_data.tp1_price or '' }}"></label>
+            <label>TP2<input type="number" name="tp2_price" step="0.0001" min="0" value="{{ form_data.tp2_price or '' }}"></label>
+            <label>Number of orders<input type="number" name="order_count" min="1" max="2" value="{{ form_data.order_count or 2 }}" required></label>
+            <label>Order 1 ticket<input type="number" name="order1_ticket" min="1" value="{{ form_data.order1_ticket or '' }}" required></label>
+            <label>Order 2 ticket<input type="number" name="order2_ticket" min="1" value="{{ form_data.order2_ticket or '' }}"></label>
+            <label>Monitoring mode
+                <select name="monitoring_mode">
+                    <option value="monitor_and_move_be" {% if form_data.monitoring_mode != "monitor_only" %}selected{% endif %}>Monitor + Auto move BE after TP1</option>
+                    <option value="monitor_only" {% if form_data.monitoring_mode == "monitor_only" %}selected{% endif %}>Monitor only</option>
+                </select>
+            </label>
+        </div>
+        <div class="action-row">
+            <button type="submit">Recover Live Setup</button>
+            <a class="button-link secondary-button" href="/trade-setups">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

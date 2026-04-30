@@ -147,3 +147,7 @@ class ManualTradeSetupCreate(BaseModel):
     @classmethod
     def normalize_manual_symbol(cls, value: str) -> str:
         return value.upper()
+
+
+class LiveManualRecoveryCreate(ManualTradeSetupCreate):
+    monitoring_mode: Literal["monitor_only", "monitor_and_move_be"] = "monitor_and_move_be"

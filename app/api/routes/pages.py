@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_user_from_cookie
 from app.execution.base import AdapterError
 from app.models.user import User
 from app.schemas.trade_preview import TradePreviewRequest
-from app.schemas.trade_setup import ManualTradeSetupCreate, TradeSetupCreate
+from app.schemas.trade_setup import LiveManualRecoveryCreate, ManualTradeSetupCreate, TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.services.account_symbols import (
     EMPTY_SYMBOL_MESSAGE,
@@ -993,6 +993,143 @@ async def derive_manual_trade_setup_fields(
             },
         )
     return JSONResponse(content=result)
+
+
+def _live_recovery_defaults(accounts: list, account_id: int | None = None) -> dict[str, object]:
+    return {
+        "trading_account_id": account_id or (accounts[0].id if accounts else None),
+        "symbol": "",
+        "side": "buy",
+        "estimated_entry": "",
+        "sl_price": "",
+        "total_risk_money": "",
+        "rr_order2": 2.0,
+        "tp1_price": "",
+        "tp2_price": "",
+        "order_count": 2,
+        "order1_ticket": "",
+        "order2_ticket": "",
+        "monitoring_mode": "monitor_and_move_be",
+    }
+
+
+@router.get("/trade-setups/recover-live", response_class=HTMLResponse)
+def recover_live_manual_setup_page(
+    request: Request,
+    trading_account_id: int | None = Query(None),
+    selected_ticket: list[int] | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    accounts = list_trading_accounts(db, current_user.id)
+    account_id = trading_account_id or (accounts[0].id if accounts else None)
+    service = ManualTradeSetupService(db)
+    positions = []
+    selected_positions = []
+    form_data = _live_recovery_defaults(accounts, account_id)
+    notices: list[str] = []
+    error = None
+    try:
+        positions = service.list_recoverable_open_positions(user_id=current_user.id, trading_account_id=account_id) if account_id else []
+        if selected_ticket and account_id:
+            prefill = service.build_live_recovery_prefill(user_id=current_user.id, trading_account_id=account_id, tickets=selected_ticket)
+            form_data = prefill["form_data"]
+            selected_positions = prefill["selected_positions"]
+            notices = prefill["messages"]
+    except (ValueError, LookupError, AdapterError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request,
+        "live_recovery_form.html",
+        {
+            "request": request,
+            "user": current_user,
+            "accounts": accounts,
+            "positions": positions,
+            "selected_positions": selected_positions,
+            "selected_tickets": selected_ticket or [],
+            "form_data": form_data,
+            "notices": notices,
+            "error": error,
+        },
+    )
+
+
+@router.post("/trade-setups/recover-live", response_class=HTMLResponse)
+def recover_live_manual_setup_submit(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    trading_account_id: int = Form(...),
+    symbol: str = Form(...),
+    side: str = Form(...),
+    estimated_entry: float = Form(...),
+    sl_price: float = Form(...),
+    total_risk_money: float = Form(...),
+    rr_order2: float = Form(...),
+    tp1_price: str = Form(""),
+    tp2_price: str = Form(""),
+    order_count: int = Form(...),
+    order1_ticket: int = Form(...),
+    order2_ticket: str = Form(""),
+    monitoring_mode: str = Form("monitor_and_move_be"),
+) -> Response:
+    service = ManualTradeSetupService(db)
+    try:
+        payload = LiveManualRecoveryCreate(
+            trading_account_id=trading_account_id,
+            symbol=symbol,
+            side=side,
+            estimated_entry=estimated_entry,
+            sl_price=sl_price,
+            total_risk_money=total_risk_money,
+            rr_order2=rr_order2,
+            tp1_price=float(tp1_price) if tp1_price else None,
+            tp2_price=float(tp2_price) if tp2_price else None,
+            order_count=order_count,
+            order1_ticket=order1_ticket,
+            order2_ticket=int(order2_ticket) if order2_ticket else None,
+            monitoring_mode=monitoring_mode,
+        )
+        setup = service.recover_live_manual_setup(user_id=current_user.id, payload=payload)
+        return RedirectResponse(url=f"/trade-setups/{setup.id}?message=Live manual setup recovered", status_code=status.HTTP_303_SEE_OTHER)
+    except (ValidationError, ValueError, LookupError, AdapterError) as exc:
+        error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
+        accounts = list_trading_accounts(db, current_user.id)
+        try:
+            positions = service.list_recoverable_open_positions(user_id=current_user.id, trading_account_id=trading_account_id)
+        except Exception:
+            positions = []
+        return templates.TemplateResponse(
+            request,
+            "live_recovery_form.html",
+            {
+                "request": request,
+                "user": current_user,
+                "accounts": accounts,
+                "positions": positions,
+                "selected_positions": [],
+                "selected_tickets": [order1_ticket] + ([int(order2_ticket)] if order2_ticket else []),
+                "form_data": {
+                    "trading_account_id": trading_account_id,
+                    "symbol": symbol,
+                    "side": side,
+                    "estimated_entry": estimated_entry,
+                    "sl_price": sl_price,
+                    "total_risk_money": total_risk_money,
+                    "rr_order2": rr_order2,
+                    "tp1_price": tp1_price,
+                    "tp2_price": tp2_price,
+                    "order_count": order_count,
+                    "order1_ticket": order1_ticket,
+                    "order2_ticket": order2_ticket,
+                    "monitoring_mode": monitoring_mode,
+                },
+                "notices": [],
+                "error": error,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 @router.get("/trade-setups/{setup_id}/manual/edit", response_class=HTMLResponse)

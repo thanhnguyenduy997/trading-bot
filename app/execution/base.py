@@ -37,6 +37,9 @@ class ExecutionAdapter(ABC):
     def list_symbols(self) -> list[dict[str, object]]:
         raise NotImplementedError
 
+    def list_open_positions(self) -> list[dict[str, object]]:
+        raise NotImplementedError
+
     @abstractmethod
     def execute_setup(self, setup: object) -> dict[str, str | int | float | None]:
         raise NotImplementedError

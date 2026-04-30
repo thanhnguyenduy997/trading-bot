@@ -290,6 +290,17 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             return None
         return self._position_to_dict(positions[0])
 
+    def list_open_positions(self) -> list[dict[str, object]]:
+        self._ensure_connected()
+        positions = self._mt5.positions_get()
+        if positions is None:
+            raise AdapterError(
+                code="mt5_positions_unavailable",
+                message="Unable to inspect open MT5 positions.",
+                details=self._error_details(),
+            )
+        return [self._position_to_dict(position) for position in positions]
+
     def get_position_history(self, *, position_ticket: int) -> list[dict[str, object]]:
         self._ensure_connected()
         date_to = datetime.now(timezone.utc)

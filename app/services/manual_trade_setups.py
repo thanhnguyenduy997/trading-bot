@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.execution.base import AdapterError
 from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
-from app.schemas.trade_setup import ManualTradeSetupCreate
+from app.schemas.trade_setup import LiveManualRecoveryCreate, ManualTradeSetupCreate
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
 from app.services.risk_service import RiskService
@@ -57,6 +57,177 @@ class ManualTradeSetupService:
             .order_by(MT5TradeHistory.close_time.desc().nulls_last(), MT5TradeHistory.id.desc())
             .all()
         )
+
+    def list_recoverable_open_positions(self, *, user_id: int, trading_account_id: int) -> list[dict[str, object]]:
+        account = get_trading_account(self.db, trading_account_id, user_id)
+        if not account:
+            raise LookupError("Trading account not found")
+        adapter = self.adapter_factory(account)
+        try:
+            adapter.connect()
+            account_info = adapter.get_account_info()
+            persist_session_matched(self.db, account, account_info=account_info)
+            positions = adapter.list_open_positions()
+        except AdapterError as exc:
+            persist_session_failure(self.db, account, error=exc)
+            raise
+        finally:
+            close = getattr(adapter, "close", None)
+            if callable(close):
+                close()
+
+        linked_tickets = self._linked_setup_tickets(user_id=user_id, trading_account_id=trading_account_id)
+        candidates = []
+        for position in positions:
+            ticket = int(position.get("ticket") or 0)
+            if not ticket or ticket in linked_tickets:
+                continue
+            candidates.append(
+                {
+                    "ticket": ticket,
+                    "symbol": self._normalize_symbol(position.get("symbol")),
+                    "side": self._normalize_side(position.get("side") or position.get("type")),
+                    "volume": self._coerce_float(position.get("volume")) or 0.0,
+                    "open_price": self._coerce_float(position.get("price_open")),
+                    "open_time": self._coerce_datetime(position.get("time")),
+                    "sl_price": self._coerce_float(position.get("sl") or position.get("stop_loss")),
+                    "tp_price": self._coerce_float(position.get("tp") or position.get("take_profit")),
+                    "current_pnl": self._coerce_float(position.get("profit")),
+                }
+            )
+        return candidates
+
+    def build_live_recovery_prefill(
+        self,
+        *,
+        user_id: int,
+        trading_account_id: int,
+        tickets: list[int],
+    ) -> dict[str, object]:
+        if not tickets:
+            raise ValueError("Select 1 or 2 open MT5 positions to recover.")
+        if len(tickets) > 2:
+            raise ValueError("Live recovery supports 1 or 2 open MT5 positions.")
+        account = get_trading_account(self.db, trading_account_id, user_id)
+        if not account:
+            raise LookupError("Trading account not found")
+        self._assert_tickets_not_already_linked(tickets, current_setup_id=None)
+        snapshots = self._load_ticket_snapshots(account=account, tickets=tickets)
+        if any(snapshot.status != "open" for snapshot in snapshots):
+            raise ValueError("Live recovery can only attach currently open MT5 positions.")
+        self._assert_snapshot_grouping(snapshots)
+
+        weighted_entry = self._weighted_entry_price(snapshots)
+        derived_sl = self._derive_stop_loss_from_snapshots(snapshots)
+        rr_order2 = float(account.default_rr_order_2 or 2.0)
+        if weighted_entry is None or derived_sl is None:
+            raise ValueError("Selected MT5 positions need open price and stop loss before recovery.")
+        r_value = abs(weighted_entry - derived_sl)
+        tp1_price = self._derive_target_price(side=snapshots[0].side, entry_price=weighted_entry, r_value=r_value, rr_multiple=Decimal("1"))
+        tp2_price = self._derive_target_price(side=snapshots[0].side, entry_price=weighted_entry, r_value=r_value, rr_multiple=Decimal(str(rr_order2)))
+        total_risk_money, risk_message = self._derive_total_risk_money(account=account, snapshots=snapshots, stop_loss=derived_sl)
+
+        form_data = {
+            "trading_account_id": account.id,
+            "symbol": self._normalize_symbol(snapshots[0].symbol),
+            "side": self._ui_side(snapshots[0].side),
+            "estimated_entry": float(weighted_entry),
+            "sl_price": float(derived_sl),
+            "total_risk_money": float(total_risk_money) if total_risk_money is not None else "",
+            "rr_order2": rr_order2,
+            "tp1_price": float(tp1_price),
+            "tp2_price": float(tp2_price),
+            "order_count": len(snapshots),
+            "order1_ticket": snapshots[0].ticket,
+            "order2_ticket": snapshots[1].ticket if len(snapshots) == 2 else "",
+            "monitoring_mode": "monitor_and_move_be",
+        }
+        return {
+            "form_data": form_data,
+            "selected_positions": snapshots,
+            "autofilled_fields": {
+                "trading_account_id",
+                "symbol",
+                "side",
+                "estimated_entry",
+                "sl_price",
+                "total_risk_money",
+                "rr_order2",
+                "tp1_price",
+                "tp2_price",
+                "order_count",
+                "order1_ticket",
+                "order2_ticket",
+            },
+            "messages": [risk_message] if risk_message else [],
+            "warnings": [],
+        }
+
+    def recover_live_manual_setup(self, *, user_id: int, payload: LiveManualRecoveryCreate) -> TradeSetup:
+        account = get_trading_account(self.db, payload.trading_account_id, user_id)
+        if not account:
+            raise LookupError("Trading account not found")
+        tickets = [payload.order1_ticket] + ([payload.order2_ticket] if payload.order2_ticket is not None else [])
+        self._assert_tickets_not_already_linked(tickets, current_setup_id=None)
+        snapshots = self._load_ticket_snapshots(account=account, tickets=tickets)
+        self._assert_live_recovery_snapshot_state(payload=payload, snapshots=snapshots)
+        self._assert_snapshot_grouping(snapshots)
+        validated = self._validate_live_recovery_payload(account=account, payload=payload, snapshots=snapshots)
+        order1_already_tp = snapshots[0].status == "closed"
+        setup = TradeSetup(
+            user_id=user_id,
+            trading_account_id=account.id,
+            setup_source="manual",
+            order_count=payload.order_count,
+            symbol=payload.symbol,
+            side=payload.side,
+            sl_price=payload.sl_price,
+            risk_mode="fixed_money",
+            risk_value=payload.total_risk_money,
+            rr_order2=payload.rr_order2,
+            estimated_entry=payload.estimated_entry,
+            r_value=validated["r_value"],
+            tp1_price=validated["tp1_price"],
+            tp2_price=validated["tp2_price"],
+            total_risk_money=payload.total_risk_money,
+            risk_per_order=validated["risk_per_order"],
+            order1_volume=validated["order1_volume"],
+            order2_volume=validated["order2_volume"],
+            order1_ticket=payload.order1_ticket,
+            order2_ticket=payload.order2_ticket,
+            status="executed",
+            manual_confirmed_at=datetime.now(timezone.utc),
+            executed_at=validated["executed_at"],
+            monitoring_status="manual_live_monitor_only" if payload.monitoring_mode == "monitor_only" else "waiting_tp1",
+            order1_outcome="tp_hit" if order1_already_tp else "open",
+            order2_outcome="open" if payload.order2_ticket else None,
+            order1_closed_at=snapshots[0].close_time if order1_already_tp else None,
+            order1_close_price=snapshots[0].close_price if order1_already_tp else None,
+            setup_outcome="open",
+            setup_outcome_recorded_at=datetime.now(timezone.utc),
+        )
+        self.db.add(setup)
+        self.db.flush()
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "manual_live_recovered",
+            "Running MT5 position tickets attached for live monitoring.",
+            details=json.dumps(
+                {
+                    "tickets": tickets,
+                    "monitoring_mode": payload.monitoring_mode,
+                    "ticket_snapshots": [snapshot.__dict__ for snapshot in snapshots],
+                },
+                indent=2,
+                sort_keys=True,
+                default=str,
+            ),
+        )
+        self.db.commit()
+        self.db.refresh(setup)
+        return setup
 
     def build_prefill_from_selected_trades(
         self,
@@ -530,6 +701,111 @@ class ManualTradeSetupService:
                 ],
             },
         }
+
+    def _validate_live_recovery_payload(
+        self,
+        *,
+        account,
+        payload: LiveManualRecoveryCreate,
+        snapshots: list[ManualTicketSnapshot],
+    ) -> dict[str, object]:
+        if payload.order_count != len(snapshots):
+            raise ValueError("Order count must match selected open MT5 positions.")
+        if payload.order_count == 2 and payload.order2_ticket is None:
+            raise ValueError("Two-order live recovery requires both MT5 tickets.")
+        r_value = abs(float(payload.estimated_entry) - float(payload.sl_price))
+        if r_value <= 0:
+            raise ValueError("Entry plan and stop loss plan must produce a positive 1R distance.")
+        if payload.side == "buy" and float(payload.sl_price) >= float(payload.estimated_entry):
+            raise ValueError("For buy recovered setups, stop loss plan must be below entry plan.")
+        if payload.side == "sell" and float(payload.sl_price) <= float(payload.estimated_entry):
+            raise ValueError("For sell recovered setups, stop loss plan must be above entry plan.")
+        expected_symbol = self._normalize_symbol(payload.symbol)
+        expected_side = self._canonical_side(payload.side)
+        for snapshot in snapshots:
+            if self._normalize_symbol(snapshot.symbol) != expected_symbol:
+                raise ValueError(f"Ticket {snapshot.ticket} belongs to symbol {snapshot.symbol}, not {expected_symbol}.")
+            if self._canonical_side(snapshot.side) != expected_side:
+                raise ValueError(f"Ticket {snapshot.ticket} belongs to side {snapshot.side}, not {expected_side}.")
+        tp1_price = payload.tp1_price or self._derive_target_price(
+            side=payload.side,
+            entry_price=Decimal(str(payload.estimated_entry)),
+            r_value=Decimal(str(r_value)),
+            rr_multiple=Decimal("1"),
+        )
+        tp2_price = payload.tp2_price or self._derive_target_price(
+            side=payload.side,
+            entry_price=Decimal(str(payload.estimated_entry)),
+            r_value=Decimal(str(r_value)),
+            rr_multiple=Decimal(str(payload.rr_order2)),
+        )
+        return {
+            "r_value": r_value,
+            "tp1_price": float(tp1_price),
+            "tp2_price": float(tp2_price),
+            "risk_per_order": float(payload.total_risk_money) / float(payload.order_count),
+            "order1_volume": snapshots[0].volume,
+            "order2_volume": snapshots[1].volume if len(snapshots) > 1 else 0.0,
+            "executed_at": min([snapshot.open_time for snapshot in snapshots if snapshot.open_time is not None] or [datetime.now(timezone.utc)]),
+        }
+
+    def _linked_setup_tickets(self, *, user_id: int, trading_account_id: int) -> set[int]:
+        setups = (
+            self.db.query(TradeSetup.order1_ticket, TradeSetup.order2_ticket)
+            .filter(TradeSetup.user_id == user_id, TradeSetup.trading_account_id == trading_account_id)
+            .all()
+        )
+        tickets: set[int] = set()
+        for order1_ticket, order2_ticket in setups:
+            if order1_ticket:
+                tickets.add(int(order1_ticket))
+            if order2_ticket:
+                tickets.add(int(order2_ticket))
+        return tickets
+
+    def _assert_tickets_not_already_linked(self, tickets: list[int], *, current_setup_id: int | None) -> None:
+        for ticket in tickets:
+            self._assert_ticket_not_already_linked(ticket, current_setup_id=current_setup_id)
+
+    def _assert_snapshot_grouping(self, snapshots: list[ManualTicketSnapshot]) -> None:
+        if not snapshots:
+            raise ValueError("Select at least one open MT5 position.")
+        symbols = {self._normalize_symbol(snapshot.symbol) for snapshot in snapshots}
+        if len(symbols) != 1:
+            raise ValueError("Selected MT5 positions must have the same symbol.")
+        sides = {self._canonical_side(snapshot.side) for snapshot in snapshots}
+        if len(sides) != 1:
+            raise ValueError("Selected MT5 positions must have the same side.")
+
+    def _assert_live_recovery_snapshot_state(
+        self,
+        *,
+        payload: LiveManualRecoveryCreate,
+        snapshots: list[ManualTicketSnapshot],
+    ) -> None:
+        if all(snapshot.status == "open" for snapshot in snapshots):
+            return
+        if (
+            payload.order_count == 2
+            and len(snapshots) == 2
+            and snapshots[0].status == "closed"
+            and snapshots[1].status == "open"
+            and snapshots[0].close_price is not None
+            and self._matches_price(snapshots[0].close_price, float(payload.tp1_price or payload.estimated_entry))
+        ):
+            return
+        raise ValueError("Live recovery can only attach open MT5 positions, except when Order 1 already closed at TP1 and Order 2 is still open.")
+
+    def _matches_price(self, actual: float, expected: float) -> bool:
+        return abs(float(actual) - float(expected)) <= max(abs(float(expected)) * 1e-6, 1e-6)
+
+    def _derive_stop_loss_from_snapshots(self, snapshots: list[ManualTicketSnapshot]) -> Decimal | None:
+        sl_values = [Decimal(str(snapshot.sl_price)) for snapshot in snapshots if snapshot.sl_price is not None]
+        if not sl_values:
+            return None
+        if len(set(sl_values)) > 1:
+            raise ValueError("Selected MT5 positions have conflicting stop loss values.")
+        return sl_values[0]
 
     def _load_synced_manual_trades(
         self,
