@@ -2,7 +2,6 @@ import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.risk_control_log import RiskControlLog
@@ -14,7 +13,6 @@ from app.services.trade_events import create_trade_event
 
 MAX_SETUP_VOLUME_MESSAGE = "Total setup volume exceeds the account's allowed cap."
 DAILY_LOCK_MESSAGE = "You have reached the limit of 2 consecutive stoploss setups for the day."
-STOPLOSS_R_THRESHOLD = Decimal("0.9")
 logger = logging.getLogger(__name__)
 
 
@@ -161,26 +159,27 @@ class RiskManagementService:
         streak = 0
         daily_lock_active = False
         last_result = None
-        events = self._order_events_for_day(user_id=user_id, trading_day=trading_day)
+        events = self._setup_events_for_day(user_id=user_id, trading_day=trading_day)
 
         for event in events:
             streak_before = streak
-            is_stoploss = self._is_stoploss_order(
-                realized_pnl=event["realized_pnl"],
-                order_1r_value=event["order_1r_value"],
-            )
-            streak = streak + 1 if is_stoploss else 0
+            risk_result = self._risk_result_for_setup_outcome(event["setup_outcome"])
+            if risk_result == "stoploss":
+                streak += 1
+                last_result = "stoploss"
+            elif risk_result == "non_stoploss":
+                streak = 0
+                last_result = "non_stoploss"
             daily_lock_active = daily_lock_active or streak >= 2
-            last_result = "stoploss" if is_stoploss else "non_stoploss"
             logger.debug(
-                "Daily lock streak evaluation ticket=%s close_time=%s realized_pnl=%s order_1r_value=%s computed_stoploss=%s streak_before=%s streak_after=%s",
-                event["ticket"],
-                event["close_time"],
-                event["realized_pnl"],
-                event["order_1r_value"],
-                is_stoploss,
+                "Daily lock setup streak evaluation setup_id=%s setup_outcome=%s setup_time=%s streak_before=%s streak_after=%s counted_as_stoploss=%s reset_streak=%s",
+                event["setup_id"],
+                event["setup_outcome"],
+                event["setup_time"],
                 streak_before,
                 streak,
+                risk_result == "stoploss",
+                risk_result == "non_stoploss",
             )
 
         state.consecutive_stoploss_count = streak
@@ -199,60 +198,62 @@ class RiskManagementService:
         if not previous_lock and daily_lock_active:
             self._log(user_id, trigger_setup_id, "daily_lock_triggered", DAILY_LOCK_MESSAGE)
         if (previous_lock and not daily_lock_active) or (previous_count > streak):
-            self._log(user_id, trigger_setup_id, "daily_lock_reset", "Daily lock state recalculated after non-stoploss order.")
+            self._log(user_id, trigger_setup_id, "daily_lock_reset", "Daily lock state recalculated after non-stoploss setup.")
         return state
 
-    def _order_events_for_day(self, *, user_id: int, trading_day: date) -> list[dict[str, object]]:
+    def _setup_events_for_day(self, *, user_id: int, trading_day: date) -> list[dict[str, object]]:
         start = datetime.combine(trading_day, datetime.min.time(), tzinfo=timezone.utc)
         end = datetime.combine(trading_day, datetime.max.time(), tzinfo=timezone.utc)
         setups = (
             self.db.query(TradeSetup)
-            .filter(
-                TradeSetup.user_id == user_id,
-                or_(
-                    TradeSetup.order1_closed_at.between(start, end),
-                    TradeSetup.order2_closed_at.between(start, end),
-                ),
-            )
+            .filter(TradeSetup.user_id == user_id)
             .all()
         )
         events: list[dict[str, object]] = []
         for setup in setups:
             if not self._counts_toward_risk_logic(setup):
                 continue
-            order_1r_value = abs(float(setup.risk_per_order or 0.0))
-            for order_index in (1, 2):
-                close_time = getattr(setup, f"order{order_index}_closed_at")
-                realized_pnl = getattr(setup, f"order{order_index}_realized_pnl")
-                if close_time is None or realized_pnl is None:
-                    continue
-                if self._trading_day(close_time) != trading_day:
-                    continue
-                ticket = getattr(setup, f"order{order_index}_ticket") or 0
-                events.append(
-                    {
-                        "setup_id": setup.id,
-                        "order_index": order_index,
-                        "ticket": int(ticket),
-                        "close_time": close_time,
-                        "realized_pnl": float(realized_pnl),
-                        "order_1r_value": order_1r_value,
-                    }
-                )
+            risk_result = self._risk_result_for_setup_outcome(setup.setup_outcome)
+            if risk_result is None:
+                continue
+            setup_time = self._setup_risk_timestamp(setup)
+            if setup_time is None:
+                continue
+            normalized_time = self._normalize_datetime(setup_time)
+            if not (start <= normalized_time <= end):
+                continue
+            events.append(
+                {
+                    "setup_id": setup.id,
+                    "setup_outcome": setup.setup_outcome,
+                    "setup_time": normalized_time,
+                    "risk_result": risk_result,
+                }
+            )
         events.sort(
             key=lambda event: (
-                self._normalize_datetime(event["close_time"]),
-                int(event["ticket"]),
+                event["setup_time"],
                 int(event["setup_id"]),
-                int(event["order_index"]),
             )
         )
         return events
 
-    def _is_stoploss_order(self, *, realized_pnl: float, order_1r_value: float) -> bool:
-        if order_1r_value <= 0:
-            return False
-        return Decimal(str(realized_pnl)) <= (Decimal(str(order_1r_value)) * STOPLOSS_R_THRESHOLD * Decimal("-1"))
+    def _risk_result_for_setup_outcome(self, setup_outcome: str | None) -> str | None:
+        if setup_outcome == "full_loss":
+            return "stoploss"
+        if setup_outcome in {"managed_win", "full_win", "scratch_manual"}:
+            return "non_stoploss"
+        return None
+
+    def _setup_risk_timestamp(self, setup: TradeSetup) -> datetime | None:
+        close_times = [value for value in (setup.order1_closed_at, setup.order2_closed_at) if value is not None]
+        if close_times:
+            return max(self._normalize_datetime(value) for value in close_times)
+        if setup.setup_outcome_recorded_at is not None:
+            return setup.setup_outcome_recorded_at
+        if setup.result_recorded_at is not None:
+            return setup.result_recorded_at
+        return setup.executed_at or setup.updated_at
 
     def _normalize_datetime(self, value: datetime) -> datetime:
         if value.tzinfo is None:
