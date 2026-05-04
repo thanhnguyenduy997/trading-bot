@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -13,6 +15,7 @@ from app.services.users import create_user
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -38,6 +41,7 @@ def login_for_access_token(
 
     access_token = create_access_token(subject=str(user.id), hashed_password=user.hashed_password)
     set_auth_cookie(response, "access_token", access_token)
+    logger.debug("auth_login_success_token_endpoint user_id=%s", user.id)
     return Token(access_token=access_token)
 
 
@@ -58,6 +62,7 @@ def login_from_form(
     redirect_target = sanitize_next_value(next) or "/dashboard"
     response = RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
     set_auth_cookie(response, "access_token", access_token)
+    logger.debug("auth_login_success_form user_id=%s redirect=%s", user.id, redirect_target)
     return response
 
 
@@ -66,6 +71,7 @@ def logout(response: Response) -> RedirectResponse:
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("access_token")
     response.delete_cookie("admin_access_token")
+    logger.debug("auth_logout_cleared_session_cookies")
     return response
 
 

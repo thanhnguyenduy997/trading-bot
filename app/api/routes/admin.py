@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -33,6 +35,7 @@ from app.services.users import create_user, get_user, list_users, set_user_passw
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
 
 
 def _render_admin_user_detail_page(
@@ -311,6 +314,12 @@ def admin_start_impersonation(
             "admin_access_token",
             create_access_token(str(admin_user.id), hashed_password=admin_user.hashed_password),
         )
+    logger.debug(
+        "auth_impersonation_started admin_user_id=%s target_user_id=%s current_user_id=%s redirect=/dashboard",
+        admin_user.id,
+        target.id,
+        current_user.id,
+    )
     log_admin_action(
         db,
         admin_user_id=admin_user.id,
@@ -331,6 +340,11 @@ def admin_stop_impersonation(
     response = RedirectResponse(url="/admin/users", status_code=status.HTTP_303_SEE_OTHER)
     set_auth_cookie(response, "access_token", create_access_token(str(admin_user.id), hashed_password=admin_user.hashed_password))
     response.delete_cookie("admin_access_token")
+    logger.debug(
+        "auth_impersonation_stopped admin_user_id=%s previous_impersonated_user_id=%s redirect=/admin/users",
+        admin_user.id,
+        current_user.id,
+    )
     log_admin_action(
         db,
         admin_user_id=admin_user.id,

@@ -1,4 +1,5 @@
 from urllib.parse import quote
+import logging
 
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -24,6 +25,7 @@ class SessionExpiredError(Exception):
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 def build_next_value(request: Request) -> str:
@@ -78,7 +80,9 @@ def _resolve_user_with_payload(db: Session, token: str | None) -> tuple[User, di
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
     password_fingerprint = payload.get("pwd")
     if password_fingerprint is not None and password_fingerprint != password_session_fingerprint(user.hashed_password):
+        logger.debug("auth_user_load_failed_password_fingerprint user_id=%s", user.id)
         raise SessionExpiredError()
+    logger.debug("auth_user_loaded user_id=%s token_exp=%s", user.id, payload.get("exp"))
     return user, payload
 
 
@@ -119,6 +123,17 @@ def get_current_user_from_cookie(
         if admin.role == "admin" and admin.id != user.id:
             setattr(user, "impersonator", admin)
             _remember_cookie_session(request, "admin_access_token", admin, admin_payload)
+            logger.debug(
+                "auth_impersonation_user_loaded authenticated_user_id=%s impersonator_user_id=%s",
+                user.id,
+                admin.id,
+            )
+        elif admin.role != "admin":
+            logger.debug(
+                "auth_impersonation_ignored_admin_cookie_not_admin authenticated_user_id=%s admin_cookie_user_id=%s",
+                user.id,
+                admin.id,
+            )
     return user
 
 

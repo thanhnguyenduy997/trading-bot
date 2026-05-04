@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
+import logging
 
 from jose import jwt
 from passlib.context import CryptContext
@@ -13,6 +14,7 @@ settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SESSION_LIFETIME_MINUTES = 3 * 24 * 60
 SESSION_REFRESH_THRESHOLD_SECONDS = 24 * 60 * 60
+logger = logging.getLogger(__name__)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -24,7 +26,14 @@ def get_password_hash(password: str) -> str:
 
 
 def effective_access_token_expire_minutes() -> int:
-    return settings.access_token_expire_minutes
+    configured_minutes = settings.access_token_expire_minutes
+    if configured_minutes != SESSION_LIFETIME_MINUTES:
+        logger.debug(
+            "auth_session_lifetime_configured minutes=%s target_minutes=%s",
+            configured_minutes,
+            SESSION_LIFETIME_MINUTES,
+        )
+    return configured_minutes
 
 
 def access_token_max_age_seconds() -> int:
@@ -45,6 +54,7 @@ def create_access_token(subject: str, *, hashed_password: str | None = None) -> 
     payload = {"sub": subject, "exp": expire}
     if hashed_password is not None:
         payload["pwd"] = password_session_fingerprint(hashed_password)
+    logger.debug("auth_token_issued user_id=%s expires_at=%s", subject, expire.isoformat())
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -64,11 +74,13 @@ def token_expires_soon(payload: dict, *, threshold_seconds: int = SESSION_REFRES
 
 
 def set_auth_cookie(response: Response, key: str, token: str) -> None:
+    max_age = access_token_max_age_seconds()
     response.set_cookie(
         key=key,
         value=token,
-        max_age=access_token_max_age_seconds(),
+        max_age=max_age,
         httponly=True,
         samesite="lax",
         secure=False,
     )
+    logger.debug("auth_cookie_set cookie=%s max_age_seconds=%s", key, max_age)

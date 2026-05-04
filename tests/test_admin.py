@@ -1,5 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from jose import jwt
+
+from app.core.config import get_settings
+from app.core.security import password_session_fingerprint
 from app.models.trading_account import TradingAccount
 from app.models.trade_setup import TradeSetup
 from app.models.user import User
@@ -131,6 +135,67 @@ def test_impersonation_start_stop_preserves_admin_identity(client, db_session):
     dashboard_after = client.get("/dashboard")
     assert "You are acting as" not in dashboard_after.text
     assert "Admin User" in dashboard_after.text
+
+
+def test_impersonation_start_is_not_overwritten_by_sliding_session_refresh(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="impersonated-refresh@example.com", password="password123", full_name="Impersonated Refresh"),
+    )
+    settings = get_settings()
+    expiring_admin_token = jwt.encode(
+        {
+            "sub": str(admin.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+            "pwd": password_session_fingerprint(admin.hashed_password),
+        },
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+    client.cookies.set("access_token", expiring_admin_token)
+
+    start = client.post(f"/admin/users/{user.id}/impersonate", follow_redirects=False)
+
+    assert start.status_code == 303
+    dashboard = client.get("/dashboard")
+    assert "You are acting as impersonated-refresh@example.com." in dashboard.text
+
+
+def test_impersonation_stop_is_not_overwritten_by_sliding_session_refresh(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="impersonated-stop-refresh@example.com", password="password123", full_name="Stop Refresh"),
+    )
+    settings = get_settings()
+    expiring_user_token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+            "pwd": password_session_fingerprint(user.hashed_password),
+        },
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+    expiring_admin_token = jwt.encode(
+        {
+            "sub": str(admin.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+            "pwd": password_session_fingerprint(admin.hashed_password),
+        },
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+    client.cookies.set("access_token", expiring_user_token)
+    client.cookies.set("admin_access_token", expiring_admin_token)
+
+    stop = client.post("/admin/impersonation/stop", follow_redirects=False)
+
+    assert stop.status_code == 303
+    dashboard = client.get("/dashboard")
+    assert "You are acting as" not in dashboard.text
+    assert "Admin User" in dashboard.text
 
 
 def test_expired_session_on_admin_page_redirects_to_login(client):

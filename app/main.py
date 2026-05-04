@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +22,7 @@ from app.services.background_monitor import TradeMonitorRunner
 
 settings = get_settings()
 trade_monitor = TradeMonitorRunner(settings)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 app.include_router(api_router)
@@ -29,7 +32,16 @@ app.mount("/static", StaticFiles(directory="app/templates/static"), name="static
 @app.middleware("http")
 async def refresh_expiring_cookie_session(request: Request, call_next):
     response = await call_next(request)
+    response_cookie_names = _response_cookie_names(response)
     for session in getattr(request.state, "auth_cookie_sessions", []):
+        cookie_name = session["cookie_name"]
+        if cookie_name in response_cookie_names:
+            logger.debug(
+                "auth_cookie_refresh_skipped_response_already_sets_cookie cookie=%s user_id=%s",
+                cookie_name,
+                session["user_id"],
+            )
+            continue
         payload = session["payload"]
         if not token_expires_soon(payload):
             continue
@@ -37,8 +49,24 @@ async def refresh_expiring_cookie_session(request: Request, call_next):
             str(session["user_id"]),
             hashed_password=session["hashed_password"],
         )
-        set_auth_cookie(response, session["cookie_name"], refreshed_token)
+        set_auth_cookie(response, cookie_name, refreshed_token)
+        logger.debug(
+            "auth_cookie_refreshed cookie=%s user_id=%s",
+            cookie_name,
+            session["user_id"],
+        )
     return response
+
+
+def _response_cookie_names(response) -> set[str]:
+    cookie_names: set[str] = set()
+    for header_name, header_value in response.raw_headers:
+        if header_name.lower() != b"set-cookie":
+            continue
+        header = header_value.decode("latin-1")
+        if "=" in header:
+            cookie_names.add(header.split("=", 1)[0].strip())
+    return cookie_names
 
 
 @app.exception_handler(SessionExpiredError)
