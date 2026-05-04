@@ -313,5 +313,5 @@ def test_dashboard_renders_discipline_score_section(client, db_session, created_
 
     assert response.status_code == 200
     assert "Discipline Score" in response.text
-    assert "92<span>/100</span>" in response.text
-    assert "1 unlinked manual trade" in response.text.lower()
+    assert "<strong>92</strong>" in response.text
+    assert "Unlinked manual trade" in response.text

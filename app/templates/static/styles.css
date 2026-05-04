@@ -2344,91 +2344,215 @@ button:hover {
     font-variant-numeric: tabular-nums;
 }
 
-.discipline-panel {
+.discipline-card {
     display: grid;
-    grid-template-columns: minmax(170px, 0.75fr) minmax(280px, 1.25fr) minmax(260px, 1fr);
-    gap: 0.75rem;
-    align-items: stretch;
-    padding: 0.85rem;
-    border: 1px solid #d0d5dd;
-    border-left: 4px solid #344054;
-    border-radius: var(--radius);
-    background: #fcfcfd;
-}
-
-.discipline-score-main,
-.discipline-subscore,
-.discipline-deductions {
-    border: 1px solid rgba(208, 213, 221, 0.9);
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
     border-radius: var(--radius);
     background: #fff;
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.04);
 }
 
-.discipline-score-main {
+.discipline-card-header,
+.dashboard-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.discipline-card-header h2,
+.dashboard-section-title h2 {
+    margin: 0.12rem 0 0;
+}
+
+.discipline-card-header p {
+    margin: 0.25rem 0 0;
+}
+
+.discipline-score-cluster {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.discipline-score-ring {
     display: grid;
-    align-content: center;
-    gap: 0.2rem;
-    padding: 0.85rem;
-}
-
-.discipline-score-main p,
-.discipline-deductions p {
-    margin: 0;
-}
-
-.discipline-score-value {
-    color: #101828;
-    font-size: 2.25rem;
-    font-weight: 900;
+    place-items: center;
+    width: 5.25rem;
+    height: 5.25rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #f8fafc;
     line-height: 1;
+}
+
+.discipline-score-ring strong {
+    font-size: 1.85rem;
+    font-weight: 900;
     font-variant-numeric: tabular-nums;
 }
 
-.discipline-score-value span {
+.discipline-score-ring span {
     color: var(--muted);
-    font-size: 0.95rem;
+    font-size: 0.78rem;
     font-weight: 800;
 }
 
-.discipline-breakdown {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
+.discipline-score-good,
+.discipline-progress-good {
+    color: var(--success);
+    border-color: #abefc6;
+    background: #ecfdf3;
 }
 
-.discipline-subscore {
-    display: grid;
-    gap: 0.25rem;
-    align-content: center;
-    min-height: 4.2rem;
-    padding: 0.7rem;
+.discipline-score-medium,
+.discipline-progress-medium {
+    color: #0b4fa8;
+    border-color: #bfdbfe;
+    background: #eff6ff;
 }
 
-.discipline-subscore span,
-.discipline-deductions li span {
+.discipline-score-warning,
+.discipline-progress-warning {
+    color: var(--warning);
+    border-color: #fedf89;
+    background: #fffaeb;
+}
+
+.discipline-score-bad,
+.discipline-progress-bad {
+    color: var(--danger);
+    border-color: #fecdca;
+    background: #fef3f2;
+}
+
+.discipline-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.38rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 850;
+    white-space: nowrap;
+}
+
+.discipline-status-good {
+    color: var(--success);
+    background: #ecfdf3;
+    border-color: #abefc6;
+}
+
+.discipline-status-medium {
+    color: #0b4fa8;
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
+.discipline-status-warning {
+    color: var(--warning);
+    background: #fffaeb;
+    border-color: #fedf89;
+}
+
+.discipline-status-bad {
+    color: var(--danger);
+    background: #fef3f2;
+    border-color: #fecdca;
+}
+
+.discipline-content-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 0.8fr);
+    gap: 0.75rem;
+    align-items: start;
+}
+
+.discipline-subscore-list,
+.discipline-deduction-card {
+    display: grid;
+    gap: 0.62rem;
+    min-width: 0;
+}
+
+.discipline-progress-row {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.68rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fbfcfe;
+}
+
+.discipline-progress-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.discipline-progress-heading span {
     color: var(--muted);
     font-size: 0.82rem;
-    font-weight: 750;
+    font-weight: 800;
 }
 
-.discipline-subscore strong {
-    font-size: 1.2rem;
+.discipline-progress-heading strong {
+    font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
-.discipline-deductions {
-    display: grid;
-    gap: 0.45rem;
-    align-content: start;
+.discipline-progress-track {
+    height: 0.35rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #eaecf0;
+}
+
+.discipline-progress-fill {
+    height: 100%;
+    border: 0;
+}
+
+.discipline-deduction-card {
     padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fbfcfe;
 }
 
-.discipline-deductions h2 {
+.discipline-deduction-card p {
+    margin: 0;
+}
+
+.discipline-deduction-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.discipline-deduction-header h3 {
     margin: 0;
     font-size: 0.95rem;
 }
 
-.discipline-deductions ul {
+.discipline-deduction-header span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.discipline-deduction-list {
     display: grid;
     gap: 0.35rem;
     margin: 0;
@@ -2436,30 +2560,73 @@ button:hover {
     list-style: none;
 }
 
-.discipline-deductions li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding-bottom: 0.35rem;
+.discipline-deduction-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.55rem;
+    align-items: center;
+    padding: 0.48rem 0;
     border-bottom: 1px solid #eef2f6;
 }
 
-.discipline-deductions li:last-child {
-    padding-bottom: 0;
+.discipline-deduction-list li:last-child {
     border-bottom: 0;
 }
 
-.discipline-deductions li strong {
-    color: var(--danger);
-    font-variant-numeric: tabular-nums;
+.discipline-deduction-list span {
+    min-width: 0;
+    color: #344054;
+    font-size: 0.84rem;
+    font-weight: 750;
 }
 
-.daily-risk-panel {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+.discipline-deduction-list small {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.discipline-deduction-list strong {
+    color: var(--danger);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.discipline-deduction-details {
+    border-top: 1px solid #eef2f6;
+    padding-top: 0.45rem;
+}
+
+.discipline-deduction-details summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 0.75rem;
-    align-items: stretch;
-    padding: 0.75rem;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 850;
+    list-style: none;
+}
+
+.discipline-deduction-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.discipline-deduction-details[open] .details-chevron {
+    transform: rotate(180deg);
+}
+
+.discipline-deduction-details .discipline-deduction-list {
+    margin-top: 0.45rem;
+}
+
+.daily-risk-card {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.85rem;
     border: 1px solid #abefc6;
     border-left: 4px solid var(--success);
     border-radius: var(--radius);
@@ -2472,21 +2639,9 @@ button:hover {
     background: #fff7f7;
 }
 
-.daily-risk-title {
-    display: flex;
-    align-items: center;
-    min-width: 128px;
-    padding: 0 0.35rem;
-}
-
-.daily-risk-title .eyebrow {
-    margin: 0;
-    color: #344054;
-}
-
 .daily-risk-grid {
     display: grid;
-    grid-template-columns: 1.2fr 1fr 1fr 1.4fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.5rem;
     margin: 0;
 }
@@ -2646,20 +2801,19 @@ button:hover {
         display: none;
     }
 
-    .daily-risk-panel {
-        grid-template-columns: 1fr;
-    }
-
-    .daily-risk-title {
-        min-width: 0;
-        padding: 0;
-    }
-
     .daily-risk-grid {
         grid-template-columns: 1fr 1fr;
     }
 
-    .discipline-panel {
+    .discipline-card-header {
+        align-items: flex-start;
+    }
+
+    .discipline-score-cluster {
+        justify-content: flex-start;
+    }
+
+    .discipline-content-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -2687,11 +2841,27 @@ button:hover {
         min-height: 0;
     }
 
-    .discipline-breakdown {
-        grid-template-columns: 1fr;
+    .discipline-card-header,
+    .dashboard-section-title {
+        flex-direction: column;
+        align-items: stretch;
     }
 
-    .discipline-score-value {
-        font-size: 1.9rem;
+    .discipline-score-ring {
+        width: 4.6rem;
+        height: 4.6rem;
+    }
+
+    .discipline-score-ring strong {
+        font-size: 1.55rem;
+    }
+
+    .discipline-deduction-list li {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .discipline-deduction-list small {
+        grid-column: 1 / -1;
+        order: 3;
     }
 }
