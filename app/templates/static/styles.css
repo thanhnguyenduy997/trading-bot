@@ -2344,6 +2344,116 @@ button:hover {
     font-variant-numeric: tabular-nums;
 }
 
+.discipline-panel {
+    display: grid;
+    grid-template-columns: minmax(170px, 0.75fr) minmax(280px, 1.25fr) minmax(260px, 1fr);
+    gap: 0.75rem;
+    align-items: stretch;
+    padding: 0.85rem;
+    border: 1px solid #d0d5dd;
+    border-left: 4px solid #344054;
+    border-radius: var(--radius);
+    background: #fcfcfd;
+}
+
+.discipline-score-main,
+.discipline-subscore,
+.discipline-deductions {
+    border: 1px solid rgba(208, 213, 221, 0.9);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+.discipline-score-main {
+    display: grid;
+    align-content: center;
+    gap: 0.2rem;
+    padding: 0.85rem;
+}
+
+.discipline-score-main p,
+.discipline-deductions p {
+    margin: 0;
+}
+
+.discipline-score-value {
+    color: #101828;
+    font-size: 2.25rem;
+    font-weight: 900;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.discipline-score-value span {
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.discipline-breakdown {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.discipline-subscore {
+    display: grid;
+    gap: 0.25rem;
+    align-content: center;
+    min-height: 4.2rem;
+    padding: 0.7rem;
+}
+
+.discipline-subscore span,
+.discipline-deductions li span {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.discipline-subscore strong {
+    font-size: 1.2rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.discipline-deductions {
+    display: grid;
+    gap: 0.45rem;
+    align-content: start;
+    padding: 0.75rem;
+}
+
+.discipline-deductions h2 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.discipline-deductions ul {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.discipline-deductions li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid #eef2f6;
+}
+
+.discipline-deductions li:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.discipline-deductions li strong {
+    color: var(--danger);
+    font-variant-numeric: tabular-nums;
+}
+
 .daily-risk-panel {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -2548,6 +2658,10 @@ button:hover {
     .daily-risk-grid {
         grid-template-columns: 1fr 1fr;
     }
+
+    .discipline-panel {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 520px) {
@@ -2571,5 +2685,13 @@ button:hover {
 
     .daily-risk-tile {
         min-height: 0;
+    }
+
+    .discipline-breakdown {
+        grid-template-columns: 1fr;
+    }
+
+    .discipline-score-value {
+        font-size: 1.9rem;
     }
 }

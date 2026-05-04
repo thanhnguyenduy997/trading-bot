@@ -119,6 +119,38 @@
         <article class="summary-card"><span>System / Manual</span><strong>{{ dashboard.summary.system_trades }} / {{ dashboard.summary.manual_trades }}</strong></article>
     </section>
 
+    <section class="discipline-panel">
+        <div class="discipline-score-main">
+            <span class="eyebrow">Discipline Score</span>
+            <div class="discipline-score-value">{{ dashboard.discipline_score.total_score }}<span>/100</span></div>
+            <strong>{{ dashboard.discipline_score.status_label }}</strong>
+            <p class="muted">Behavior and process score for this account and selected time range.</p>
+        </div>
+        <div class="discipline-breakdown">
+            {% for category in dashboard.discipline_score.categories %}
+            <article class="discipline-subscore">
+                <span>{{ category.label }}</span>
+                <strong>{{ category.score }}/{{ category.max_points }}</strong>
+            </article>
+            {% endfor %}
+        </div>
+        <div class="discipline-deductions">
+            <h2>Deduction Log</h2>
+            {% if dashboard.discipline_score.deductions %}
+            <ul>
+                {% for deduction in dashboard.discipline_score.deductions %}
+                <li>
+                    <span>{{ deduction.count }} {{ deduction.label|lower }}</span>
+                    <strong>-{{ deduction.points }}</strong>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted">No discipline deductions in this range.</p>
+            {% endif %}
+        </div>
+    </section>
+
     {% if daily_risk_state %}
     <section class="daily-risk-panel {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
         <div class="daily-risk-title">

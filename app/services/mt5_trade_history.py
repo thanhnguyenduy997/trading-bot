@@ -16,6 +16,7 @@ from app.models.trade_setup import TradeSetup
 from app.models.trading_account import TradingAccount
 from app.models.user import User
 from app.services.account_runtime_state import get_recent_account_views
+from app.services.discipline_score import DisciplineScoreService
 from app.services.trade_setup_outcomes import (
     FINAL_SETUP_OUTCOMES,
     TradeSetupOutcomeService,
@@ -569,6 +570,12 @@ class DashboardService:
             "range_end": range_end,
             "summary": self._build_summary(items),
             "setup_summary": self._build_setup_summary(setup_items),
+            "discipline_score": DisciplineScoreService(self.db).compute(
+                actor=actor,
+                selected_account=selected_account,
+                range_start=range_start,
+                range_end=range_end,
+            ),
             "pnl_chart": self._series(items, "close_date", "realized_pnl"),
             "trade_count_chart": self._count_series(items, "close_date"),
             "source_breakdown": self._count_series(items, "trade_source"),
