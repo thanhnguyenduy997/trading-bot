@@ -119,104 +119,106 @@
         <article class="summary-card"><span>System / Manual</span><strong>{{ dashboard.summary.system_trades }} / {{ dashboard.summary.manual_trades }}</strong></article>
     </section>
 
-    <section class="discipline-card">
-        <div class="discipline-card-header">
-            <div>
-                <span class="eyebrow">Discipline Score</span>
-                <h2>Behavior and process quality</h2>
-                <p class="muted">Behavior and process score for the selected account and date range.</p>
-            </div>
-            <div class="discipline-score-cluster">
-                <div class="discipline-score-ring discipline-score-{% if dashboard.discipline_score.total_score >= 90 %}good{% elif dashboard.discipline_score.total_score >= 75 %}medium{% elif dashboard.discipline_score.total_score >= 60 %}warning{% else %}bad{% endif %}">
-                    <strong>{{ dashboard.discipline_score.total_score }}</strong>
-                    <span>/100</span>
+    <section class="dashboard-operational-grid">
+        <article class="discipline-card">
+            <div class="discipline-card-header">
+                <div>
+                    <span class="eyebrow">Discipline Score</span>
+                    <h2>Execution discipline</h2>
+                    <p class="muted">Behavior and process score for the selected account and date range.</p>
                 </div>
-                <span class="discipline-status-badge discipline-status-{% if dashboard.discipline_score.total_score >= 90 %}good{% elif dashboard.discipline_score.total_score >= 75 %}medium{% elif dashboard.discipline_score.total_score >= 60 %}warning{% else %}bad{% endif %}">
-                    {{ dashboard.discipline_score.status_label }}
-                </span>
-            </div>
-        </div>
-
-        <div class="discipline-content-grid">
-            <div class="discipline-subscore-list">
-                {% for category in dashboard.discipline_score.categories %}
-                {% set category_percent = (category.score / category.max_points * 100) if category.max_points else 0 %}
-                <article class="discipline-progress-row">
-                    <div class="discipline-progress-heading">
-                        <span>{{ category.label }}</span>
-                        <strong>{{ category.score }}/{{ category.max_points }}</strong>
+                <div class="discipline-score-cluster">
+                    <div class="discipline-score-block discipline-score-{% if dashboard.discipline_score.total_score >= 90 %}good{% elif dashboard.discipline_score.total_score >= 75 %}medium{% elif dashboard.discipline_score.total_score >= 60 %}warning{% else %}bad{% endif %}">
+                        <strong>{{ dashboard.discipline_score.total_score }}</strong>
+                        <span>/100</span>
                     </div>
-                    <div class="discipline-progress-track" aria-hidden="true">
-                        <div class="discipline-progress-fill discipline-progress-{% if category_percent >= 90 %}good{% elif category_percent >= 75 %}medium{% elif category_percent >= 60 %}warning{% else %}bad{% endif %}" style="width: {{ "%.0f"|format(category_percent) }}%;"></div>
-                    </div>
-                </article>
-                {% endfor %}
+                    <span class="discipline-status-badge discipline-status-{% if dashboard.discipline_score.total_score >= 90 %}good{% elif dashboard.discipline_score.total_score >= 75 %}medium{% elif dashboard.discipline_score.total_score >= 60 %}warning{% else %}bad{% endif %}">
+                        {{ dashboard.discipline_score.status_label }}
+                    </span>
+                </div>
             </div>
 
-            <div class="discipline-deduction-card">
-                <div class="discipline-deduction-header">
-                    <h3>Top deduction reasons</h3>
-                    <span>{{ dashboard.discipline_score.deductions|length }} total</span>
-                </div>
-                {% if dashboard.discipline_score.deductions %}
-                <ul class="discipline-deduction-list compact">
-                    {% for deduction in dashboard.discipline_score.deductions|sort(attribute="points", reverse=true) %}
-                    {% if loop.index <= 3 %}
-                    <li>
-                        <span>{{ deduction.label }}</span>
-                        <small>{{ deduction.count }} × -{{ deduction.points_each }}</small>
-                        <strong>-{{ deduction.points }}</strong>
-                    </li>
-                    {% endif %}
+            <div class="discipline-content-grid">
+                <div class="discipline-subscore-list">
+                    {% for category in dashboard.discipline_score.categories %}
+                    {% set category_percent = (category.score / category.max_points * 100) if category.max_points else 0 %}
+                    <article class="discipline-progress-row">
+                        <div class="discipline-progress-heading">
+                            <span>{{ category.label }}</span>
+                            <strong>{{ category.score }}/{{ category.max_points }}</strong>
+                        </div>
+                        <div class="discipline-progress-track" aria-hidden="true">
+                            <div class="discipline-progress-fill discipline-progress-{% if category_percent >= 90 %}good{% elif category_percent >= 75 %}medium{% elif category_percent >= 60 %}warning{% else %}bad{% endif %}" style="width: {{ "%.0f"|format(category_percent) }}%;"></div>
+                        </div>
+                    </article>
                     {% endfor %}
-                </ul>
-                <details class="discipline-deduction-details">
-                    <summary><span>View all deduction details</span><span class="details-chevron">v</span></summary>
-                    <ul class="discipline-deduction-list">
-                        {% for deduction in dashboard.discipline_score.deductions|sort(attribute="points", reverse=true) %}
-                        <li>
-                            <span>{{ deduction.label }}</span>
-                            <small>{{ deduction.count }} × -{{ deduction.points_each }}</small>
-                            <strong>-{{ deduction.points }}</strong>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </details>
-                {% else %}
-                <p class="muted">No discipline deductions in this range.</p>
-                {% endif %}
-            </div>
-        </div>
-    </section>
+                </div>
 
-    {% if daily_risk_state %}
-    <section class="daily-risk-card {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
-        <header class="dashboard-section-title">
-            <div>
-                <span class="eyebrow">Daily Risk State</span>
-                <h2>Operational risk panel</h2>
+                <div class="discipline-deduction-card">
+                    <div class="discipline-deduction-header">
+                        <h3>Top deduction reasons</h3>
+                        <span>{{ dashboard.discipline_score.deductions|length }} total</span>
+                    </div>
+                    {% if dashboard.discipline_score.deductions %}
+                    <div class="discipline-deduction-chips">
+                        {% for deduction in dashboard.discipline_score.deductions|sort(attribute="points", reverse=true) %}
+                        {% if loop.index <= 3 %}
+                        <div class="discipline-deduction-chip">
+                            <span>{{ deduction.label }}</span>
+                            <strong>-{{ deduction.points }}</strong>
+                            <small>{{ deduction.count }} × -{{ deduction.points_each }}</small>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    <details class="discipline-deduction-details">
+                        <summary><span>View details</span><span class="details-chevron">v</span></summary>
+                        <ul class="discipline-deduction-list">
+                            {% for deduction in dashboard.discipline_score.deductions|sort(attribute="points", reverse=true) %}
+                            <li>
+                                <span>{{ deduction.label }}</span>
+                                <small>{{ deduction.count }} × -{{ deduction.points_each }}</small>
+                                <strong>-{{ deduction.points }}</strong>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% else %}
+                    <p class="muted">No discipline deductions in this range.</p>
+                    {% endif %}
+                </div>
             </div>
-        </header>
-        <dl class="daily-risk-grid">
-            <div class="daily-risk-tile daily-lock-tile {% if daily_risk_state.daily_lock_active %}is-locked{% endif %}">
-                <dt>Daily lock</dt>
-                <dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd>
-            </div>
-            <div class="daily-risk-tile">
-                <dt>Consecutive stoploss today</dt>
-                <dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd>
-            </div>
-            <div class="daily-risk-tile">
-                <dt>Trading day</dt>
-                <dd>{{ daily_risk_state.trading_day }}</dd>
-            </div>
-            <div class="daily-risk-tile reset-tile">
-                <dt>Reset timing</dt>
-                <dd>Next UTC day or non-stoploss setup</dd>
-            </div>
-        </dl>
+        </article>
+
+        {% if daily_risk_state %}
+        <aside class="daily-risk-card {% if daily_risk_state.daily_lock_active %}daily-risk-locked{% endif %}">
+            <header class="dashboard-section-title">
+                <div>
+                    <span class="eyebrow">Daily Risk State</span>
+                    <h2>Risk status</h2>
+                </div>
+            </header>
+            <dl class="daily-risk-grid">
+                <div class="daily-risk-tile daily-lock-tile {% if daily_risk_state.daily_lock_active %}is-locked{% endif %}">
+                    <dt>Daily lock</dt>
+                    <dd>{{ "Active" if daily_risk_state.daily_lock_active else "Inactive" }}</dd>
+                </div>
+                <div class="daily-risk-tile">
+                    <dt>Consecutive stoploss today</dt>
+                    <dd>{{ daily_risk_state.consecutive_stoploss_count }}</dd>
+                </div>
+                <div class="daily-risk-tile">
+                    <dt>Trading day</dt>
+                    <dd>{{ daily_risk_state.trading_day }}</dd>
+                </div>
+                <div class="daily-risk-tile reset-tile">
+                    <dt>Reset timing</dt>
+                    <dd>Next UTC day or non-stoploss setup</dd>
+                </div>
+            </dl>
+        </aside>
+        {% endif %}
     </section>
-    {% endif %}
 
     <section class="dashboard-chart-grid">
         <article class="detail-panel">
