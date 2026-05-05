@@ -419,6 +419,103 @@ def test_tp1_then_be_with_tiny_negative_pnl_is_still_breakeven(client, db_sessio
     assert float(stored.order2_realized_pnl) == -0.45
 
 
+def test_system_be_success_defaults_to_be_despite_small_negative_pnl_and_price_drift(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9031: _history(2320.2, 2321.2, "tp", 50.0, close_time=1713771000),
+                9032: _history(2320.2, 2320.45, "sl", -0.8, close_time=1713771800),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-107B")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9031
+    setup.order2_ticket = 9032
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713771200, tz=timezone.utc)
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order1_outcome"] == "tp_hit"
+    assert data["order2_outcome"] == "closed_at_be"
+    assert data["setup_outcome"] == "managed_win"
+
+
+def test_system_be_contradictory_timeline_requires_review(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9041: _history(2320.2, 2321.2, "tp", 50.0, close_time=1713771000),
+                9042: _history(2320.2, 2320.2, "sl", -0.5, close_time=1713771100),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-107C")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9041
+    setup.order2_ticket = 9042
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713771200, tz=timezone.utc)
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order2_outcome"] == "review_required"
+    assert data["setup_outcome"] == "review_required"
+
+
+def test_stored_backfill_upgrades_system_be_review_required_to_managed_win(db_session, created_user):
+    account = _create_account(db_session, created_user, "OUT-107D")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9051
+    setup.order2_ticket = 9052
+    setup.order1_outcome = "tp_hit"
+    setup.order2_outcome = "review_required"
+    setup.setup_outcome = "review_required"
+    setup.order1_closed_at = datetime(2026, 4, 22, 8, tzinfo=timezone.utc)
+    setup.order2_closed_at = datetime(2026, 4, 22, 9, tzinfo=timezone.utc)
+    setup.order1_close_price = 2321.2
+    setup.order2_close_price = 2320.45
+    setup.order1_realized_pnl = 50.0
+    setup.order2_realized_pnl = -0.8
+    setup.order2_be_moved_at = datetime(2026, 4, 22, 8, 30, tzinfo=timezone.utc)
+    setup.setup_outcome_recorded_at = None
+    db_session.add(setup)
+    db_session.commit()
+
+    result = TradeSetupOutcomeService(db_session).backfill_setup_outcomes_from_stored_data(
+        user_id=created_user.id,
+        trading_account_id=account.id,
+    )
+
+    db_session.refresh(setup)
+    assert result["updated"] == 1
+    assert setup.order2_outcome == "closed_at_be"
+    assert setup.setup_outcome == "managed_win"
+
+
 def test_reconciliation_does_not_leak_close_data_between_setups(client, db_session, created_user, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.services.trade_setup_outcomes.default_adapter_factory",

@@ -77,6 +77,7 @@ class TradeSetupOutcomeService:
     be_price_tolerance_points = 3
     be_pnl_tolerance_floor = 1.0
     be_pnl_tolerance_risk_fraction = 0.05
+    system_be_abnormal_price_tolerance_r = 0.35
 
     def __init__(self, db: Session, adapter_factory=None) -> None:
         self.db = db
@@ -389,17 +390,14 @@ class TradeSetupOutcomeService:
     ) -> str:
         if self._matches_target(close_deal, close_price, reference_tp, point, reasons={"tp", "take_profit", 5}):
             return "tp_hit"
-        if self._closed_near_system_be_target(
+        if self._has_system_be_contradiction(
             setup,
-            close_deal=close_deal,
             close_price=close_price,
-            reference_be=reference_be,
-            point=point,
-            realized_pnl=realized_pnl,
             closed_at=closed_at,
+            reference_be=reference_be,
         ):
-            return "closed_at_be"
-        return "review_required"
+            return "review_required"
+        return "closed_at_be"
 
     def _classify_inferred_order_close(
         self,
@@ -453,6 +451,20 @@ class TradeSetupOutcomeService:
             if reason in {"sl", "stop_loss", 4, "client", "expert", "mobile"}:
                 return True
         return False
+
+    def _has_system_be_contradiction(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        closed_at: datetime | None,
+        reference_be: float,
+    ) -> bool:
+        if not self._close_is_after_or_unverifiable_be_move(setup, closed_at):
+            return True
+        if close_price is None:
+            return False
+        return abs(close_price - reference_be) > self._system_be_abnormal_price_tolerance(setup)
 
     def _is_inferred_closed_at_be(
         self,
@@ -534,6 +546,14 @@ class TradeSetupOutcomeService:
             self.be_pnl_tolerance_floor,
             abs(float(setup.risk_per_order)) * self.be_pnl_tolerance_risk_fraction,
         )
+
+    def _system_be_abnormal_price_tolerance(self, setup) -> float:
+        r_value = abs(float(getattr(setup, "r_value", 0.0) or 0.0))
+        planned_distance = abs(float(setup.estimated_entry) - float(setup.sl_price))
+        basis = max(r_value, planned_distance)
+        if basis <= 0:
+            return self._be_price_tolerance(float(setup.estimated_entry), self._stored_price_point(setup)) * 10
+        return basis * self.system_be_abnormal_price_tolerance_r
 
     def _filter_history_for_ticket(self, history: list[dict[str, object]], *, ticket: int) -> list[dict[str, object]]:
         matching = [
@@ -900,16 +920,14 @@ class TradeSetupOutcomeService:
             point=point,
         ):
             return "tp_hit"
-        if self._stored_system_order_closed_at_be(
+        if self._has_system_be_contradiction(
             setup,
             close_price=close_price,
-            realized_pnl=realized_pnl,
-            reference_be=reference_be,
-            point=point,
             closed_at=closed_at,
+            reference_be=reference_be,
         ):
-            return "closed_at_be"
-        return "review_required"
+            return "review_required"
+        return "closed_at_be"
 
     def _classify_stored_inferred_order_close(
         self,
