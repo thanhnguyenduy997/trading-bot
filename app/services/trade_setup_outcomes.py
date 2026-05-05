@@ -8,6 +8,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.execution.base import AdapterError
+from app.models.trade_event import TradeEvent
 from app.services.app_settings import get_global_scratch_manual_threshold_r
 from app.services.execution import default_adapter_factory
 from app.services.mt5_session_state import persist_session_failure, persist_session_matched
@@ -25,6 +26,7 @@ ORDER_EVENT_TYPES = {
     (2, "sl_hit"): "order2_sl_hit",
     (2, "closed_at_be"): "order2_closed_at_be",
     (2, "manual_close"): "order2_manual_close",
+    (2, "review_required"): "order2_review_required",
 }
 
 SETUP_MILESTONE_EVENT_TYPES = {
@@ -198,23 +200,29 @@ class TradeSetupOutcomeService:
         realized_pnl = self._coerce_float(close_deal.get("profit"))
         closed_at = self._coerce_datetime(close_deal)
 
-        if self._matches_target(close_deal, close_price, reference_tp, point, reasons={"tp", "take_profit", 5}):
-            outcome = "tp_hit"
-        elif self._looks_like_tp_hit_from_price_and_pnl(
-            setup,
-            close_price=close_price,
-            realized_pnl=realized_pnl,
-            reference_tp=reference_tp,
-            reference_sl=reference_sl,
-            point=point,
-        ):
-            outcome = "tp_hit"
-        elif self._is_closed_at_be(setup, order_index, close_deal, close_price, reference_be, point, realized_pnl):
-            outcome = "closed_at_be"
-        elif self._matches_stop_loss(close_deal, close_price, reference_sl, point, realized_pnl, setup):
-            outcome = "sl_hit"
+        if order_index == 2 and self._has_trusted_system_be_move(setup):
+            outcome = self._classify_system_managed_order2_close(
+                setup,
+                close_deal=close_deal,
+                close_price=close_price,
+                reference_tp=reference_tp,
+                reference_be=reference_be,
+                point=point,
+                realized_pnl=realized_pnl,
+                closed_at=closed_at,
+            )
         else:
-            outcome = "manual_close"
+            outcome = self._classify_inferred_order_close(
+                setup,
+                order_index=order_index,
+                close_deal=close_deal,
+                close_price=close_price,
+                reference_tp=reference_tp,
+                reference_sl=reference_sl,
+                reference_be=reference_be,
+                point=point,
+                realized_pnl=realized_pnl,
+            )
 
         return {
             "outcome": outcome,
@@ -231,6 +239,9 @@ class TradeSetupOutcomeService:
                 "reference_be": reference_be,
                 "realized_pnl": realized_pnl,
                 "closed_at": closed_at,
+                "classification_branch": "system_managed_be"
+                if order_index == 2 and self._has_trusted_system_be_move(setup)
+                else "manual_inferred",
             },
         }
 
@@ -364,17 +375,74 @@ class TradeSetupOutcomeService:
             return False
         return abs(close_price - target_price) <= tolerance
 
-    def _is_closed_at_be(
+    def _classify_system_managed_order2_close(
         self,
         setup,
+        *,
+        close_deal: dict[str, object],
+        close_price: float | None,
+        reference_tp: float,
+        reference_be: float,
+        point: float,
+        realized_pnl: float | None,
+        closed_at: datetime | None,
+    ) -> str:
+        if self._matches_target(close_deal, close_price, reference_tp, point, reasons={"tp", "take_profit", 5}):
+            return "tp_hit"
+        if self._closed_near_system_be_target(
+            setup,
+            close_deal=close_deal,
+            close_price=close_price,
+            reference_be=reference_be,
+            point=point,
+            realized_pnl=realized_pnl,
+            closed_at=closed_at,
+        ):
+            return "closed_at_be"
+        return "review_required"
+
+    def _classify_inferred_order_close(
+        self,
+        setup,
+        *,
         order_index: int,
+        close_deal: dict[str, object],
+        close_price: float | None,
+        reference_tp: float,
+        reference_sl: float,
+        reference_be: float,
+        point: float,
+        realized_pnl: float | None,
+    ) -> str:
+        if self._matches_target(close_deal, close_price, reference_tp, point, reasons={"tp", "take_profit", 5}):
+            return "tp_hit"
+        if self._looks_like_tp_hit_from_price_and_pnl(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=reference_sl,
+            point=point,
+        ):
+            return "tp_hit"
+        if self._is_inferred_closed_at_be(setup, order_index, close_deal, close_price, reference_be, point, realized_pnl):
+            return "closed_at_be"
+        if self._matches_stop_loss(close_deal, close_price, reference_sl, point, realized_pnl, setup):
+            return "sl_hit"
+        return "manual_close"
+
+    def _closed_near_system_be_target(
+        self,
+        setup,
+        *,
         close_deal: dict[str, object],
         close_price: float | None,
         reference_be: float,
         point: float,
         realized_pnl: float | None,
+        closed_at: datetime | None,
     ) -> bool:
-        if order_index != 2 or setup.order2_be_moved_at is None:
+        if not self._close_is_after_or_unverifiable_be_move(setup, closed_at):
             return False
         tolerance = self._be_price_tolerance(reference_be, point)
         pnl_tolerance = self._be_pnl_tolerance(setup)
@@ -385,6 +453,24 @@ class TradeSetupOutcomeService:
             if reason in {"sl", "stop_loss", 4, "client", "expert", "mobile"}:
                 return True
         return False
+
+    def _is_inferred_closed_at_be(
+        self,
+        setup,
+        order_index: int,
+        close_deal: dict[str, object],
+        close_price: float | None,
+        reference_be: float,
+        point: float,
+        realized_pnl: float | None,
+    ) -> bool:
+        if order_index != 2:
+            return False
+        tolerance = self._be_price_tolerance(reference_be, point)
+        pnl_tolerance = self._be_pnl_tolerance(setup)
+        if close_price is not None and abs(close_price - reference_be) <= tolerance and realized_pnl is not None:
+            return abs(realized_pnl) <= pnl_tolerance
+        return realized_pnl is not None and abs(realized_pnl) <= pnl_tolerance
 
     def _matches_stop_loss(
         self,
@@ -398,6 +484,29 @@ class TradeSetupOutcomeService:
         if realized_pnl is not None and realized_pnl > self._be_pnl_tolerance(setup):
             return False
         return self._matches_target(close_deal, close_price, reference_sl, point, reasons={"sl", "stop_loss", 4})
+
+    def _has_trusted_system_be_move(self, setup) -> bool:
+        if setup.order2_be_move_error:
+            return False
+        if setup.order2_be_moved_at is not None:
+            return True
+        if setup.monitoring_status in {"be_moved", "be_already_moved", "be_already_set"}:
+            return True
+        return (
+            self.db.query(TradeEvent.id)
+            .filter(
+                TradeEvent.setup_id == setup.id,
+                TradeEvent.user_id == setup.user_id,
+                TradeEvent.event_type == "be_move_completed",
+            )
+            .first()
+            is not None
+        )
+
+    def _close_is_after_or_unverifiable_be_move(self, setup, closed_at: datetime | None) -> bool:
+        if setup.order2_be_moved_at is None or closed_at is None:
+            return True
+        return self._normalize_datetime(closed_at) >= self._normalize_datetime(setup.order2_be_moved_at)
 
     def _looks_like_tp_hit_from_price_and_pnl(
         self,
@@ -499,6 +608,7 @@ class TradeSetupOutcomeService:
             "sl_hit": f"Order {order_index} closed at stop loss.",
             "closed_at_be": f"Order {order_index} closed at breakeven.",
             "manual_close": f"Order {order_index} appears to have been closed manually.",
+            "review_required": f"Order {order_index} close requires review.",
         }[outcome]
 
     def _setup_outcome_message(self, outcome: str) -> str:
@@ -749,11 +859,95 @@ class TradeSetupOutcomeService:
         reference_be = float(setup.estimated_entry)
         point = self._stored_price_point(setup)
 
-        if self._stored_order_hit_tp(setup, close_price=close_price, realized_pnl=realized_pnl, reference_tp=reference_tp, reference_sl=reference_sl, point=point):
+        if order_index == 2 and self._has_trusted_system_be_move(setup):
+            return self._classify_stored_system_managed_order2_close(
+                setup,
+                close_price=close_price,
+                realized_pnl=realized_pnl,
+                reference_tp=reference_tp,
+                reference_be=reference_be,
+                point=point,
+                closed_at=closed_at,
+            )
+        return self._classify_stored_inferred_order_close(
+            setup,
+            order_index=order_index,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=reference_sl,
+            reference_be=reference_be,
+            point=point,
+        )
+
+    def _classify_stored_system_managed_order2_close(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_tp: float,
+        reference_be: float,
+        point: float,
+        closed_at: datetime | None,
+    ) -> str:
+        if self._stored_order_hit_tp(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=float(setup.sl_price),
+            point=point,
+        ):
             return "tp_hit"
-        if self._stored_order_closed_at_be(setup, order_index=order_index, close_price=close_price, realized_pnl=realized_pnl, reference_be=reference_be, point=point):
+        if self._stored_system_order_closed_at_be(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_be=reference_be,
+            point=point,
+            closed_at=closed_at,
+        ):
             return "closed_at_be"
-        if self._stored_order_hit_sl(setup, close_price=close_price, realized_pnl=realized_pnl, reference_sl=reference_sl, point=point):
+        return "review_required"
+
+    def _classify_stored_inferred_order_close(
+        self,
+        setup,
+        *,
+        order_index: int,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_tp: float,
+        reference_sl: float,
+        reference_be: float,
+        point: float,
+    ) -> str:
+        if self._stored_order_hit_tp(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_tp=reference_tp,
+            reference_sl=reference_sl,
+            point=point,
+        ):
+            return "tp_hit"
+        if self._stored_order_closed_at_be(
+            setup,
+            order_index=order_index,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_be=reference_be,
+            point=point,
+        ):
+            return "closed_at_be"
+        if self._stored_order_hit_sl(
+            setup,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_sl=reference_sl,
+            point=point,
+        ):
             return "sl_hit"
         return "manual_close"
 
@@ -798,6 +992,27 @@ class TradeSetupOutcomeService:
         if close_price is not None and abs(close_price - reference_be) <= self._be_price_tolerance(reference_be, point):
             return True
         return realized_pnl is not None and abs(realized_pnl) <= self._be_pnl_tolerance(setup)
+
+    def _stored_system_order_closed_at_be(
+        self,
+        setup,
+        *,
+        close_price: float | None,
+        realized_pnl: float | None,
+        reference_be: float,
+        point: float,
+        closed_at: datetime | None,
+    ) -> bool:
+        if not self._close_is_after_or_unverifiable_be_move(setup, closed_at):
+            return False
+        return self._stored_order_closed_at_be(
+            setup,
+            order_index=2,
+            close_price=close_price,
+            realized_pnl=realized_pnl,
+            reference_be=reference_be,
+            point=point,
+        )
 
     def _stored_order_hit_sl(
         self,

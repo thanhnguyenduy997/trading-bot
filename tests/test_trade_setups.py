@@ -511,7 +511,7 @@ def test_linked_manual_setup_participates_in_outcome_tracking(db_session, create
             order2_ticket=61002,
         ),
     )
-    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.order2_be_moved_at = datetime(2026, 4, 23, 8, 13, tzinfo=timezone.utc)
     db_session.add(setup)
     db_session.commit()
 

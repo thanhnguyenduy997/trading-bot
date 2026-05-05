@@ -193,7 +193,7 @@ def test_reconcile_breakeven_when_order2_closes_at_be(client, db_session, create
     )
     account = _create_account(db_session, created_user, "OUT-102")
     setup = _create_setup(db_session, created_user, account)
-    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713770940, tz=timezone.utc)
     db_session.add(setup)
     db_session.commit()
 
@@ -272,6 +272,39 @@ def test_reconcile_tp2_hit_when_both_orders_hit_tp(client, db_session, created_u
     assert "setup_full_win_recorded" in event_types
 
 
+def test_system_managed_be_branch_still_classifies_tp2_when_target_reached(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9011: _history(2320.2, 2321.2, "tp", 50.0, close_time=1713771000),
+                9012: _history(2320.2, 2322.2, "tp", 100.0, close_time=1713771800),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-104B")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9011
+    setup.order2_ticket = 9012
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713771200, tz=timezone.utc)
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order2_outcome"] == "tp_hit"
+    assert data["setup_outcome"] == "full_win"
+
+
 def test_manual_close_is_distinguished_from_stoploss(client, db_session, created_user, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.services.trade_setup_outcomes.default_adapter_factory",
@@ -292,6 +325,45 @@ def test_manual_close_is_distinguished_from_stoploss(client, db_session, created
     data = response.json()
     assert data["setup_outcome"] == "scratch_manual"
     assert data["order1_outcome"] == "manual_close"
+
+
+def test_no_be_event_order2_true_stoploss_uses_inferred_branch(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(
+            account,
+            histories={
+                9021: _history(2320.2, 2319.2, "sl", -50.0),
+                9022: _history(2320.2, 2319.2, "sl", -50.0),
+            },
+        ),
+    )
+    account = _create_account(db_session, created_user, "OUT-105B")
+    setup = _create_setup(db_session, created_user, account)
+    setup.order1_ticket = 9021
+    setup.order2_ticket = 9022
+    db_session.add(setup)
+    db_session.commit()
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order2_outcome"] == "sl_hit"
+    assert data["setup_outcome"] == "full_loss"
+    event = (
+        db_session.query(TradeEvent)
+        .filter(TradeEvent.setup_id == setup.id, TradeEvent.event_type == "order2_sl_hit")
+        .first()
+    )
+    assert event is not None
+    assert '"classification_branch": "manual_inferred"' in (event.details or "")
 
 
 def test_execute_failure_is_distinguished_from_stoploss(client, db_session, created_user, auth_headers, monkeypatch):
@@ -327,7 +399,7 @@ def test_tp1_then_be_with_tiny_negative_pnl_is_still_breakeven(client, db_sessio
     setup = _create_setup(db_session, created_user, account)
     setup.order1_ticket = 537841502
     setup.order2_ticket = 537841506
-    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713771740, tz=timezone.utc)
     db_session.add(setup)
     db_session.commit()
 
@@ -364,7 +436,7 @@ def test_reconciliation_does_not_leak_close_data_between_setups(client, db_sessi
     setup1 = _create_setup(db_session, created_user, account)
     setup1.order1_ticket = 9101
     setup1.order2_ticket = 9102
-    setup1.order2_be_moved_at = datetime.now(timezone.utc)
+    setup1.order2_be_moved_at = datetime.fromtimestamp(1713771540, tz=timezone.utc)
     setup2 = _create_setup(db_session, created_user, account)
     setup2.order1_ticket = 9201
     setup2.order2_ticket = 9202
@@ -411,7 +483,7 @@ def test_reconciliation_corrects_contradictory_stoploss_result_to_non_stoploss(
     setup = _create_setup(db_session, created_user, account)
     setup.order1_ticket = 9301
     setup.order2_ticket = 9302
-    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713772540, tz=timezone.utc)
     setup.result_status = "stoploss"
     db_session.add(setup)
     db_session.commit()
@@ -491,7 +563,7 @@ def test_confirmed_manual_setup_is_classified_with_same_final_outcome_model(clie
     setup.manual_confirmed_at = datetime.now(timezone.utc)
     setup.order1_ticket = 9901
     setup.order2_ticket = 9902
-    setup.order2_be_moved_at = datetime.now(timezone.utc)
+    setup.order2_be_moved_at = datetime.fromtimestamp(1713770940, tz=timezone.utc)
     db_session.add(setup)
     db_session.commit()
 
