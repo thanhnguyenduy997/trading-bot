@@ -231,18 +231,24 @@
                 <span class="trend-note">Single day</span>
                 {% endif %}
             </div>
-            <div class="daily-bar-chart" aria-label="Daily realized PnL chart">
-                {% for point in dashboard.daily_trends.pnl %}
-                <div class="daily-bar-column" title="{{ point.date }} · PnL {{ '%.2f'|format(point.value) }} · setups {{ point.setup_count }}">
-                    <div class="daily-bar-shell">
-                        <div class="daily-bar {% if point.direction == 'negative' %}negative{% endif %}" style="height: {{ point.height_percent }}%;"></div>
-                    </div>
-                    <span>{{ point.label }}</span>
-                    <strong class="{% if point.value < 0 %}pnl-loss{% elif point.value > 0 %}pnl-profit{% else %}pnl-flat{% endif %}">{{ "%.0f"|format(point.value) }}</strong>
-                </div>
+            <div class="dashboard-svg-chart" aria-label="Daily realized PnL chart">
+                {% if dashboard.daily_trends.pnl_chart.has_data %}
+                <svg viewBox="0 0 {{ dashboard.daily_trends.pnl_chart.width }} {{ dashboard.daily_trends.pnl_chart.height }}" role="img">
+                    <line class="chart-axis" x1="{{ dashboard.daily_trends.pnl_chart.left }}" y1="{{ dashboard.daily_trends.pnl_chart.zero_y }}" x2="{{ dashboard.daily_trends.pnl_chart.plot_right }}" y2="{{ dashboard.daily_trends.pnl_chart.zero_y }}"></line>
+                    <text class="chart-y-label" x="4" y="16">{{ "%.0f"|format(dashboard.daily_trends.pnl_chart.y_max) }}</text>
+                    <text class="chart-y-label" x="4" y="{{ dashboard.daily_trends.pnl_chart.height - 30 }}">{{ "%.0f"|format(dashboard.daily_trends.pnl_chart.y_min) }}</text>
+                    {% for bar in dashboard.daily_trends.pnl_chart.bars %}
+                    <rect class="svg-pnl-bar {{ bar.class }}" x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="3">
+                        <title>{{ bar.date }} · PnL {{ "%.2f"|format(bar.value) }} · setups {{ bar.setup_count }}</title>
+                    </rect>
+                    {% if bar.show_label %}
+                    <text class="chart-x-label" x="{{ bar.label_x }}" y="{{ dashboard.daily_trends.pnl_chart.height - 8 }}">{{ bar.label }}</text>
+                    {% endif %}
+                    {% endfor %}
+                </svg>
                 {% else %}
-                <p class="muted">No daily PnL data for this range.</p>
-                {% endfor %}
+                <div class="chart-empty-state">No realized PnL in this range.</div>
+                {% endif %}
             </div>
         </article>
 
@@ -256,23 +262,30 @@
                 <span class="trend-note">Single day</span>
                 {% endif %}
             </div>
-            <div class="daily-score-chart" aria-label="Daily discipline score chart">
-                {% if dashboard.daily_trends.discipline_line_points %}
-                <svg class="daily-score-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                    <polyline points="{{ dashboard.daily_trends.discipline_line_points }}"></polyline>
+            <div class="dashboard-svg-chart" aria-label="Daily discipline score chart">
+                {% if dashboard.daily_trends.discipline_chart.has_data %}
+                <svg viewBox="0 0 {{ dashboard.daily_trends.discipline_chart.width }} {{ dashboard.daily_trends.discipline_chart.height }}" role="img">
+                    <line class="chart-grid-line" x1="{{ dashboard.daily_trends.discipline_chart.left }}" y1="{{ dashboard.daily_trends.discipline_chart.top }}" x2="{{ dashboard.daily_trends.discipline_chart.plot_right }}" y2="{{ dashboard.daily_trends.discipline_chart.top }}"></line>
+                    <line class="chart-grid-line" x1="{{ dashboard.daily_trends.discipline_chart.left }}" y1="67" x2="{{ dashboard.daily_trends.discipline_chart.plot_right }}" y2="67"></line>
+                    <line class="chart-grid-line" x1="{{ dashboard.daily_trends.discipline_chart.left }}" y1="122" x2="{{ dashboard.daily_trends.discipline_chart.plot_right }}" y2="122"></line>
+                    <text class="chart-y-label" x="8" y="16">100</text>
+                    <text class="chart-y-label" x="14" y="70">50</text>
+                    <text class="chart-y-label" x="20" y="125">0</text>
+                    {% if dashboard.daily_trends.discipline_chart.path %}
+                    <path class="svg-discipline-line" d="{{ dashboard.daily_trends.discipline_chart.path }}"></path>
+                    {% endif %}
+                    {% for point in dashboard.daily_trends.discipline_chart.points %}
+                    <circle class="svg-discipline-dot {% if point.score >= 90 %}good{% elif point.score >= 75 %}medium{% elif point.score >= 60 %}warning{% else %}bad{% endif %}" cx="{{ point.x }}" cy="{{ point.y }}" r="4">
+                        <title>{{ point.date }} · Discipline {{ "%.0f"|format(point.score) }}/100 · setups {{ point.setup_count }} · review {{ point.review_required_count }} · scratch {{ point.scratch_manual_count }}</title>
+                    </circle>
+                    {% if point.show_label %}
+                    <text class="chart-x-label" x="{{ point.x }}" y="{{ dashboard.daily_trends.discipline_chart.height - 8 }}">{{ point.label }}</text>
+                    {% endif %}
+                    {% endfor %}
                 </svg>
-                {% endif %}
-                {% for point in dashboard.daily_trends.discipline %}
-                <div class="daily-score-column" title="{{ point.date }} · Discipline {{ point.score }}/100 · setups {{ point.setup_count }} · review {{ point.review_required_count }} · scratch {{ point.scratch_manual_count }}">
-                    <strong>{{ point.score }}</strong>
-                    <div class="daily-score-track">
-                        <div class="daily-score-dot {% if point.score >= 90 %}good{% elif point.score >= 75 %}medium{% elif point.score >= 60 %}warning{% else %}bad{% endif %}" style="bottom: {{ point.height_percent }}%;"></div>
-                    </div>
-                    <span>{{ point.label }}</span>
-                </div>
                 {% else %}
-                <p class="muted">No discipline score buckets for this range.</p>
-                {% endfor %}
+                <div class="chart-empty-state">No discipline data in this range.</div>
+                {% endif %}
             </div>
         </article>
     </section>

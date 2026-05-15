@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from threading import Lock
 import logging
+import math
 import re
 
 from sqlalchemy import func
@@ -878,21 +879,140 @@ class DashboardService:
         return {
             "pnl": pnl_points,
             "discipline": discipline_points,
-            "discipline_line_points": self._discipline_line_points(discipline_points),
+            "pnl_chart": self._daily_pnl_svg_chart(pnl_points),
+            "discipline_chart": self._daily_discipline_svg_chart(discipline_points),
             "single_day": len(day_starts) == 1,
             "empty_days_included": self._should_include_empty_daily_buckets(range_start, range_end),
         }
 
-    def _discipline_line_points(self, discipline_points: list[dict[str, object]]) -> str:
-        if len(discipline_points) < 2:
-            return ""
-        max_index = len(discipline_points) - 1
-        points = []
-        for index, point in enumerate(discipline_points):
-            x = round(index / max_index * 100, 2)
-            y = round(100 - float(point["score"]), 2)
-            points.append(f"{x},{y}")
-        return " ".join(points)
+    def _daily_pnl_svg_chart(self, points: list[dict[str, object]]) -> dict[str, object]:
+        width = 360
+        height = 150
+        left = 42
+        right = 12
+        top = 12
+        bottom = 28
+        plot_width = width - left - right
+        plot_height = height - top - bottom
+        values = [self._safe_float(point.get("value"), 0.0) for point in points]
+        has_data = any(abs(value) > 1e-9 for value in values)
+        y_min = min(values + [0.0])
+        y_max = max(values + [0.0])
+        if y_min == y_max:
+            y_min -= 1.0
+            y_max += 1.0
+        zero_y = self._scale_value(0.0, y_min, y_max, top, plot_height)
+        count = max(len(points), 1)
+        slot = plot_width / count
+        bar_width = max(4.0, min(22.0, slot * 0.58))
+        bars = []
+        label_step = self._axis_label_step(len(points))
+        for index, point in enumerate(points):
+            value = self._safe_float(point.get("value"), 0.0)
+            value_y = self._scale_value(value, y_min, y_max, top, plot_height)
+            bar_height = max(1.0, abs(zero_y - value_y)) if abs(value) > 1e-9 else 1.0
+            x = left + index * slot + (slot - bar_width) / 2
+            y = min(value_y, zero_y) if abs(value) > 1e-9 else zero_y - 0.5
+            bars.append(
+                {
+                    "x": round(x, 2),
+                    "y": round(y, 2),
+                    "width": round(bar_width, 2),
+                    "height": round(bar_height, 2),
+                    "class": "negative" if value < 0 else "positive",
+                    "value": round(value, 2),
+                    "date": point.get("date"),
+                    "label": point.get("label"),
+                    "setup_count": int(point.get("setup_count") or 0),
+                    "show_label": index == 0 or index == len(points) - 1 or index % label_step == 0,
+                    "label_x": round(x + bar_width / 2, 2),
+                }
+            )
+        return {
+            "width": width,
+            "height": height,
+            "has_data": has_data,
+            "bars": bars,
+            "zero_y": round(zero_y, 2),
+            "y_min": round(y_min, 2),
+            "y_max": round(y_max, 2),
+            "left": left,
+            "right": right,
+            "top": top,
+            "bottom": bottom,
+            "plot_right": width - right,
+        }
+
+    def _daily_discipline_svg_chart(self, points: list[dict[str, object]]) -> dict[str, object]:
+        width = 360
+        height = 150
+        left = 42
+        right = 12
+        top = 12
+        bottom = 28
+        plot_width = width - left - right
+        plot_height = height - top - bottom
+        count = len(points)
+        label_step = self._axis_label_step(count)
+        sanitized_points = []
+        for index, point in enumerate(points):
+            score = self._clamp(self._safe_float(point.get("score"), 100.0), 0.0, 100.0)
+            x = left + (plot_width / max(count - 1, 1) * index if count > 1 else plot_width / 2)
+            y = top + (100.0 - score) / 100.0 * plot_height
+            sanitized_points.append(
+                {
+                    "x": round(x, 2),
+                    "y": round(y, 2),
+                    "score": round(score, 2),
+                    "date": point.get("date"),
+                    "label": point.get("label"),
+                    "setup_count": int(point.get("setup_count") or 0),
+                    "scratch_manual_count": int(point.get("scratch_manual_count") or 0),
+                    "review_required_count": int(point.get("review_required_count") or 0),
+                    "show_label": index == 0 or index == count - 1 or index % label_step == 0,
+                }
+            )
+        path = ""
+        if sanitized_points:
+            commands = [f"M {sanitized_points[0]['x']} {sanitized_points[0]['y']}"]
+            commands.extend(f"L {point['x']} {point['y']}" for point in sanitized_points[1:])
+            path = " ".join(commands)
+        return {
+            "width": width,
+            "height": height,
+            "has_data": bool(sanitized_points),
+            "points": sanitized_points,
+            "path": path,
+            "left": left,
+            "right": right,
+            "top": top,
+            "bottom": bottom,
+            "plot_right": width - right,
+        }
+
+    def _scale_value(self, value: float, y_min: float, y_max: float, top: float, plot_height: float) -> float:
+        if y_max == y_min:
+            return top + plot_height / 2
+        return top + (y_max - value) / (y_max - y_min) * plot_height
+
+    def _axis_label_step(self, count: int) -> int:
+        if count <= 8:
+            return 1
+        if count <= 16:
+            return 2
+        if count <= 32:
+            return 4
+        return 7
+
+    def _safe_float(self, value: object, default: float) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        return number if math.isfinite(number) else default
+
+    def _clamp(self, value: float, minimum: float, maximum: float) -> float:
+        return max(minimum, min(maximum, value))
 
     def _daily_bucket_starts(
         self,

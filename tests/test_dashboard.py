@@ -992,7 +992,8 @@ def test_dashboard_daily_discipline_score_aggregation_uses_same_buckets(db_sessi
     discipline = dashboard["daily_trends"]["discipline"]
     assert [point["date"] for point in discipline] == ["2026-05-01", "2026-05-02", "2026-05-03"]
     assert [point["score"] for point in discipline] == [100, 92, 100]
-    assert dashboard["daily_trends"]["discipline_line_points"] == "0.0,0.0 50.0,8.0 100.0,0.0"
+    assert dashboard["daily_trends"]["discipline_chart"]["path"] == "M 42.0 12.0 L 195.0 20.8 L 348.0 12.0"
+    assert all(0 <= point["score"] <= 100 for point in dashboard["daily_trends"]["discipline_chart"]["points"])
 
 
 def test_dashboard_daily_trends_respect_selected_account_scope(db_session, created_user):
@@ -1091,3 +1092,28 @@ def test_dashboard_daily_trends_today_returns_single_bucket(db_session, created_
     assert dashboard["daily_trends"]["single_day"] is True
     assert [point["date"] for point in dashboard["daily_trends"]["pnl"]] == ["2026-05-04"]
     assert [point["score"] for point in dashboard["daily_trends"]["discipline"]] == [100]
+
+
+def test_dashboard_daily_chart_data_sanitizes_invalid_values(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "TREND-006")
+
+    chart = service._daily_pnl_svg_chart(
+        [
+            {"date": "2026-05-01", "label": "May 01", "value": float("nan"), "setup_count": 0},
+            {"date": "2026-05-02", "label": "May 02", "value": float("inf"), "setup_count": 0},
+        ]
+    )
+    discipline_chart = service._daily_discipline_svg_chart(
+        [
+            {"date": "2026-05-01", "label": "May 01", "score": -20},
+            {"date": "2026-05-02", "label": "May 02", "score": float("nan")},
+            {"date": "2026-05-03", "label": "May 03", "score": 140},
+        ]
+    )
+
+    assert chart["has_data"] is False
+    assert all(bar["value"] == 0.0 for bar in chart["bars"])
+    assert [point["score"] for point in discipline_chart["points"]] == [0.0, 100.0, 100.0]
+    assert "nan" not in discipline_chart["path"].lower()
+    assert "inf" not in discipline_chart["path"].lower()

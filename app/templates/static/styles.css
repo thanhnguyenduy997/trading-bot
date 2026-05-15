@@ -1800,123 +1800,92 @@ button:hover {
     white-space: nowrap;
 }
 
-.daily-bar-chart,
-.daily-score-chart {
-    position: relative;
+.dashboard-svg-chart {
+    min-height: 170px;
+    overflow-x: auto;
 }
 
-.daily-score-line {
-    position: absolute;
-    left: 1.4rem;
-    right: 1.4rem;
-    top: 2.1rem;
-    width: calc(100% - 2.8rem);
-    height: 118px;
-    pointer-events: none;
-    overflow: visible;
+.dashboard-svg-chart svg {
+    display: block;
+    width: 100%;
+    min-width: 320px;
+    height: 170px;
 }
 
-.daily-score-line polyline {
+.chart-axis {
+    stroke: #98a2b3;
+    stroke-width: 1;
+}
+
+.chart-grid-line {
+    stroke: #eaecf0;
+    stroke-width: 1;
+}
+
+.chart-y-label,
+.chart-x-label {
+    fill: #667085;
+    font-size: 9px;
+    font-weight: 750;
+}
+
+.chart-x-label {
+    text-anchor: middle;
+}
+
+.svg-pnl-bar {
+    shape-rendering: crispEdges;
+}
+
+.svg-pnl-bar.positive {
+    fill: var(--success);
+}
+
+.svg-pnl-bar.negative {
+    fill: var(--danger);
+}
+
+.svg-discipline-line {
     fill: none;
     stroke: var(--accent);
-    stroke-width: 2.4;
-    vector-effect: non-scaling-stroke;
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
 
-.daily-score-chart {
+.svg-discipline-dot {
+    stroke: #fff;
+    stroke-width: 2;
+    fill: var(--danger);
+}
+
+.svg-discipline-dot.good {
+    fill: var(--success);
+}
+
+.svg-discipline-dot.medium {
+    fill: var(--accent);
+}
+
+.svg-discipline-dot.warning {
+    fill: var(--warning);
+}
+
+.svg-discipline-dot.bad {
+    fill: var(--danger);
+}
+
+.chart-empty-state {
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(42px, 1fr);
-    align-items: end;
-    gap: 0.55rem;
-    min-height: 190px;
-    overflow-x: auto;
-    padding: 0.25rem 0.15rem 0.4rem;
-}
-
-.daily-bar-column,
-.daily-score-column {
-    display: grid;
-    justify-items: center;
-    align-items: end;
-    gap: 0.35rem;
-    min-width: 42px;
-    color: #475467;
-    font-size: 0.74rem;
-    font-weight: 800;
-}
-
-.daily-bar-shell {
-    position: relative;
-    display: flex;
-    align-items: end;
-    width: 100%;
-    min-width: 28px;
-    height: 118px;
-    overflow: hidden;
-    border-radius: 7px;
-    background: #eef2f6;
-}
-
-.daily-bar {
-    width: 100%;
-    min-height: 2px;
-    border-radius: 7px 7px 0 0;
-    background: linear-gradient(180deg, #12b76a 0%, #0f7a4f 100%);
-}
-
-.daily-bar.negative {
-    background: linear-gradient(180deg, #f97066 0%, #b42318 100%);
-}
-
-.daily-bar-column strong {
-    font-size: 0.76rem;
-    font-variant-numeric: tabular-nums;
-}
-
-.daily-score-track {
-    position: relative;
-    width: 100%;
-    min-width: 28px;
-    height: 118px;
-    border-radius: 7px;
-    background: linear-gradient(180deg, #ecfdf3 0%, #fffaeb 42%, #fef3f2 100%);
-}
-
-.daily-score-dot {
-    position: absolute;
-    left: 50%;
-    width: 0.82rem;
-    height: 0.82rem;
-    border: 2px solid #fff;
-    border-radius: 999px;
-    transform: translate(-50%, 50%);
-    box-shadow: 0 2px 8px rgba(16, 24, 40, 0.18);
-    background: var(--danger);
-}
-
-.daily-score-dot.good {
-    background: var(--success);
-}
-
-.daily-score-dot.medium {
-    background: var(--accent);
-}
-
-.daily-score-dot.warning {
-    background: var(--warning);
-}
-
-.daily-score-dot.bad {
-    background: var(--danger);
-}
-
-.daily-score-column strong {
-    color: #344054;
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
+    place-items: center;
+    min-height: 150px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    background: #f8fafc;
+    font-size: 0.9rem;
+    font-weight: 750;
+    text-align: center;
 }
 
 .mini-chart {
