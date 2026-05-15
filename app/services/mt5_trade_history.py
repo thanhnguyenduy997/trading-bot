@@ -563,6 +563,13 @@ class DashboardService:
         )
         latest_history_sync_at = self._latest_history_sync_at(selected_account.id, actor.id)
         now = self.now_provider()
+        discipline_service = DisciplineScoreService(self.db)
+        discipline_score = discipline_service.compute(
+            actor=actor,
+            selected_account=selected_account,
+            range_start=range_start,
+            range_end=range_end,
+        )
         return {
             "filters": filters,
             "selected_account": selected_account,
@@ -570,11 +577,15 @@ class DashboardService:
             "range_end": range_end,
             "summary": self._build_summary(items),
             "setup_summary": self._build_setup_summary(setup_items),
-            "discipline_score": DisciplineScoreService(self.db).compute(
+            "discipline_score": discipline_score,
+            "daily_trends": self._daily_trends(
                 actor=actor,
                 selected_account=selected_account,
+                items=items,
+                setup_items=setup_items,
                 range_start=range_start,
                 range_end=range_end,
+                discipline_service=discipline_service,
             ),
             "pnl_chart": self._series(items, "close_date", "realized_pnl"),
             "trade_count_chart": self._count_series(items, "close_date"),
@@ -801,6 +812,132 @@ class DashboardService:
         for item in values:
             item["width_percent"] = 0 if max_value == 0 else round(item["value"] / max_value * 100, 2)
         return values
+
+    def _daily_trends(
+        self,
+        *,
+        actor: User,
+        selected_account: TradingAccount,
+        items: list[dict[str, object]],
+        setup_items: list[dict[str, object]],
+        range_start: datetime,
+        range_end: datetime,
+        discipline_service: DisciplineScoreService,
+    ) -> dict[str, object]:
+        day_starts = self._daily_bucket_starts(range_start=range_start, range_end=range_end, items=items, setup_items=setup_items)
+        pnl_by_day: dict[str, float] = defaultdict(float)
+        for item in items:
+            close_time = item.get("close_time")
+            if not isinstance(close_time, datetime):
+                continue
+            day_key = self._normalize_datetime(close_time).astimezone(range_start.tzinfo or timezone.utc).date().isoformat()
+            pnl_by_day[day_key] += float(item["realized_pnl"])
+
+        setup_counts = self._setup_counts_by_day(setup_items, range_start)
+        max_abs_pnl = max((abs(pnl_by_day.get(day.date().isoformat(), 0.0)) for day in day_starts), default=0.0)
+        max_abs_pnl = max(max_abs_pnl, 1.0)
+        pnl_points: list[dict[str, object]] = []
+        discipline_points: list[dict[str, object]] = []
+        for day_start in day_starts:
+            day_end = datetime.combine(day_start.date(), time.max, tzinfo=day_start.tzinfo)
+            key = day_start.date().isoformat()
+            pnl_value = pnl_by_day.get(key, 0.0)
+            discipline = discipline_service.compute(
+                actor=actor,
+                selected_account=selected_account,
+                range_start=day_start,
+                range_end=day_end,
+            )
+            counts = setup_counts.get(key, {})
+            pnl_points.append(
+                {
+                    "date": key,
+                    "label": day_start.strftime("%b %d"),
+                    "value": round(pnl_value, 2),
+                    "height_percent": round(abs(pnl_value) / max_abs_pnl * 100, 2),
+                    "direction": "positive" if pnl_value >= 0 else "negative",
+                    "setup_count": counts.get("setup_count", 0),
+                    "managed_win_count": counts.get("managed_win_count", 0),
+                    "full_win_count": counts.get("full_win_count", 0),
+                    "full_loss_count": counts.get("full_loss_count", 0),
+                    "scratch_manual_count": counts.get("scratch_manual_count", 0),
+                    "review_required_count": counts.get("review_required_count", 0),
+                }
+            )
+            discipline_points.append(
+                {
+                    "date": key,
+                    "label": day_start.strftime("%b %d"),
+                    "score": discipline.total_score,
+                    "height_percent": discipline.total_score,
+                    "setup_count": counts.get("setup_count", 0),
+                    "scratch_manual_count": counts.get("scratch_manual_count", 0),
+                    "review_required_count": counts.get("review_required_count", 0),
+                }
+            )
+        return {
+            "pnl": pnl_points,
+            "discipline": discipline_points,
+            "discipline_line_points": self._discipline_line_points(discipline_points),
+            "single_day": len(day_starts) == 1,
+            "empty_days_included": self._should_include_empty_daily_buckets(range_start, range_end),
+        }
+
+    def _discipline_line_points(self, discipline_points: list[dict[str, object]]) -> str:
+        if len(discipline_points) < 2:
+            return ""
+        max_index = len(discipline_points) - 1
+        points = []
+        for index, point in enumerate(discipline_points):
+            x = round(index / max_index * 100, 2)
+            y = round(100 - float(point["score"]), 2)
+            points.append(f"{x},{y}")
+        return " ".join(points)
+
+    def _daily_bucket_starts(
+        self,
+        *,
+        range_start: datetime,
+        range_end: datetime,
+        items: list[dict[str, object]],
+        setup_items: list[dict[str, object]],
+    ) -> list[datetime]:
+        tz = range_start.tzinfo or timezone.utc
+        start_day = range_start.astimezone(tz).date()
+        end_day = range_end.astimezone(tz).date()
+        if self._should_include_empty_daily_buckets(range_start, range_end):
+            return [datetime.combine(start_day + timedelta(days=offset), time.min, tzinfo=tz) for offset in range((end_day - start_day).days + 1)]
+
+        active_days = {
+            self._normalize_datetime(item["close_time"]).astimezone(tz).date()
+            for item in items
+            if isinstance(item.get("close_time"), datetime)
+        }
+        active_days.update(
+            self._normalize_datetime(item["close_time"]).astimezone(tz).date()
+            for item in setup_items
+            if isinstance(item.get("close_time"), datetime)
+        )
+        if not active_days:
+            active_days.add(end_day)
+        return [datetime.combine(day, time.min, tzinfo=tz) for day in sorted(active_days)]
+
+    def _should_include_empty_daily_buckets(self, range_start: datetime, range_end: datetime) -> bool:
+        return (range_end.date() - range_start.date()).days <= 62
+
+    def _setup_counts_by_day(self, setup_items: list[dict[str, object]], range_start: datetime) -> dict[str, dict[str, int]]:
+        tz = range_start.tzinfo or timezone.utc
+        counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for item in setup_items:
+            close_time = item.get("close_time")
+            if not isinstance(close_time, datetime):
+                continue
+            key = self._normalize_datetime(close_time).astimezone(tz).date().isoformat()
+            outcome = str(item.get("setup_outcome") or "")
+            counts[key]["setup_count"] += 1
+            if outcome in {"managed_win", "full_win", "full_loss", "scratch_manual", "review_required"}:
+                counts[key][f"{outcome}_count"] += 1
+        return {day: dict(day_counts) for day, day_counts in counts.items()}
 
     def _debug_setup_outcome_counts(self, items: list[dict[str, object]]) -> dict[str, int]:
         counts: dict[str, int] = defaultdict(int)

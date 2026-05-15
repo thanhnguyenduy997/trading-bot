@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_setup import TradeSetup
@@ -908,3 +908,186 @@ def test_dashboard_authorization_error_raised_for_unowned_account(db_session, cr
         assert str(exc) == "Trading account not found for the current signed-in user."
     else:
         raise AssertionError("Expected DashboardAuthorizationError for unowned account.")
+
+
+def test_dashboard_daily_pnl_aggregation_includes_empty_days(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "TREND-001")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=93001,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2320.0,
+                close_price=2321.0,
+                realized_pnl=40.0,
+                open_time=datetime(2026, 5, 1, 8, tzinfo=timezone.utc),
+                close_time=datetime(2026, 5, 1, 9, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                position_ticket=93002,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="stoploss",
+                volume=0.5,
+                open_price=2320.0,
+                close_price=2319.0,
+                realized_pnl=-15.0,
+                open_time=datetime(2026, 5, 3, 8, tzinfo=timezone.utc),
+                close_time=datetime(2026, 5, 3, 9, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="custom", start_date=date(2026, 5, 1), end_date=date(2026, 5, 3), trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    pnl = dashboard["daily_trends"]["pnl"]
+    assert [point["date"] for point in pnl] == ["2026-05-01", "2026-05-02", "2026-05-03"]
+    assert [point["value"] for point in pnl] == [40.0, 0.0, -15.0]
+    assert dashboard["daily_trends"]["empty_days_included"] is True
+
+
+def test_dashboard_daily_discipline_score_aggregation_uses_same_buckets(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "TREND-002")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=93101,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2321.0,
+            realized_pnl=20.0,
+            open_time=datetime(2026, 5, 2, 8, tzinfo=timezone.utc),
+            close_time=datetime(2026, 5, 2, 9, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="custom", start_date=date(2026, 5, 1), end_date=date(2026, 5, 3), trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    discipline = dashboard["daily_trends"]["discipline"]
+    assert [point["date"] for point in discipline] == ["2026-05-01", "2026-05-02", "2026-05-03"]
+    assert [point["score"] for point in discipline] == [100, 92, 100]
+    assert dashboard["daily_trends"]["discipline_line_points"] == "0.0,0.0 50.0,8.0 100.0,0.0"
+
+
+def test_dashboard_daily_trends_respect_selected_account_scope(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=timezone.utc))
+    selected = _create_account(db_session, created_user, "TREND-003A")
+    other = _create_account(db_session, created_user, "TREND-003B")
+    db_session.add_all(
+        [
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=selected.id,
+                position_ticket=93201,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2320.0,
+                close_price=2321.0,
+                realized_pnl=10.0,
+                open_time=datetime(2026, 5, 2, 8, tzinfo=timezone.utc),
+                close_time=datetime(2026, 5, 2, 9, tzinfo=timezone.utc),
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=other.id,
+                position_ticket=93202,
+                symbol="XAUUSD",
+                side="buy",
+                trade_source="manual",
+                outcome="take_profit",
+                volume=0.5,
+                open_price=2320.0,
+                close_price=2321.0,
+                realized_pnl=90.0,
+                open_time=datetime(2026, 5, 2, 8, tzinfo=timezone.utc),
+                close_time=datetime(2026, 5, 2, 9, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="custom", start_date=date(2026, 5, 2), end_date=date(2026, 5, 2), trading_account_id=selected.id),
+        selected_account=selected,
+    )
+
+    assert dashboard["daily_trends"]["pnl"][0]["value"] == 10.0
+    assert dashboard["daily_trends"]["discipline"][0]["score"] == 92
+
+
+def test_dashboard_daily_trends_use_dashboard_timezone_day_boundary(db_session, created_user):
+    vietnam_tz = timezone(timedelta(hours=7))
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=vietnam_tz))
+    account = _create_account(db_session, created_user, "TREND-004")
+    db_session.add(
+        MT5TradeHistory(
+            user_id=created_user.id,
+            trading_account_id=account.id,
+            position_ticket=93301,
+            symbol="XAUUSD",
+            side="buy",
+            trade_source="manual",
+            outcome="take_profit",
+            volume=0.5,
+            open_price=2320.0,
+            close_price=2321.0,
+            realized_pnl=25.0,
+            open_time=datetime(2026, 5, 1, 17, 30, tzinfo=timezone.utc),
+            close_time=datetime(2026, 5, 1, 18, 30, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="custom", start_date=date(2026, 5, 1), end_date=date(2026, 5, 2), trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert [point["date"] for point in dashboard["daily_trends"]["pnl"]] == ["2026-05-01", "2026-05-02"]
+    assert [point["value"] for point in dashboard["daily_trends"]["pnl"]] == [0.0, 25.0]
+
+
+def test_dashboard_daily_trends_today_returns_single_bucket(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 5, 4, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "TREND-005")
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["daily_trends"]["single_day"] is True
+    assert [point["date"] for point in dashboard["daily_trends"]["pnl"]] == ["2026-05-04"]
+    assert [point["score"] for point in dashboard["daily_trends"]["discipline"]] == [100]

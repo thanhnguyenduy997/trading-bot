@@ -1773,6 +1773,152 @@ button:hover {
     max-width: 100%;
 }
 
+.daily-trend-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    min-width: 0;
+}
+
+.daily-trend-card {
+    display: grid;
+    gap: 0.85rem;
+    overflow: hidden;
+}
+
+.trend-note {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    background: #f8fafc;
+    font-size: 0.76rem;
+    font-weight: 850;
+    white-space: nowrap;
+}
+
+.daily-bar-chart,
+.daily-score-chart {
+    position: relative;
+}
+
+.daily-score-line {
+    position: absolute;
+    left: 1.4rem;
+    right: 1.4rem;
+    top: 2.1rem;
+    width: calc(100% - 2.8rem);
+    height: 118px;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.daily-score-line polyline {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.4;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.daily-score-chart {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(42px, 1fr);
+    align-items: end;
+    gap: 0.55rem;
+    min-height: 190px;
+    overflow-x: auto;
+    padding: 0.25rem 0.15rem 0.4rem;
+}
+
+.daily-bar-column,
+.daily-score-column {
+    display: grid;
+    justify-items: center;
+    align-items: end;
+    gap: 0.35rem;
+    min-width: 42px;
+    color: #475467;
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.daily-bar-shell {
+    position: relative;
+    display: flex;
+    align-items: end;
+    width: 100%;
+    min-width: 28px;
+    height: 118px;
+    overflow: hidden;
+    border-radius: 7px;
+    background: #eef2f6;
+}
+
+.daily-bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 7px 7px 0 0;
+    background: linear-gradient(180deg, #12b76a 0%, #0f7a4f 100%);
+}
+
+.daily-bar.negative {
+    background: linear-gradient(180deg, #f97066 0%, #b42318 100%);
+}
+
+.daily-bar-column strong {
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.daily-score-track {
+    position: relative;
+    width: 100%;
+    min-width: 28px;
+    height: 118px;
+    border-radius: 7px;
+    background: linear-gradient(180deg, #ecfdf3 0%, #fffaeb 42%, #fef3f2 100%);
+}
+
+.daily-score-dot {
+    position: absolute;
+    left: 50%;
+    width: 0.82rem;
+    height: 0.82rem;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    transform: translate(-50%, 50%);
+    box-shadow: 0 2px 8px rgba(16, 24, 40, 0.18);
+    background: var(--danger);
+}
+
+.daily-score-dot.good {
+    background: var(--success);
+}
+
+.daily-score-dot.medium {
+    background: var(--accent);
+}
+
+.daily-score-dot.warning {
+    background: var(--warning);
+}
+
+.daily-score-dot.bad {
+    background: var(--danger);
+}
+
+.daily-score-column strong {
+    color: #344054;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
 .mini-chart {
     display: grid;
     gap: 0.65rem;
@@ -2827,6 +2973,10 @@ button:hover {
 
 @media (max-width: 980px) {
     .dashboard-operational-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .daily-trend-grid {
         grid-template-columns: 1fr;
     }
 }

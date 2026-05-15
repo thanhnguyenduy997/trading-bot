@@ -220,6 +220,63 @@
         {% endif %}
     </section>
 
+    <section class="daily-trend-grid">
+        <article class="detail-panel daily-trend-card">
+            <div class="dashboard-section-title">
+                <div>
+                    <span class="eyebrow">Daily Trend</span>
+                    <h2>Daily Realized PnL</h2>
+                </div>
+                {% if dashboard.daily_trends.single_day %}
+                <span class="trend-note">Single day</span>
+                {% endif %}
+            </div>
+            <div class="daily-bar-chart" aria-label="Daily realized PnL chart">
+                {% for point in dashboard.daily_trends.pnl %}
+                <div class="daily-bar-column" title="{{ point.date }} · PnL {{ '%.2f'|format(point.value) }} · setups {{ point.setup_count }}">
+                    <div class="daily-bar-shell">
+                        <div class="daily-bar {% if point.direction == 'negative' %}negative{% endif %}" style="height: {{ point.height_percent }}%;"></div>
+                    </div>
+                    <span>{{ point.label }}</span>
+                    <strong class="{% if point.value < 0 %}pnl-loss{% elif point.value > 0 %}pnl-profit{% else %}pnl-flat{% endif %}">{{ "%.0f"|format(point.value) }}</strong>
+                </div>
+                {% else %}
+                <p class="muted">No daily PnL data for this range.</p>
+                {% endfor %}
+            </div>
+        </article>
+
+        <article class="detail-panel daily-trend-card">
+            <div class="dashboard-section-title">
+                <div>
+                    <span class="eyebrow">Daily Trend</span>
+                    <h2>Daily Discipline Score</h2>
+                </div>
+                {% if dashboard.daily_trends.single_day %}
+                <span class="trend-note">Single day</span>
+                {% endif %}
+            </div>
+            <div class="daily-score-chart" aria-label="Daily discipline score chart">
+                {% if dashboard.daily_trends.discipline_line_points %}
+                <svg class="daily-score-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline points="{{ dashboard.daily_trends.discipline_line_points }}"></polyline>
+                </svg>
+                {% endif %}
+                {% for point in dashboard.daily_trends.discipline %}
+                <div class="daily-score-column" title="{{ point.date }} · Discipline {{ point.score }}/100 · setups {{ point.setup_count }} · review {{ point.review_required_count }} · scratch {{ point.scratch_manual_count }}">
+                    <strong>{{ point.score }}</strong>
+                    <div class="daily-score-track">
+                        <div class="daily-score-dot {% if point.score >= 90 %}good{% elif point.score >= 75 %}medium{% elif point.score >= 60 %}warning{% else %}bad{% endif %}" style="bottom: {{ point.height_percent }}%;"></div>
+                    </div>
+                    <span>{{ point.label }}</span>
+                </div>
+                {% else %}
+                <p class="muted">No discipline score buckets for this range.</p>
+                {% endfor %}
+            </div>
+        </article>
+    </section>
+
     <section class="dashboard-chart-grid">
         <article class="detail-panel">
             <h2>Realized PnL</h2>
