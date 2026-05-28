@@ -1,8 +1,9 @@
+import json
 import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -116,8 +117,11 @@ def tradingview_export_page(
     include_event_times: bool = True,
     include_candle_fallback: bool = True,
     outcome: str | None = None,
-    max_trades: int = 100,
+    max_trades: int = 500,
+    sort: str = "entry_time_asc",
+    debug: bool = False,
     download: bool = False,
+    download_debug: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
@@ -133,6 +137,8 @@ def tradingview_export_page(
         "include_candle_fallback": include_candle_fallback,
         "outcome": outcome or "",
         "max_trades": max_trades,
+        "sort": sort,
+        "debug": debug,
     }
     context = {
         "request": request,
@@ -143,6 +149,9 @@ def tradingview_export_page(
         "warnings": [],
         "error": None,
         "result_meta": None,
+        "audit_summary": None,
+        "skipped_records": [],
+        "debug_json": "",
     }
     if not symbol:
         return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
@@ -162,6 +171,8 @@ def tradingview_export_page(
             include_candle_fallback=include_candle_fallback,
             outcome=outcome.strip() if outcome else None,
             max_trades=max_trades,
+            sort=sort,
+            debug=debug,
         )
         result = TradingViewExportService(db).build_export(filters)
     except ValueError as exc:
@@ -171,6 +182,23 @@ def tradingview_export_page(
             "admin_tradingview_export.html",
             context,
             status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if download_debug:
+        filename = (
+            f"trade_history_debug_{result.symbol}_{result.range_start.date().isoformat()}"
+            f"_to_{result.range_end.date().isoformat()}.json"
+        )
+        payload = {
+            "audit_summary": result.audit_summary,
+            "warnings": result.warnings,
+            "normalized_rows": result.normalized_rows,
+            "skipped_records": result.skipped_records,
+        }
+        return PlainTextResponse(
+            json.dumps(payload, indent=2, default=str),
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            media_type="application/json",
         )
 
     if download:
@@ -193,6 +221,32 @@ def tradingview_export_page(
         "exported_trades": result.exported_trades,
         "total_matched_trades": result.total_matched_trades,
     }
+    context["audit_summary"] = result.audit_summary
+    context["skipped_records"] = result.skipped_records
+    context["debug_json"] = (
+        json.dumps(
+            {
+                "audit_summary": result.audit_summary,
+                "warnings": result.warnings,
+                "normalized_rows": result.normalized_rows,
+                "skipped_records": result.skipped_records,
+            },
+            indent=2,
+            default=str,
+        )
+        if debug
+        else ""
+    )
+    if debug and request.headers.get("accept") == "application/json":
+        return JSONResponse(
+            {
+                "pine_code": result.pine_code,
+                "audit_summary": result.audit_summary,
+                "warnings": result.warnings,
+                "normalized_rows": result.normalized_rows,
+                "skipped_records": result.skipped_records,
+            }
+        )
     return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
 
 

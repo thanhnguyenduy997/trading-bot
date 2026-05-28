@@ -56,7 +56,15 @@
             </label>
             <label>
                 max_trades
-                <input type="number" name="max_trades" min="1" max="500" value="{{ form_data.max_trades or 100 }}">
+                <input type="number" name="max_trades" min="1" max="500" value="{{ form_data.max_trades or 500 }}">
+            </label>
+            <label>
+                sort
+                <select name="sort">
+                    {% for key in ["entry_time_asc", "entry_time_desc"] %}
+                    <option value="{{ key }}" {% if form_data.sort == key %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
             </label>
             <label>
                 <input type="checkbox" name="include_event_times" value="true" {% if form_data.include_event_times %}checked{% endif %}>
@@ -65,6 +73,10 @@
             <label>
                 <input type="checkbox" name="include_candle_fallback" value="true" {% if form_data.include_candle_fallback %}checked{% endif %}>
                 include_candle_fallback
+            </label>
+            <label>
+                <input type="checkbox" name="debug" value="true" {% if form_data.debug %}checked{% endif %}>
+                Debug export
             </label>
         </div>
         <div class="action-row">
@@ -78,18 +90,40 @@
         for {{ result_meta.symbol }} ({{ result_meta.range_start.date() }} to {{ result_meta.range_end.date() }}).
     </p>
     {% endif %}
+    {% if audit_summary %}
+    <details>
+        <summary>Audit summary</summary>
+        <pre class="diagnostic-block">{{ audit_summary | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+    {% if skipped_records %}
+    <details>
+        <summary>Skipped records ({{ skipped_records|length }})</summary>
+        <pre class="diagnostic-block">{{ skipped_records | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
 
     <label for="pine-output">Generated Pine Script</label>
     <textarea id="pine-output" rows="20" readonly style="width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">{{ generated_pine }}</textarea>
+    {% if debug_json %}
+    <label for="debug-output">Debug JSON</label>
+    <textarea id="debug-output" rows="16" readonly style="width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">{{ debug_json }}</textarea>
+    {% endif %}
 
     <div class="action-row">
         <button type="button" class="secondary-button" id="copy-pine-btn">Copy</button>
         {% if generated_pine %}
         <a
             class="button-link secondary-button"
-            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&review_timeframe={{ form_data.review_timeframe }}&include_event_times={{ 'true' if form_data.include_event_times else 'false' }}&include_candle_fallback={{ 'true' if form_data.include_candle_fallback else 'false' }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&download=true"
+            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&review_timeframe={{ form_data.review_timeframe }}&include_event_times={{ 'true' if form_data.include_event_times else 'false' }}&include_candle_fallback={{ 'true' if form_data.include_candle_fallback else 'false' }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&sort={{ form_data.sort }}&debug={{ 'true' if form_data.debug else 'false' }}&download=true"
         >
             Download .pine
+        </a>
+        <a
+            class="button-link secondary-button"
+            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&review_timeframe={{ form_data.review_timeframe }}&include_event_times={{ 'true' if form_data.include_event_times else 'false' }}&include_candle_fallback={{ 'true' if form_data.include_candle_fallback else 'false' }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&sort={{ form_data.sort }}&debug=true&download_debug=true"
+        >
+            Download debug JSON
         </a>
         {% endif %}
     </div>

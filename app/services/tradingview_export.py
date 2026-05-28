@@ -17,10 +17,8 @@ from app.models.trade_setup import TradeSetup
 
 VALID_QUICK_RANGES = {"last_2_months", "last_30_days", "last_7_days"}
 VALID_REVIEW_TIMEFRAMES = {"M5": 5, "M15": 15, "H1": 60}
-DEFAULT_MAX_TRADES = 100
+DEFAULT_MAX_TRADES = 500
 ABSOLUTE_MAX_TRADES = 500
-TV_MAX_LABELS = 500
-TV_MAX_LINES = 500
 
 
 @dataclass
@@ -35,6 +33,8 @@ class TradingViewExportFilters:
     include_candle_fallback: bool = True
     outcome: str | None = None
     max_trades: int = DEFAULT_MAX_TRADES
+    sort: str = "entry_time_asc"
+    debug: bool = False
 
 
 @dataclass
@@ -47,6 +47,9 @@ class TradingViewExportResult:
     total_matched_trades: int
     warnings: list[str]
     pine_code: str
+    audit_summary: dict[str, Any]
+    skipped_records: list[dict[str, Any]]
+    normalized_rows: list[dict[str, Any]]
 
 
 class TradingViewExportService:
@@ -68,38 +71,122 @@ class TradingViewExportService:
             query = query.filter(TradeSetup.trading_account_id == filters.account_id)
         if filters.outcome:
             query = query.filter(TradeSetup.setup_outcome == filters.outcome)
+        raw_setups = query.order_by(TradeSetup.id.asc()).all()
+        setup_ids = [setup.id for setup in raw_setups]
+        event_map_all = self._bulk_load_event_maps(setup_ids)
+        history_map_all = self._bulk_load_history_maps(setup_ids)
 
-        entry_expr = self._entry_time_expr()
-        close_expr = self._close_time_expr()
-        query = query.filter(
-            or_(
-                entry_expr.between(start_at, end_at),
-                close_expr.between(start_at, end_at),
+        normalized_rows: list[dict[str, Any]] = []
+        skipped_records: list[dict[str, Any]] = []
+        for setup in raw_setups:
+            row = self._setup_to_export_row(
+                setup,
+                filters=filters,
+                event_map=event_map_all.get(setup.id, {}),
+                history_map=history_map_all.get(setup.id, {}),
             )
+            skip_reason = self._resolve_skip_reason(row=row, setup=setup, range_start=start_at, range_end=end_at, filters=filters)
+            if skip_reason is not None:
+                skipped_records.append(
+                    self._build_skipped_record(setup=setup, row=row, skip_reason=skip_reason)
+                )
+                continue
+            normalized_rows.append(row)
+
+        raw_order_count = sum((1 if setup.order1_ticket else 0) + (1 if setup.order2_ticket else 0) for setup in raw_setups)
+        raw_deal_count = (
+            self.db.query(MT5TradeHistory.id)
+            .filter(MT5TradeHistory.linked_setup_id.in_(setup_ids))
+            .count()
+            if setup_ids
+            else 0
         )
 
-        setups = query.order_by(entry_expr.asc(), TradeSetup.id.asc()).all()
-        total_matched = len(setups)
-        if total_matched > max_trades:
-            warnings.append(
-                f"Matched {total_matched} trades; exporting latest {max_trades} by entry time due to max_trades."
-            )
-            setups = setups[-max_trades:]
+        duplicate_ids: set[int] = set()
+        deduped_rows: list[dict[str, Any]] = []
+        for row in normalized_rows:
+            setup_id = int(row["setup_id"])
+            if setup_id in duplicate_ids:
+                skipped_records.append(
+                    {
+                        "setup_id": row.get("setup_id"),
+                        "order_id": row.get("order_id"),
+                        "symbol": row.get("symbol"),
+                        "account_id": row.get("account_id"),
+                        "entry_time": self._iso_dt(row.get("entry_time")),
+                        "close_time": self._iso_dt(row.get("close_time")),
+                        "status": row.get("status"),
+                        "outcome": row.get("outcome"),
+                        "skip_reason": "duplicate_collapsed",
+                        "original_ids": [setup_id],
+                    }
+                )
+                continue
+            duplicate_ids.add(setup_id)
+            deduped_rows.append(row)
 
-        setups = self._trim_for_tv_limits(setups, warnings)
-        trades = [self._setup_to_export_row(setup, filters=filters) for setup in setups]
-        self._append_data_quality_warnings(trades, warnings, filters=filters)
-        pine_code = self._generate_pine_code(symbol=symbol, range_start=start_at, range_end=end_at, trades=trades)
+        sort_key = filters.sort if filters.sort in {"entry_time_asc", "entry_time_desc"} else "entry_time_asc"
+        deduped_rows.sort(
+            key=lambda item: (item.get("entry_time_ms") is None, item.get("entry_time_ms") or math.inf, item.get("setup_id")),
+            reverse=sort_key == "entry_time_desc",
+        )
+
+        normalized_count = len(deduped_rows)
+        was_limited_by_max_trades = normalized_count > max_trades
+        if was_limited_by_max_trades:
+            warnings.append(f"Export limited from {normalized_count} to {max_trades} trades")
+            if sort_key == "entry_time_desc":
+                exported_rows = deduped_rows[:max_trades]
+            else:
+                exported_rows = deduped_rows[:max_trades]
+        else:
+            exported_rows = deduped_rows
+
+        self._append_data_quality_warnings(exported_rows, warnings, filters=filters)
+        audit_summary = {
+            "requested_account_id": filters.account_id,
+            "requested_symbol": symbol,
+            "requested_start_date": start_at.date().isoformat(),
+            "requested_end_date": end_at.date().isoformat(),
+            "requested_review_timeframe": filters.review_timeframe,
+            "raw_setup_count": len(raw_setups),
+            "raw_order_count": raw_order_count,
+            "raw_deal_count": raw_deal_count,
+            "normalized_trade_count": normalized_count,
+            "exported_trade_count": len(exported_rows),
+            "skipped_trade_count": len(skipped_records),
+            "max_trades": max_trades,
+            "was_limited_by_max_trades": was_limited_by_max_trades,
+            "first_exported_entry_time": self._iso_dt(exported_rows[0].get("entry_time")) if exported_rows else None,
+            "last_exported_entry_time": self._iso_dt(exported_rows[-1].get("entry_time")) if exported_rows else None,
+            "sort": sort_key,
+            "query_logic_summary": (
+                "setup candidates by account/symbol/outcome; include if entry_time OR close_time OR setup_time "
+                "OR linked deal open/close time OR trade_event time is inside range."
+            ),
+        }
+
+        pine_code = self._generate_pine_code(
+            symbol=symbol,
+            range_start=start_at,
+            range_end=end_at,
+            trades=exported_rows,
+            audit_summary=audit_summary,
+            skipped_records=skipped_records,
+        )
 
         return TradingViewExportResult(
             symbol=symbol,
             range_start=start_at,
             range_end=end_at,
             requested_max_trades=max_trades,
-            exported_trades=len(trades),
-            total_matched_trades=total_matched,
+            exported_trades=len(exported_rows),
+            total_matched_trades=normalized_count,
             warnings=warnings,
             pine_code=pine_code,
+            audit_summary=audit_summary,
+            skipped_records=skipped_records,
+            normalized_rows=deduped_rows,
         )
 
     def _resolve_range(self, filters: TradingViewExportFilters) -> tuple[datetime, datetime]:
@@ -137,33 +224,14 @@ class TradingViewExportService:
             TradeSetup.manual_confirmed_at,
         )
 
-    def _trim_for_tv_limits(self, setups: list[TradeSetup], warnings: list[str]) -> list[TradeSetup]:
-        # Conservative estimate per trade to avoid TradingView object cap explosions.
-        # labels: entry + close (if closed), lines: sl + tp1 + tp2 + entry-close (if closed).
-        labels = 0
-        lines = 0
-        selected: list[TradeSetup] = []
-        for setup in reversed(setups):
-            close_exists = self._resolve_close_time(setup) is not None and self._resolve_close_price(setup) is not None
-            has_tp2 = setup.tp2_price is not None
-            next_labels = labels + 1 + (1 if close_exists else 0)
-            next_lines = lines + 2 + (1 if has_tp2 else 0) + (1 if close_exists else 0)
-            if next_labels > TV_MAX_LABELS or next_lines > TV_MAX_LINES:
-                continue
-            labels = next_labels
-            lines = next_lines
-            selected.append(setup)
-        selected.reverse()
-        if len(selected) < len(setups):
-            warnings.append(
-                f"Trimmed to {len(selected)} trades to stay within TradingView object limits "
-                f"(labels <= {TV_MAX_LABELS}, lines <= {TV_MAX_LINES})."
-            )
-        return selected
-
-    def _setup_to_export_row(self, setup: TradeSetup, *, filters: TradingViewExportFilters) -> dict[str, Any]:
-        event_map = self._load_event_map(setup)
-        history_map = self._load_history_map(setup)
+    def _setup_to_export_row(
+        self,
+        setup: TradeSetup,
+        *,
+        filters: TradingViewExportFilters,
+        event_map: dict[str, list[TradeEvent]],
+        history_map: dict[int, MT5TradeHistory],
+    ) -> dict[str, Any]:
         entry_time = self._resolve_entry_time(setup)
         close_time = self._resolve_close_time(setup)
         signal_time = setup.created_at
@@ -211,7 +279,18 @@ class TradingViewExportService:
         actual_entry_price = self._resolve_actual_entry_price(setup, history_map)
         actual_close_price = self._resolve_close_price(setup)
         events_are_candle_derived = False
-        return {
+        data_quality_flags: list[str] = []
+        if entry_time is None:
+            data_quality_flags.append("missing_entry_time")
+        if actual_close_price is None:
+            data_quality_flags.append("missing_close_price")
+        if close_time is None:
+            data_quality_flags.append("missing_close_time")
+        if any(value is None for value in (tp1_hit_time, tp2_hit_time, sl_hit_time, be_moved_time, be_hit_time)):
+            data_quality_flags.append("missing_event_times")
+
+        linked_event_times = self._collect_related_event_times(setup=setup, event_map=event_map, history_map=history_map)
+        row = {
             "setup_id": setup.id,
             "order_id": setup.order1_ticket or setup.order2_ticket,
             "order1_id": setup.order1_ticket,
@@ -219,6 +298,7 @@ class TradingViewExportService:
             "account_id": setup.trading_account_id,
             "symbol": setup.symbol,
             "direction": setup.side,
+            "status": setup.status,
             "entry_time": entry_time,
             "signal_time": signal_time,
             "entry_price": self._to_float(setup.estimated_entry),
@@ -277,7 +357,10 @@ class TradingViewExportService:
             "discipline_score": None,
             "notes": setup.execution_error,
             "events_are_candle_derived": events_are_candle_derived,
+            "data_quality_flags": data_quality_flags,
+            "linked_event_times": linked_event_times,
         }
+        return row
 
     def _resolve_entry_time(self, setup: TradeSetup) -> datetime | None:
         return setup.executed_at or setup.created_at
@@ -338,25 +421,34 @@ class TradingViewExportService:
         floored_minute = (normalized.minute // minutes) * minutes
         return normalized.replace(minute=floored_minute, second=0, microsecond=0)
 
-    def _load_event_map(self, setup: TradeSetup) -> dict[str, list[TradeEvent]]:
-        events = (
+    def _bulk_load_event_maps(self, setup_ids: list[int]) -> dict[int, dict[str, list[TradeEvent]]]:
+        if not setup_ids:
+            return {}
+        rows = (
             self.db.query(TradeEvent)
-            .filter(TradeEvent.setup_id == setup.id, TradeEvent.user_id == setup.user_id)
-            .order_by(TradeEvent.created_at.asc(), TradeEvent.id.asc())
+            .filter(TradeEvent.setup_id.in_(setup_ids))
+            .order_by(TradeEvent.setup_id.asc(), TradeEvent.created_at.asc(), TradeEvent.id.asc())
             .all()
         )
-        grouped: dict[str, list[TradeEvent]] = {}
-        for event in events:
-            grouped.setdefault(event.event_type, []).append(event)
-        return grouped
+        result: dict[int, dict[str, list[TradeEvent]]] = {}
+        for event in rows:
+            setup_map = result.setdefault(event.setup_id, {})
+            setup_map.setdefault(event.event_type, []).append(event)
+        return result
 
-    def _load_history_map(self, setup: TradeSetup) -> dict[int, MT5TradeHistory]:
+    def _bulk_load_history_maps(self, setup_ids: list[int]) -> dict[int, dict[int, MT5TradeHistory]]:
+        if not setup_ids:
+            return {}
         rows = (
             self.db.query(MT5TradeHistory)
-            .filter(MT5TradeHistory.linked_setup_id == setup.id)
+            .filter(MT5TradeHistory.linked_setup_id.in_(setup_ids))
             .all()
         )
-        return {int(row.position_ticket): row for row in rows}
+        result: dict[int, dict[int, MT5TradeHistory]] = {}
+        for row in rows:
+            setup_map = result.setdefault(int(row.linked_setup_id), {})
+            setup_map[int(row.position_ticket)] = row
+        return result
 
     def _resolve_event_time(self, event_map: dict[str, list[TradeEvent]], event_type: str, fallback: datetime | None) -> datetime | None:
         if event_type in event_map and event_map[event_type]:
@@ -388,6 +480,84 @@ class TradingViewExportService:
         if setup.order2_ticket and int(setup.order2_ticket) in history_map:
             return self._to_float(history_map[int(setup.order2_ticket)].open_price)
         return self._to_float(setup.estimated_entry)
+
+    def _collect_related_event_times(
+        self,
+        *,
+        setup: TradeSetup,
+        event_map: dict[str, list[TradeEvent]],
+        history_map: dict[int, MT5TradeHistory],
+    ) -> list[datetime]:
+        times: list[datetime] = []
+        setup_times = [
+            setup.created_at,
+            setup.executed_at,
+            setup.setup_outcome_recorded_at,
+            setup.result_recorded_at,
+            setup.order1_closed_at,
+            setup.order2_closed_at,
+            setup.manual_confirmed_at,
+        ]
+        times.extend(item for item in setup_times if item is not None)
+        for events in event_map.values():
+            times.extend(item.created_at for item in events if item.created_at is not None)
+        for trade in history_map.values():
+            for maybe in (trade.open_time, trade.close_time):
+                if maybe is not None:
+                    times.append(maybe)
+        return times
+
+    def _resolve_skip_reason(
+        self,
+        *,
+        row: dict[str, Any],
+        setup: TradeSetup,
+        range_start: datetime,
+        range_end: datetime,
+        filters: TradingViewExportFilters,
+    ) -> str | None:
+        if row.get("symbol") != filters.symbol.strip().upper():
+            return "symbol_mismatch"
+        if filters.account_id is not None and int(row.get("account_id") or -1) != filters.account_id:
+            return "account_mismatch"
+        if not row.get("direction"):
+            return "missing_direction"
+        if row.get("entry_price") is None:
+            return "missing_entry_price"
+        if row.get("initial_sl") is None or row.get("tp1_price") is None:
+            return "missing_plan_prices"
+        if setup.status not in {"executed", "draft", "failed"}:
+            return "unsupported_status"
+
+        in_range = False
+        for value in row.get("linked_event_times", []):
+            normalized = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            if range_start <= normalized <= range_end:
+                in_range = True
+                break
+        if not in_range:
+            return "outside_date_range"
+        if row.get("entry_time") is None and row.get("signal_time") is None:
+            return "missing_entry_time"
+        return None
+
+    def _build_skipped_record(self, *, setup: TradeSetup, row: dict[str, Any], skip_reason: str) -> dict[str, Any]:
+        return {
+            "setup_id": setup.id,
+            "order_id": row.get("order_id"),
+            "symbol": row.get("symbol"),
+            "account_id": row.get("account_id"),
+            "entry_time": self._iso_dt(row.get("entry_time")),
+            "close_time": self._iso_dt(row.get("close_time")),
+            "status": setup.status,
+            "outcome": row.get("outcome"),
+            "skip_reason": skip_reason,
+        }
+
+    def _iso_dt(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.isoformat()
 
     def _max_datetime(self, left: datetime | None, right: datetime | None) -> datetime | None:
         if left is None:
@@ -424,6 +594,18 @@ class TradingViewExportService:
             warnings.append(f"{fallback_count} trade(s) include candle-derived fallback event times.")
         if ambiguity_count:
             warnings.append(f"{ambiguity_count} trade(s) flagged with same_candle_ambiguity.")
+        close_time_groups: dict[int, int] = {}
+        for trade in trades:
+            close_ms = trade.get("close_time_ms")
+            if close_ms is None:
+                continue
+            close_time_groups[int(close_ms)] = close_time_groups.get(int(close_ms), 0) + 1
+        for trade in trades:
+            close_ms = trade.get("close_time_ms")
+            if close_ms is not None and close_time_groups.get(int(close_ms), 0) > 1:
+                flags = trade.setdefault("data_quality_flags", [])
+                if "shared_close_time_suspected" not in flags:
+                    flags.append("shared_close_time_suspected")
 
     def _generate_pine_code(
         self,
@@ -432,9 +614,28 @@ class TradingViewExportService:
         range_start: datetime,
         range_end: datetime,
         trades: list[dict[str, Any]],
+        audit_summary: dict[str, Any],
+        skipped_records: list[dict[str, Any]],
     ) -> str:
         lines: list[str] = []
         lines.append("//@version=6")
+        lines.append("// Export audit:")
+        for key in (
+            "requested_symbol",
+            "requested_start_date",
+            "requested_end_date",
+            "raw_setup_count",
+            "normalized_trade_count",
+            "exported_trade_count",
+            "skipped_trade_count",
+            "max_trades",
+            "was_limited_by_max_trades",
+            "first_exported_entry_time",
+            "last_exported_entry_time",
+        ):
+            lines.append(f"// {key}: {audit_summary.get(key)}")
+        if skipped_records:
+            lines.append(f"// skipped_records_json: {self._pine_comment_json(skipped_records)}")
         lines.append(
             f'indicator("Trade History - {symbol} - {range_start.date().isoformat()} to {range_end.date().isoformat()}", '
             "overlay=true, max_labels_count=500, max_lines_count=500)"
@@ -597,6 +798,10 @@ class TradingViewExportService:
         lines.append("plot(na)")
         return "\n".join(lines) + "\n"
 
+    def _pine_comment_json(self, payload: object) -> str:
+        text = json.dumps(payload, separators=(",", ":"), default=str)
+        return text.replace("\n", " ")
+
     def _pine_ts(self, value: datetime | None) -> str:
         if value is None:
             return "na"
@@ -627,8 +832,8 @@ class TradingViewExportService:
         ]
         if trade.get("tp2_price") is not None:
             lines.append(f"TP2: {self._display_num(trade.get('tp2_price'))}")
-        if trade.get("close_price") is not None:
-            lines.append(f"Close: {self._display_num(trade.get('close_price'))}")
+        if trade.get("actual_close_price") is not None:
+            lines.append(f"Close: {self._display_num(trade.get('actual_close_price'))}")
         if trade.get("realized_pnl") is not None:
             lines.append(f"PnL: {self._display_num(trade.get('realized_pnl'))}")
         if trade.get("risk_r") is not None:

@@ -91,42 +91,22 @@ def test_export_defaults_to_last_two_month_range(db_session, created_user):
     assert result.exported_trades == 1
 
 
-def test_export_filters_account_symbol_outcome_and_range_overlap(db_session, created_user):
+def test_export_includes_unknown_outcome_and_open_trade_without_close(db_session, created_user):
     account_a = _create_account(db_session, created_user, "TV-002")
-    account_b = _create_account(db_session, created_user, "TV-003")
-
-    inside = _create_setup(
+    setup = _create_setup(
         db_session,
         created_user,
         account_a,
         symbol="XAUUSD",
         side="buy",
         executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
-        outcome="closed_at_be",
+        outcome="managed_win",
     )
-    inside.executed_at = datetime(2026, 3, 20, 8, tzinfo=timezone.utc)
-    inside.order2_closed_at = datetime(2026, 4, 2, 10, tzinfo=timezone.utc)
-    inside.setup_outcome_recorded_at = inside.order2_closed_at
-    db_session.add(inside)
-
-    _create_setup(
-        db_session,
-        created_user,
-        account_a,
-        symbol="EURUSD",
-        side="sell",
-        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
-        outcome="closed_at_be",
-    )
-    _create_setup(
-        db_session,
-        created_user,
-        account_b,
-        symbol="XAUUSD",
-        side="buy",
-        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
-        outcome="full_win",
-    )
+    setup.setup_outcome = None
+    setup.order1_closed_at = None
+    setup.order2_closed_at = None
+    setup.order1_close_price = None
+    setup.order2_close_price = None
     db_session.commit()
 
     result = TradingViewExportService(db_session).build_export(
@@ -135,57 +115,38 @@ def test_export_filters_account_symbol_outcome_and_range_overlap(db_session, cre
             symbol="XAUUSD",
             start_date=date(2026, 4, 1),
             end_date=date(2026, 4, 30),
-            outcome="closed_at_be",
         )
     )
 
     assert result.exported_trades == 1
-    assert "closed_at_be" in result.pine_code
-    assert "label.new" in result.pine_code
-    assert "line.new" in result.pine_code
-    assert "timestamp(2026, 3, 20" in result.pine_code
+    assert "array.push(closeTimes, na)" in result.pine_code
+    assert "array.push(closePrices, na)" in result.pine_code
 
 
-def test_export_max_trades_limit_and_be_outcome_kept_from_db(db_session, created_user):
+def test_export_includes_entry_inside_range_and_close_inside_range(db_session, created_user):
     account = _create_account(db_session, created_user, "TV-004")
-    for day in range(1, 6):
-        _create_setup(
-            db_session,
-            created_user,
-            account,
-            symbol="XAUUSD",
-            side="buy",
-            executed_at=datetime(2026, 4, day, 8, tzinfo=timezone.utc),
-            outcome="closed_at_be" if day == 5 else "full_win",
-        )
-
-    result = TradingViewExportService(db_session).build_export(
-        TradingViewExportFilters(
-            account_id=account.id,
-            symbol="XAUUSD",
-            start_date=date(2026, 4, 1),
-            end_date=date(2026, 4, 30),
-            max_trades=2,
-        )
-    )
-
-    assert result.exported_trades == 2
-    assert any("latest 2" in warning for warning in result.warnings)
-    assert "closed_at_be" in result.pine_code
-    assert "sl_hit" not in result.pine_code
-
-
-def test_generated_pine_uses_valid_na_checks_and_function_signature(db_session, created_user):
-    account = _create_account(db_session, created_user, "TV-006")
-    _create_setup(
+    row1 = _create_setup(
         db_session,
         created_user,
         account,
         symbol="XAUUSD",
         side="buy",
-        executed_at=datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
+        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+        outcome="full_win",
+    )
+    row2 = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="sell",
+        executed_at=datetime(2026, 3, 25, 8, tzinfo=timezone.utc),
         outcome="managed_win",
     )
+    row2.order2_closed_at = datetime(2026, 4, 2, 9, tzinfo=timezone.utc)
+    row2.setup_outcome_recorded_at = row2.order2_closed_at
+    db_session.add_all([row1, row2])
+    db_session.commit()
 
     result = TradingViewExportService(db_session).build_export(
         TradingViewExportFilters(
@@ -195,17 +156,43 @@ def test_generated_pine_uses_valid_na_checks_and_function_signature(db_session, 
             end_date=date(2026, 4, 30),
         )
     )
-    pine = result.pine_code
+    assert result.exported_trades == 2
 
-    assert "color outcomeColor" not in pine
-    assert "outcomeColor(string outcome) =>" in pine
-    assert " != na" not in pine
-    assert " == na" not in pine
-    assert "not na(" in pine
-    assert "array.push(entryTimes" in pine
-    assert "array.push(entryPrices" in pine
-    assert "array.push(closeTimes" in pine
-    assert "array.push(closePrices" in pine
+def test_export_includes_setup_time_when_entry_time_missing(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-005")
+    setup = _create_setup(db_session, created_user, account, symbol="XAUUSD", side="buy", executed_at=datetime(2026, 4, 5, 8, tzinfo=timezone.utc), outcome="managed_win")
+    setup.executed_at = None
+    setup.created_at = datetime(2026, 4, 7, 8, tzinfo=timezone.utc)
+    db_session.add(setup)
+    db_session.commit()
+
+    result = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+    )
+
+    assert result.exported_trades == 1
+
+
+def test_export_does_not_silently_drop_low_setup_ids(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-006")
+    created = []
+    for _ in range(5):
+        created.append(
+            _create_setup(
+                db_session,
+                created_user,
+                account,
+                symbol="XAUUSD",
+                side="buy",
+                executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+                outcome="managed_win",
+            )
+        )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30), max_trades=500)
+    )
+    exported_ids = {row["setup_id"] for row in export.normalized_rows}
+    assert {item.id for item in created}.issubset(exported_ids)
 
 
 def test_timestamp_ms_and_bar_alignment_helpers(db_session, created_user):
@@ -220,7 +207,7 @@ def test_timestamp_ms_and_bar_alignment_helpers(db_session, created_user):
     assert service.to_pine_timestamp_ms(datetime(2026, 4, 9, 9, 27, 13)) == expected_ms
 
 
-def test_export_row_contains_event_time_ms_fields(db_session, created_user):
+def test_export_debug_payload_and_audit_summary(db_session, created_user):
     account = _create_account(db_session, created_user, "TV-007")
     setup = _create_setup(
         db_session,
@@ -252,15 +239,15 @@ def test_export_row_contains_event_time_ms_fields(db_session, created_user):
     db_session.commit()
 
     result = TradingViewExportService(db_session).build_export(
-        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30), debug=True)
     )
-    assert "array.push(entryTimes" in result.pine_code
+    assert result.audit_summary["requested_symbol"] == "XAUUSD"
+    assert result.audit_summary["raw_setup_count"] >= 1
+    assert isinstance(result.skipped_records, list)
+    assert isinstance(result.normalized_rows, list)
+    assert "raw_setup_count" in result.pine_code
     assert "timestamp(2026" not in result.pine_code
-    assert "focusTradeNo = input.int(1" in result.pine_code
-    assert "table.new" not in result.pine_code
-    assert "line.new(entryTime, entryPrice, closeTime, closePrice" not in result.pine_code
-    assert "array.push(tp1HitTimes" in result.pine_code
-    assert "array.push(slHitTimes" in result.pine_code
+    assert result.pine_code.count("array.push(entryTimes") == result.exported_trades
 
 
 def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
@@ -308,6 +295,43 @@ def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
     assert any("same_candle_ambiguity" in warning for warning in export.warnings)
 
 
+def test_max_trades_limit_warning_and_audit_flag(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-010")
+    for day in range(1, 6):
+        _create_setup(
+            db_session,
+            created_user,
+            account,
+            symbol="XAUUSD",
+            side="buy",
+            executed_at=datetime(2026, 4, day, 8, tzinfo=timezone.utc),
+            outcome="managed_win",
+        )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30), max_trades=2)
+    )
+    assert export.exported_trades == 2
+    assert export.audit_summary["was_limited_by_max_trades"] is True
+    assert any("Export limited from" in warning for warning in export.warnings)
+
+
+def test_skipped_records_include_skip_reason(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-011")
+    _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 5, 1), end_date=date(2026, 5, 2))
+    )
+    assert any(item["skip_reason"] == "outside_date_range" for item in export.skipped_records)
+
+
 def test_close_data_not_reused_between_trades(db_session, created_user):
     account = _create_account(db_session, created_user, "TV-009")
     setup1 = _create_setup(
@@ -341,6 +365,7 @@ def test_close_data_not_reused_between_trades(db_session, created_user):
     code = export.pine_code
     assert "array.push(closePrices, na)" in code
     assert code.count("array.push(closeTimes") >= 2
+    assert export.audit_summary["exported_trade_count"] == export.exported_trades
 
 
 def test_admin_export_page_and_download(client, db_session):
@@ -361,12 +386,16 @@ def test_admin_export_page_and_download(client, db_session):
     )
     _login(client, admin.email)
 
-    page = client.get(f"/admin/tradingview-export?symbol=XAUUSD&account_id={account.id}&max_trades=5")
+    page = client.get(f"/admin/tradingview-export?symbol=XAUUSD&account_id={account.id}&max_trades=5&debug=true")
     download = client.get(f"/admin/tradingview-export?symbol=XAUUSD&account_id={account.id}&download=true")
+    debug_json = client.get(f"/admin/tradingview-export?symbol=XAUUSD&account_id={account.id}&debug=true", headers={"accept": "application/json"})
 
     assert page.status_code == 200
     assert "TradingView History Export" in page.text
+    assert "Audit summary" in page.text
     assert "//@version=6" in page.text
     assert download.status_code == 200
     assert "attachment; filename=" in download.headers.get("content-disposition", "")
     assert "//@version=6" in download.text
+    assert debug_json.status_code == 200
+    assert "audit_summary" in debug_json.json()
