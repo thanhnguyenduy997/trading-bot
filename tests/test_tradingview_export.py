@@ -552,3 +552,32 @@ def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user)
     assert all("array.push" not in line for line in init_block)
     assert pine.count("array.push(entryTimes") == export.exported_trades
     assert "raw_setup_count" in pine
+
+
+def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-017")
+    _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 20, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+    )
+    pine = export.pine_code
+    assert "focusTradeNo = input.int(1, 'Focus trade number (0 = all trades)', minval=0)" in pine
+    assert "showAllTradeLabels = input.bool(true, 'All mode: show BUY/SELL labels')" in pine
+    assert "showAllTradeBoxes = input.bool(false, 'All mode: show compact position boxes')" in pine
+    assert "showAllTradeLevels = input.bool(false, 'All mode: show Entry/SL/TP lines')" in pine
+    assert "allPositionWidthHours = input.int(4, 'All mode: position width hours', minval=1, maxval=72)" in pine
+    assert "if focusTradeNo == 0" in pine
+    assert "BUY #" in pine or "SELL #" in pine
+    assert "color=directionIsBuy ? color.new(color.green, 0) : color.new(color.red, 0)" in pine
+    assert "label.style_circle" not in pine
+    assert "label.style_diamond" not in pine
+    assert "showTinyMarkersForAllTrades" not in pine
+    assert "else if focusTradeNo > 0 and focusTradeNo <= tradeCount" in pine
