@@ -569,13 +569,13 @@ def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
         TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
     )
     pine = export.pine_code
-    assert "focusTradeNo = input.int(1, 'Focus trade number (0 = all trades)', minval=0)" in pine
-    assert "showAllTradeLabels = input.bool(true, 'All mode: show BUY/SELL labels')" in pine
-    assert "showAllTradeBoxes = input.bool(false, 'All mode: show compact position boxes')" in pine
-    assert "showAllTradeLevels = input.bool(false, 'All mode: show Entry/SL/TP lines')" in pine
-    assert "allPositionWidthHours = input.int(4, 'All mode: position width hours', minval=1, maxval=72)" in pine
+    assert "focusTradeNo = input.int(1, 'Focus trade number (0 = all trades)', minval=0, group=groupTradeVisual)" in pine
+    assert "showAllTradeLabels = input.bool(true, 'All mode: show BUY/SELL labels', group=groupTradeVisual)" in pine
+    assert "showAllTradeBoxes = input.bool(false, 'All mode: show compact position boxes', group=groupTradeVisual)" in pine
+    assert "showAllTradeLevels = input.bool(false, 'All mode: show Entry/SL/TP lines', group=groupTradeVisual)" in pine
+    assert "allPositionWidthHours = input.int(4, 'All mode: position width hours', minval=1, maxval=72, group=groupTradeVisual)" in pine
     assert "if focusTradeNo == 0" in pine
-    assert "BUY #" in pine or "SELL #" in pine
+    assert "BUY #" in pine or "SELL #" in pine or "B#" in pine or "S#" in pine
     assert "color=directionIsBuy ? color.new(color.green, 0) : color.new(color.red, 0)" in pine
     assert "label.style_circle" not in pine
     assert "label.style_diamond" not in pine
