@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 
+from app.models.trade_event import TradeEvent
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
 from app.schemas.trading_account import TradingAccountCreate
@@ -205,6 +206,141 @@ def test_generated_pine_uses_valid_na_checks_and_function_signature(db_session, 
     assert "array.push(entryPrices" in pine
     assert "array.push(closeTimes" in pine
     assert "array.push(closePrices" in pine
+
+
+def test_timestamp_ms_and_bar_alignment_helpers(db_session, created_user):
+    service = TradingViewExportService(db_session)
+    base = datetime(2026, 4, 9, 9, 27, 13, tzinfo=timezone.utc)
+
+    assert service.floor_to_timeframe_bar(base, "M5") == datetime(2026, 4, 9, 9, 25, 0, tzinfo=timezone.utc)
+    assert service.floor_to_timeframe_bar(base, "M15") == datetime(2026, 4, 9, 9, 15, 0, tzinfo=timezone.utc)
+    assert service.floor_to_timeframe_bar(base, "H1") == datetime(2026, 4, 9, 9, 0, 0, tzinfo=timezone.utc)
+    expected_ms = int(base.timestamp() * 1000)
+    assert service.to_pine_timestamp_ms(base) == expected_ms
+    assert service.to_pine_timestamp_ms(datetime(2026, 4, 9, 9, 27, 13)) == expected_ms
+
+
+def test_export_row_contains_event_time_ms_fields(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-007")
+    setup = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    db_session.add(
+        TradeEvent(
+            user_id=created_user.id,
+            setup_id=setup.id,
+            event_type="tp1_hit",
+            message="TP1 hit",
+            created_at=datetime(2026, 4, 10, 8, 14, tzinfo=timezone.utc),
+        )
+    )
+    db_session.add(
+        TradeEvent(
+            user_id=created_user.id,
+            setup_id=setup.id,
+            event_type="order2_sl_hit",
+            message="SL hit",
+            created_at=datetime(2026, 4, 10, 8, 49, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    result = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+    )
+    assert "array.push(entryTimes" in result.pine_code
+    assert "timestamp(2026" not in result.pine_code
+    assert "focusTradeNo = input.int(1" in result.pine_code
+    assert "table.new" not in result.pine_code
+    assert "line.new(entryTime, entryPrice, closeTime, closePrice" not in result.pine_code
+    assert "array.push(tp1HitTimes" in result.pine_code
+    assert "array.push(slHitTimes" in result.pine_code
+
+
+def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-008")
+    setup = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+        outcome="review_required",
+    )
+    db_session.add_all(
+        [
+            TradeEvent(
+                user_id=created_user.id,
+                setup_id=setup.id,
+                event_type="tp1_hit",
+                message="TP1",
+                created_at=datetime(2026, 4, 10, 8, 21, tzinfo=timezone.utc),
+            ),
+            TradeEvent(
+                user_id=created_user.id,
+                setup_id=setup.id,
+                event_type="order2_sl_hit",
+                message="SL",
+                created_at=datetime(2026, 4, 10, 8, 24, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    service = TradingViewExportService(db_session)
+    export = service.build_export(
+        TradingViewExportFilters(
+            account_id=account.id,
+            symbol="XAUUSD",
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 4, 30),
+            review_timeframe="M5",
+        )
+    )
+    assert "same_candle_ambiguity" in export.pine_code
+    assert any("same_candle_ambiguity" in warning for warning in export.warnings)
+
+
+def test_close_data_not_reused_between_trades(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-009")
+    setup1 = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 10, 8, tzinfo=timezone.utc),
+        outcome="full_win",
+    )
+    setup2 = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="sell",
+        executed_at=datetime(2026, 4, 11, 8, tzinfo=timezone.utc),
+        outcome="closed_at_be",
+    )
+    setup1.order2_closed_at = datetime(2026, 4, 10, 11, tzinfo=timezone.utc)
+    setup1.order2_close_price = 2325.5
+    setup2.order2_closed_at = datetime(2026, 4, 11, 9, tzinfo=timezone.utc)
+    setup2.order2_close_price = None
+    db_session.add_all([setup1, setup2])
+    db_session.commit()
+
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+    )
+    code = export.pine_code
+    assert "array.push(closePrices, na)" in code
+    assert code.count("array.push(closeTimes") >= 2
 
 
 def test_admin_export_page_and_download(client, db_session):

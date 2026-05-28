@@ -3,14 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import json
+import math
 from typing import Any
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.models.mt5_trade_history import MT5TradeHistory
+from app.models.trade_event import TradeEvent
 from app.models.trade_setup import TradeSetup
 
 VALID_QUICK_RANGES = {"last_2_months", "last_30_days", "last_7_days"}
+VALID_REVIEW_TIMEFRAMES = {"M5": 5, "M15": 15, "H1": 60}
 DEFAULT_MAX_TRADES = 100
 ABSOLUTE_MAX_TRADES = 500
 TV_MAX_LABELS = 500
@@ -24,6 +30,9 @@ class TradingViewExportFilters:
     start_date: date | None = None
     end_date: date | None = None
     quick_range: str = "last_2_months"
+    review_timeframe: str = "M5"
+    include_event_times: bool = True
+    include_candle_fallback: bool = True
     outcome: str | None = None
     max_trades: int = DEFAULT_MAX_TRADES
 
@@ -78,7 +87,8 @@ class TradingViewExportService:
             setups = setups[-max_trades:]
 
         setups = self._trim_for_tv_limits(setups, warnings)
-        trades = [self._setup_to_export_row(setup) for setup in setups]
+        trades = [self._setup_to_export_row(setup, filters=filters) for setup in setups]
+        self._append_data_quality_warnings(trades, warnings, filters=filters)
         pine_code = self._generate_pine_code(symbol=symbol, range_start=start_at, range_end=end_at, trades=trades)
 
         return TradingViewExportResult(
@@ -151,33 +161,122 @@ class TradingViewExportService:
             )
         return selected
 
-    def _setup_to_export_row(self, setup: TradeSetup) -> dict[str, Any]:
+    def _setup_to_export_row(self, setup: TradeSetup, *, filters: TradingViewExportFilters) -> dict[str, Any]:
+        event_map = self._load_event_map(setup)
+        history_map = self._load_history_map(setup)
         entry_time = self._resolve_entry_time(setup)
         close_time = self._resolve_close_time(setup)
+        signal_time = setup.created_at
+        tp1_hit_time = self._resolve_event_time(event_map, "tp1_hit", setup.order1_closed_at)
+        tp2_hit_time = self._resolve_event_time(event_map, "order2_tp_hit", setup.order2_closed_at if setup.order2_outcome == "tp_hit" else None)
+        sl_hit_time = self._resolve_event_time(
+            event_map,
+            "order2_sl_hit",
+            self._max_datetime(
+                setup.order1_closed_at if setup.order1_outcome == "sl_hit" else None,
+                setup.order2_closed_at if setup.order2_outcome == "sl_hit" else None,
+            ),
+        )
+        be_moved_time = self._resolve_event_time(event_map, "be_move_completed", setup.order2_be_moved_at)
+        be_hit_time = self._resolve_event_time(
+            event_map,
+            "order2_closed_at_be",
+            setup.order2_closed_at if setup.order2_outcome == "closed_at_be" else None,
+        )
+
+        tp1_hit_price = self._resolve_event_price(event_map, "tp1_hit", self._to_float(setup.tp1_price))
+        tp2_hit_price = self._resolve_event_price(event_map, "order2_tp_hit", self._to_float(setup.tp2_price))
+        sl_hit_price = self._resolve_event_price(event_map, "order2_sl_hit", self._to_float(setup.sl_price))
+        be_price = self._resolve_event_price(event_map, "be_move_completed", self._to_float(setup.estimated_entry))
+
         realized_pnl = self._resolve_realized_pnl(setup)
         risk_r = None
         if realized_pnl is not None and setup.r_value not in (None, 0):
             risk_r = float(realized_pnl) / float(setup.r_value)
+        timeframe = filters.review_timeframe if filters.review_timeframe in VALID_REVIEW_TIMEFRAMES else "M5"
+        review_required_reason = None
+        if setup.setup_outcome == "review_required":
+            review_required_reason = "backend_review_required"
+        if (
+            tp1_hit_time is not None
+            and sl_hit_time is not None
+            and self.floor_to_timeframe_bar(tp1_hit_time, timeframe) == self.floor_to_timeframe_bar(sl_hit_time, timeframe)
+        ):
+            review_required_reason = "same_candle_ambiguity"
+        if filters.include_candle_fallback:
+            # No candle storage exists in this app yet, so expose this as unresolved instead of guessing.
+            if any(value is None for value in (tp1_hit_time, sl_hit_time, close_time)):
+                review_required_reason = review_required_reason or "candle_fallback_unavailable"
+
+        actual_entry_price = self._resolve_actual_entry_price(setup, history_map)
+        actual_close_price = self._resolve_close_price(setup)
+        events_are_candle_derived = False
         return {
             "setup_id": setup.id,
             "order_id": setup.order1_ticket or setup.order2_ticket,
+            "order1_id": setup.order1_ticket,
+            "order2_id": setup.order2_ticket,
+            "account_id": setup.trading_account_id,
             "symbol": setup.symbol,
             "direction": setup.side,
             "entry_time": entry_time,
+            "signal_time": signal_time,
             "entry_price": self._to_float(setup.estimated_entry),
             "close_time": close_time,
-            "close_price": self._resolve_close_price(setup),
+            "tp1_hit_time": tp1_hit_time,
+            "tp2_hit_time": tp2_hit_time,
+            "sl_hit_time": sl_hit_time,
+            "be_moved_time": be_moved_time,
+            "be_hit_time": be_hit_time,
+            "signal_bar_time": self.floor_to_timeframe_bar(signal_time, timeframe),
+            "entry_bar_time": self.floor_to_timeframe_bar(entry_time, timeframe),
+            "close_bar_time": self.floor_to_timeframe_bar(close_time, timeframe),
+            "tp1_hit_bar_time": self.floor_to_timeframe_bar(tp1_hit_time, timeframe),
+            "tp2_hit_bar_time": self.floor_to_timeframe_bar(tp2_hit_time, timeframe),
+            "sl_hit_bar_time": self.floor_to_timeframe_bar(sl_hit_time, timeframe),
+            "be_moved_bar_time": self.floor_to_timeframe_bar(be_moved_time, timeframe),
+            "be_hit_bar_time": self.floor_to_timeframe_bar(be_hit_time, timeframe),
+            "signal_time_ms": self.to_pine_timestamp_ms(signal_time),
+            "entry_time_ms": self.to_pine_timestamp_ms(entry_time),
+            "close_time_ms": self.to_pine_timestamp_ms(close_time),
+            "tp1_hit_time_ms": self.to_pine_timestamp_ms(tp1_hit_time),
+            "tp2_hit_time_ms": self.to_pine_timestamp_ms(tp2_hit_time),
+            "sl_hit_time_ms": self.to_pine_timestamp_ms(sl_hit_time),
+            "be_moved_time_ms": self.to_pine_timestamp_ms(be_moved_time),
+            "be_hit_time_ms": self.to_pine_timestamp_ms(be_hit_time),
+            "signal_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(signal_time, timeframe)),
+            "entry_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(entry_time, timeframe)),
+            "close_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(close_time, timeframe)),
+            "tp1_hit_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(tp1_hit_time, timeframe)),
+            "tp2_hit_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(tp2_hit_time, timeframe)),
+            "sl_hit_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(sl_hit_time, timeframe)),
+            "be_moved_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(be_moved_time, timeframe)),
+            "be_hit_bar_time_ms": self.to_pine_timestamp_ms(self.floor_to_timeframe_bar(be_hit_time, timeframe)),
             "initial_sl": self._to_float(setup.sl_price),
             "tp1_price": self._to_float(setup.tp1_price),
             "tp2_price": self._to_float(setup.tp2_price),
+            "actual_entry_price": actual_entry_price,
+            "actual_close_price": actual_close_price,
+            "tp1_hit_price": tp1_hit_price,
+            "tp2_hit_price": tp2_hit_price,
+            "sl_hit_price": sl_hit_price,
+            "be_price": be_price,
             "realized_pnl": realized_pnl,
+            "realized_r": risk_r,
             "risk_r": risk_r,
-            "outcome": setup.setup_outcome,
+            "planned_rr_tp1": 1.0,
+            "planned_rr_tp2": self._to_float(setup.rr_order2),
+            "order1_outcome": setup.order1_outcome,
+            "order2_outcome": setup.order2_outcome,
+            "final_outcome": setup.setup_outcome,
             "setup_outcome": setup.setup_outcome,
+            "outcome": setup.setup_outcome,
             "be_moved": setup.order2_be_moved_at is not None,
             "be_moved_at": setup.order2_be_moved_at,
+            "review_required_reason": review_required_reason,
             "discipline_score": None,
             "notes": setup.execution_error,
+            "events_are_candle_derived": events_are_candle_derived,
         }
 
     def _resolve_entry_time(self, setup: TradeSetup) -> datetime | None:
@@ -214,6 +313,118 @@ class TradingViewExportService:
             return None
         return float(value)
 
+    def to_pine_timestamp_ms(self, dt: datetime | None) -> int | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            app_timezone = get_settings().timezone
+            try:
+                if app_timezone.upper() == "UTC":
+                    aware = dt.replace(tzinfo=timezone.utc)
+                else:
+                    aware = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                aware = dt.replace(tzinfo=timezone.utc)
+        else:
+            aware = dt
+        return int(aware.astimezone(timezone.utc).timestamp() * 1000)
+
+    def floor_to_timeframe_bar(self, dt: datetime | None, timeframe: str) -> datetime | None:
+        if dt is None:
+            return None
+        tf = timeframe if timeframe in VALID_REVIEW_TIMEFRAMES else "M5"
+        minutes = VALID_REVIEW_TIMEFRAMES[tf]
+        normalized = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        floored_minute = (normalized.minute // minutes) * minutes
+        return normalized.replace(minute=floored_minute, second=0, microsecond=0)
+
+    def _load_event_map(self, setup: TradeSetup) -> dict[str, list[TradeEvent]]:
+        events = (
+            self.db.query(TradeEvent)
+            .filter(TradeEvent.setup_id == setup.id, TradeEvent.user_id == setup.user_id)
+            .order_by(TradeEvent.created_at.asc(), TradeEvent.id.asc())
+            .all()
+        )
+        grouped: dict[str, list[TradeEvent]] = {}
+        for event in events:
+            grouped.setdefault(event.event_type, []).append(event)
+        return grouped
+
+    def _load_history_map(self, setup: TradeSetup) -> dict[int, MT5TradeHistory]:
+        rows = (
+            self.db.query(MT5TradeHistory)
+            .filter(MT5TradeHistory.linked_setup_id == setup.id)
+            .all()
+        )
+        return {int(row.position_ticket): row for row in rows}
+
+    def _resolve_event_time(self, event_map: dict[str, list[TradeEvent]], event_type: str, fallback: datetime | None) -> datetime | None:
+        if event_type in event_map and event_map[event_type]:
+            return event_map[event_type][-1].created_at
+        return fallback
+
+    def _resolve_event_price(self, event_map: dict[str, list[TradeEvent]], event_type: str, fallback: float | None) -> float | None:
+        if event_type not in event_map or not event_map[event_type]:
+            return fallback
+        details = event_map[event_type][-1].details
+        if not details:
+            return fallback
+        try:
+            payload = json.loads(details)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return fallback
+        for key in ("close_price", "price", "tp1_price", "tp2_price", "sl_price", "be_price"):
+            value = payload.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return fallback
+
+    def _resolve_actual_entry_price(self, setup: TradeSetup, history_map: dict[int, MT5TradeHistory]) -> float | None:
+        if setup.order1_ticket and int(setup.order1_ticket) in history_map:
+            return self._to_float(history_map[int(setup.order1_ticket)].open_price)
+        if setup.order2_ticket and int(setup.order2_ticket) in history_map:
+            return self._to_float(history_map[int(setup.order2_ticket)].open_price)
+        return self._to_float(setup.estimated_entry)
+
+    def _max_datetime(self, left: datetime | None, right: datetime | None) -> datetime | None:
+        if left is None:
+            return right
+        if right is None:
+            return left
+        return max(left, right)
+
+    def _append_data_quality_warnings(
+        self,
+        trades: list[dict[str, Any]],
+        warnings: list[str],
+        *,
+        filters: TradingViewExportFilters,
+    ) -> None:
+        missing_entry_bar = sum(1 for trade in trades if trade.get("entry_bar_time_ms") is None)
+        missing_close_data = sum(
+            1 for trade in trades if trade.get("close_time_ms") is None or trade.get("actual_close_price") is None
+        )
+        fallback_count = sum(1 for trade in trades if trade.get("events_are_candle_derived"))
+        ambiguity_count = sum(1 for trade in trades if trade.get("review_required_reason") == "same_candle_ambiguity")
+        fallback_unavailable_count = sum(
+            1 for trade in trades if trade.get("review_required_reason") == "candle_fallback_unavailable"
+        )
+        if missing_entry_bar:
+            warnings.append(f"{missing_entry_bar} trade(s) have missing entry_bar_time_ms.")
+        if missing_close_data:
+            warnings.append(f"{missing_close_data} trade(s) have missing close time/price data.")
+        if filters.include_candle_fallback and fallback_unavailable_count:
+            warnings.append(
+                f"{fallback_unavailable_count} trade(s) requested candle fallback but candle data is unavailable."
+            )
+        if fallback_count:
+            warnings.append(f"{fallback_count} trade(s) include candle-derived fallback event times.")
+        if ambiguity_count:
+            warnings.append(f"{ambiguity_count} trade(s) flagged with same_candle_ambiguity.")
+
     def _generate_pine_code(
         self,
         *,
@@ -236,9 +447,18 @@ class TradingViewExportService:
         lines.append("var slPrices = array.new_float()")
         lines.append("var tp1Prices = array.new_float()")
         lines.append("var tp2Prices = array.new_float()")
+        lines.append("var signalTimes = array.new_int()")
+        lines.append("var entryBarTimes = array.new_int()")
+        lines.append("var closeBarTimes = array.new_int()")
+        lines.append("var tp1HitTimes = array.new_int()")
+        lines.append("var tp2HitTimes = array.new_int()")
+        lines.append("var slHitTimes = array.new_int()")
+        lines.append("var beMovedTimes = array.new_int()")
+        lines.append("var beHitTimes = array.new_int()")
         lines.append("var directions = array.new_string()")
         lines.append("var outcomes = array.new_string()")
         lines.append("var labelTexts = array.new_string()")
+        lines.append("var reviewReasons = array.new_string()")
         lines.append("")
         lines.append("outcomeColor(string outcome) =>")
         lines.append("    switch outcome")
@@ -253,16 +473,25 @@ class TradingViewExportService:
         lines.append("")
         lines.append("if barstate.isfirst")
         for trade in trades:
-            entry_ts = self._pine_ts(trade["entry_time"])
-            close_ts = self._pine_ts(trade["close_time"])
+            entry_ts = self._pine_ms(trade["entry_time_ms"])
+            close_ts = self._pine_ms(trade["close_time_ms"])
+            signal_ts = self._pine_ms(trade["signal_time_ms"])
+            entry_bar_ts = self._pine_ms(trade["entry_bar_time_ms"])
+            close_bar_ts = self._pine_ms(trade["close_bar_time_ms"])
+            tp1_hit_ts = self._pine_ms(trade["tp1_hit_time_ms"])
+            tp2_hit_ts = self._pine_ms(trade["tp2_hit_time_ms"])
+            sl_hit_ts = self._pine_ms(trade["sl_hit_time_ms"])
+            be_moved_ts = self._pine_ms(trade["be_moved_time_ms"])
+            be_hit_ts = self._pine_ms(trade["be_hit_time_ms"])
             entry_price = self._pine_num(trade["entry_price"])
-            close_price = self._pine_num(trade["close_price"])
+            close_price = self._pine_num(trade["actual_close_price"])
             sl = self._pine_num(trade["initial_sl"])
             tp1 = self._pine_num(trade["tp1_price"])
             tp2 = self._pine_num(trade["tp2_price"])
             direction = self._pine_str(trade["direction"] or "unknown")
             outcome = self._pine_str(trade["outcome"] or "unknown")
             label_text = self._pine_str(self._label_text(trade))
+            review_reason = self._pine_str(trade.get("review_required_reason") or "")
             lines.append(f"    array.push(entryTimes, {entry_ts})")
             lines.append(f"    array.push(entryPrices, {entry_price})")
             lines.append(f"    array.push(closeTimes, {close_ts})")
@@ -270,36 +499,99 @@ class TradingViewExportService:
             lines.append(f"    array.push(slPrices, {sl})")
             lines.append(f"    array.push(tp1Prices, {tp1})")
             lines.append(f"    array.push(tp2Prices, {tp2})")
+            lines.append(f"    array.push(signalTimes, {signal_ts})")
+            lines.append(f"    array.push(entryBarTimes, {entry_bar_ts})")
+            lines.append(f"    array.push(closeBarTimes, {close_bar_ts})")
+            lines.append(f"    array.push(tp1HitTimes, {tp1_hit_ts})")
+            lines.append(f"    array.push(tp2HitTimes, {tp2_hit_ts})")
+            lines.append(f"    array.push(slHitTimes, {sl_hit_ts})")
+            lines.append(f"    array.push(beMovedTimes, {be_moved_ts})")
+            lines.append(f"    array.push(beHitTimes, {be_hit_ts})")
             lines.append(f"    array.push(directions, {direction})")
             lines.append(f"    array.push(outcomes, {outcome})")
             lines.append(f"    array.push(labelTexts, {label_text})")
+            lines.append(f"    array.push(reviewReasons, {review_reason})")
+        lines.append("")
+        lines.append("focusTradeNo = input.int(1, 'Focus trade number', minval=0)")
+        lines.append("positionTarget = input.string('TP1', 'Position target', options=['TP1', 'TP2'])")
+        lines.append("positionWidthHours = input.int(12, 'Position width hours', minval=1, maxval=240)")
+        lines.append("showSelectedBox = input.bool(true, 'Show selected risk/reward box')")
+        lines.append("showSelectedLevels = input.bool(true, 'Show Entry / SL / TP levels')")
+        lines.append("showSelectedPriceTags = input.bool(true, 'Show price tags')")
+        lines.append("showSelectedEntryLabel = input.bool(true, 'Show entry label')")
+        lines.append("showEventMarkers = input.bool(true, 'Show TP/SL/BE event markers')")
+        lines.append("showTinyMarkersForAllTrades = input.bool(false, 'Show tiny markers for all trades')")
         lines.append("")
         lines.append("var rendered = false")
         lines.append("if barstate.islast and not rendered")
-        lines.append("    for i = 0 to array.size(entryTimes) - 1")
+        lines.append("    tradeCount = array.size(entryTimes)")
+        lines.append("    if focusTradeNo > 0 and focusTradeNo <= tradeCount")
+        lines.append("        i = focusTradeNo - 1")
         lines.append("        entryTime = array.get(entryTimes, i)")
+        lines.append("        entryBarTime = array.get(entryBarTimes, i)")
         lines.append("        entryPrice = array.get(entryPrices, i)")
         lines.append("        closeTime = array.get(closeTimes, i)")
         lines.append("        closePrice = array.get(closePrices, i)")
         lines.append("        sl = array.get(slPrices, i)")
         lines.append("        tp1 = array.get(tp1Prices, i)")
         lines.append("        tp2 = array.get(tp2Prices, i)")
+        lines.append("        tp1HitTime = array.get(tp1HitTimes, i)")
+        lines.append("        tp2HitTime = array.get(tp2HitTimes, i)")
+        lines.append("        slHitTime = array.get(slHitTimes, i)")
+        lines.append("        beMovedTime = array.get(beMovedTimes, i)")
+        lines.append("        beHitTime = array.get(beHitTimes, i)")
         lines.append("        direction = array.get(directions, i)")
         lines.append("        outcome = array.get(outcomes, i)")
         lines.append("        text = array.get(labelTexts, i)")
+        lines.append("        reviewReason = array.get(reviewReasons, i)")
         lines.append("        directionIsBuy = direction == 'buy'")
-        lines.append("        style = directionIsBuy ? label.style_label_up : label.style_label_down")
-        lines.append("        entryColor = outcomeColor(outcome)")
-        lines.append("        hasClose = not na(closeTime) and not na(closePrice)")
-        lines.append("        endTime = hasClose ? closeTime : entryTime")
-        lines.append("        label.new(entryTime, entryPrice, text=text, xloc=xloc.bar_time, style=style, color=entryColor, textcolor=color.white)")
-        lines.append("        line.new(entryTime, sl, endTime, sl, xloc=xloc.bar_time, color=color.new(color.red, 15), width=1)")
-        lines.append("        line.new(entryTime, tp1, endTime, tp1, xloc=xloc.bar_time, color=color.new(color.green, 15), width=1)")
-        lines.append("        if not na(tp2)")
-        lines.append("            line.new(entryTime, tp2, endTime, tp2, xloc=xloc.bar_time, color=color.new(color.teal, 10), width=1)")
-        lines.append("        if hasClose")
-        lines.append("            line.new(entryTime, entryPrice, closeTime, closePrice, xloc=xloc.bar_time, color=color.new(entryColor, 10), width=2)")
-        lines.append("            label.new(closeTime, closePrice, text='Close\\n' + outcome, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(entryColor, 5), textcolor=color.white)")
+        lines.append("        targetPrice = positionTarget == 'TP2' and not na(tp2) ? tp2 : tp1")
+        lines.append("        widthMs = positionWidthHours * 60 * 60 * 1000")
+        lines.append("        rightTime = entryBarTime + widthMs")
+        lines.append("        rewardTop = directionIsBuy ? targetPrice : entryPrice")
+        lines.append("        rewardBottom = directionIsBuy ? entryPrice : targetPrice")
+        lines.append("        riskTop = directionIsBuy ? entryPrice : sl")
+        lines.append("        riskBottom = directionIsBuy ? sl : entryPrice")
+        lines.append("        if showSelectedBox and not na(targetPrice) and not na(sl)")
+        lines.append("            box.new(entryBarTime, rewardTop, rightTime, rewardBottom, xloc=xloc.bar_time, bgcolor=color.new(color.green, 85), border_color=color.new(color.green, 10))")
+        lines.append("            box.new(entryBarTime, riskTop, rightTime, riskBottom, xloc=xloc.bar_time, bgcolor=color.new(color.red, 86), border_color=color.new(color.red, 10))")
+        lines.append("        if showSelectedLevels")
+        lines.append("            line.new(entryBarTime, entryPrice, rightTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.white, 0), width=1)")
+        lines.append("            line.new(entryBarTime, sl, rightTime, sl, xloc=xloc.bar_time, color=color.new(color.red, 0), width=1)")
+        lines.append("            line.new(entryBarTime, tp1, rightTime, tp1, xloc=xloc.bar_time, color=color.new(color.green, 0), width=1)")
+        lines.append("            if not na(tp2)")
+        lines.append("                line.new(entryBarTime, tp2, rightTime, tp2, xloc=xloc.bar_time, color=color.new(color.teal, 0), width=1)")
+        lines.append("        if showSelectedPriceTags")
+        lines.append("            label.new(rightTime, entryPrice, text='Entry', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.black, 0), textcolor=color.white)")
+        lines.append("            label.new(rightTime, sl, text='SL', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white)")
+        lines.append("            label.new(rightTime, tp1, text='TP1', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white)")
+        lines.append("            if not na(tp2)")
+        lines.append("                label.new(rightTime, tp2, text='TP2', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.teal, 0), textcolor=color.white)")
+        lines.append("        if showSelectedEntryLabel")
+        lines.append("            style = directionIsBuy ? label.style_label_up : label.style_label_down")
+        lines.append("            label.new(entryTime, entryPrice, text=text, xloc=xloc.bar_time, style=style, color=outcomeColor(outcome), textcolor=color.white)")
+        lines.append("        if showEventMarkers")
+        lines.append("            if not na(tp1HitTime)")
+        lines.append("                label.new(tp1HitTime, tp1, text='TP1', xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white)")
+        lines.append("            if not na(tp2HitTime) and not na(tp2)")
+        lines.append("                label.new(tp2HitTime, tp2, text='TP2', xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.teal, 0), textcolor=color.white)")
+        lines.append("            if not na(slHitTime)")
+        lines.append("                label.new(slHitTime, sl, text='SL', xloc=xloc.bar_time, style=label.style_label_up, color=color.new(color.red, 0), textcolor=color.white)")
+        lines.append("            if not na(beMovedTime)")
+        lines.append("                label.new(beMovedTime, entryPrice, text='BE Move', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.gray, 15), textcolor=color.white)")
+        lines.append("            if not na(beHitTime)")
+        lines.append("                label.new(beHitTime, entryPrice, text='BE Hit', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.gray, 0), textcolor=color.white)")
+        lines.append("            if not na(closeTime) and not na(closePrice)")
+        lines.append("                label.new(closeTime, closePrice, text='Close\\n' + outcome, xloc=xloc.bar_time, style=label.style_label_left, color=outcomeColor(outcome), textcolor=color.white)")
+        lines.append("            if str.length(reviewReason) > 0")
+        lines.append("                label.new(entryTime, entryPrice, text='Review: ' + reviewReason, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white)")
+        lines.append("    else if focusTradeNo == 0 and showTinyMarkersForAllTrades")
+        lines.append("        for i = 0 to tradeCount - 1")
+        lines.append("            entryTime = array.get(entryTimes, i)")
+        lines.append("            entryPrice = array.get(entryPrices, i)")
+        lines.append("            direction = array.get(directions, i)")
+        lines.append("            style = direction == 'buy' ? label.style_circle : label.style_diamond")
+        lines.append("            label.new(entryTime, entryPrice, text='', xloc=xloc.bar_time, style=style, color=color.new(color.white, 70), textcolor=color.white, size=size.tiny)")
         lines.append("    rendered := true")
         lines.append("")
         lines.append("plot(na)")
@@ -310,6 +602,11 @@ class TradingViewExportService:
             return "na"
         dt = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
         return f"timestamp({dt.year}, {dt.month}, {dt.day}, {dt.hour}, {dt.minute})"
+
+    def _pine_ms(self, value: int | None) -> str:
+        if value is None:
+            return "na"
+        return str(int(value))
 
     def _pine_num(self, value: float | None) -> str:
         if value is None:

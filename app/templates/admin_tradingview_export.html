@@ -43,12 +43,28 @@
                 </select>
             </label>
             <label>
+                review_timeframe
+                <select name="review_timeframe">
+                    {% for key in ["M5", "M15", "H1"] %}
+                    <option value="{{ key }}" {% if form_data.review_timeframe == key %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
                 outcome (optional)
                 <input type="text" name="outcome" value="{{ form_data.outcome }}" placeholder="closed_at_be">
             </label>
             <label>
                 max_trades
                 <input type="number" name="max_trades" min="1" max="500" value="{{ form_data.max_trades or 100 }}">
+            </label>
+            <label>
+                <input type="checkbox" name="include_event_times" value="true" {% if form_data.include_event_times %}checked{% endif %}>
+                include_event_times
+            </label>
+            <label>
+                <input type="checkbox" name="include_candle_fallback" value="true" {% if form_data.include_candle_fallback %}checked{% endif %}>
+                include_candle_fallback
             </label>
         </div>
         <div class="action-row">
@@ -71,7 +87,7 @@
         {% if generated_pine %}
         <a
             class="button-link secondary-button"
-            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&download=true"
+            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&review_timeframe={{ form_data.review_timeframe }}&include_event_times={{ 'true' if form_data.include_event_times else 'false' }}&include_candle_fallback={{ 'true' if form_data.include_candle_fallback else 'false' }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&download=true"
         >
             Download .pine
         </a>
