@@ -35,6 +35,8 @@ class TradingViewExportFilters:
     max_trades: int = DEFAULT_MAX_TRADES
     sort: str = "entry_time_asc"
     debug: bool = False
+    selected_account_label: str | None = None
+    available_accounts_count: int = 0
 
 
 @dataclass
@@ -144,6 +146,9 @@ class TradingViewExportService:
 
         self._append_data_quality_warnings(exported_rows, warnings, filters=filters)
         audit_summary = {
+            "selected_account_id": filters.account_id,
+            "selected_account_label": filters.selected_account_label or "All accounts",
+            "available_accounts_count": filters.available_accounts_count,
             "requested_account_id": filters.account_id,
             "requested_symbol": symbol,
             "requested_start_date": start_at.date().isoformat(),
@@ -165,6 +170,11 @@ class TradingViewExportService:
                 "OR linked deal open/close time OR trade_event time is inside range."
             ),
         }
+        exported_account_ids = sorted({int(row.get("account_id")) for row in exported_rows if row.get("account_id") is not None})
+        audit_summary["exported_account_ids"] = exported_account_ids
+        audit_summary["exported_account_count"] = len(exported_account_ids)
+        if filters.account_id is None and len(exported_account_ids) > 1:
+            warnings.append("You are exporting multiple accounts. Select a specific account if you only want one account.")
 
         pine_code = self._generate_pine_code(
             symbol=symbol,

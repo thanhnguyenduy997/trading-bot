@@ -399,3 +399,104 @@ def test_admin_export_page_and_download(client, db_session):
     assert "//@version=6" in download.text
     assert debug_json.status_code == 200
     assert "audit_summary" in debug_json.json()
+
+
+def test_export_page_renders_account_dropdown_with_all_option(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="dropdown-user@example.com", password="password123", full_name="Dropdown User"),
+    )
+    _create_account(db_session, user, "TV-012")
+    _login(client, admin.email)
+
+    response = client.get("/admin/tradingview-export")
+
+    assert response.status_code == 200
+    assert 'name="account_id"' in response.text
+    assert "All accounts" in response.text
+    assert "Demo Broker" in response.text
+
+
+def test_specific_account_filter_never_exports_other_accounts(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="specific-account-user@example.com", password="password123", full_name="Specific User"),
+    )
+    account_a = _create_account(db_session, user, "TV-013-A")
+    account_b = _create_account(db_session, user, "TV-013-B")
+    _create_setup(
+        db_session,
+        user,
+        account_a,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 20, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    _create_setup(
+        db_session,
+        user,
+        account_b,
+        symbol="XAUUSD",
+        side="sell",
+        executed_at=datetime(2026, 4, 20, 9, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    _login(client, admin.email)
+
+    debug_payload = client.get(
+        f"/admin/tradingview-export?symbol=XAUUSD&account_id={account_a.id}&start_date=2026-04-01&end_date=2026-04-30&debug=true",
+        headers={"accept": "application/json"},
+    )
+
+    assert debug_payload.status_code == 200
+    body = debug_payload.json()
+    assert body["audit_summary"]["selected_account_id"] == account_a.id
+    assert body["audit_summary"]["exported_account_ids"] == [account_a.id]
+
+
+def test_all_accounts_can_export_multiple_accounts_and_show_warning(db_session, created_user):
+    account_a = _create_account(db_session, created_user, "TV-014-A")
+    account_b = _create_account(db_session, created_user, "TV-014-B")
+    _create_setup(
+        db_session,
+        created_user,
+        account_a,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 20, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    _create_setup(
+        db_session,
+        created_user,
+        account_b,
+        symbol="XAUUSD",
+        side="sell",
+        executed_at=datetime(2026, 4, 20, 9, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(
+            symbol="XAUUSD",
+            account_id=None,
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 4, 30),
+        )
+    )
+
+    assert export.audit_summary["exported_account_count"] == 2
+    assert any("multiple accounts" in warning for warning in export.warnings)
+
+
+def test_invalid_account_id_returns_clear_error(client, db_session):
+    admin = _create_admin(db_session)
+    _login(client, admin.email)
+
+    response = client.get("/admin/tradingview-export?symbol=XAUUSD&account_id=999999&start_date=2026-04-01&end_date=2026-04-30")
+
+    assert response.status_code == 400
+    assert "Selected account_id does not exist." in response.text

@@ -1,16 +1,19 @@
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_admin_user_from_cookie, get_current_user_from_cookie
 from app.core.security import create_access_token, set_auth_cookie
+from app.models.mt5_trade_history import MT5TradeHistory
+from app.models.trading_account import TradingAccount
 from app.models.user import User
 from app.schemas.trading_account import TradingAccountCreate, TradingAccountUpdate
 from app.schemas.user import UserCreate, UserUpdate
@@ -108,7 +111,7 @@ def admin_settings_page(
 @router.get("/tradingview-export", response_class=HTMLResponse)
 def tradingview_export_page(
     request: Request,
-    account_id: str | None = None,
+    account_id: str | None = "all",
     symbol: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -126,8 +129,42 @@ def tradingview_export_page(
     current_user: User = Depends(get_current_user_from_cookie),
     admin_user: User = Depends(get_current_admin_user_from_cookie),
 ) -> Response:
+    accounts = (
+        db.query(TradingAccount)
+        .order_by(
+            case((TradingAccount.connection_status == "connected", 0), else_=1),
+            case((TradingAccount.mt5_session_status == "matched", 0), else_=1),
+            TradingAccount.broker_name.asc(),
+            TradingAccount.account_number.asc(),
+        )
+        .all()
+    )
+    account_options = []
+    now_utc = datetime.now(timezone.utc)
+    lookback_start = now_utc - timedelta(days=30)
+    for account in accounts:
+        label = f"{account.broker_name} — {account.account_number} — {account.server_name}"
+        symbols = (
+            db.query(MT5TradeHistory.symbol)
+            .filter(
+                MT5TradeHistory.trading_account_id == account.id,
+                MT5TradeHistory.close_time.isnot(None),
+                MT5TradeHistory.close_time >= lookback_start,
+            )
+            .distinct()
+            .order_by(MT5TradeHistory.symbol.asc())
+            .all()
+        )
+        account_options.append(
+            {
+                "id": str(account.id),
+                "label": label,
+                "symbols": [item[0] for item in symbols],
+            }
+        )
+
     form_data = {
-        "account_id": account_id or "",
+        "account_id": account_id or "all",
         "symbol": (symbol or "").upper(),
         "start_date": start_date or "",
         "end_date": end_date or "",
@@ -152,12 +189,21 @@ def tradingview_export_page(
         "audit_summary": None,
         "skipped_records": [],
         "debug_json": "",
+        "accounts": account_options,
     }
     if not symbol:
         return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
 
     try:
-        parsed_account_id = int(account_id) if account_id and account_id.strip() else None
+        parsed_account_id = None
+        selected_account_label = "All accounts"
+        normalized_account = (account_id or "all").strip().lower()
+        if normalized_account not in {"", "all"}:
+            parsed_account_id = int(normalized_account)
+            selected = next((item for item in account_options if int(item["id"]) == parsed_account_id), None)
+            if selected is None:
+                raise ValueError("Selected account_id does not exist.")
+            selected_account_label = selected["label"]
         parsed_start_date = date.fromisoformat(start_date) if start_date else None
         parsed_end_date = date.fromisoformat(end_date) if end_date else None
         filters = TradingViewExportFilters(
@@ -173,8 +219,14 @@ def tradingview_export_page(
             max_trades=max_trades,
             sort=sort,
             debug=debug,
+            selected_account_label=selected_account_label,
+            available_accounts_count=len(account_options),
         )
         result = TradingViewExportService(db).build_export(filters)
+        if parsed_account_id is not None:
+            exported_account_ids = set(result.audit_summary.get("exported_account_ids") or [])
+            if exported_account_ids and exported_account_ids != {parsed_account_id}:
+                raise ValueError("Exported rows contain account(s) outside the selected account. Please retry or report this bug.")
     except ValueError as exc:
         context["error"] = str(exc)
         return templates.TemplateResponse(
@@ -220,6 +272,7 @@ def tradingview_export_page(
         "range_end": result.range_end,
         "exported_trades": result.exported_trades,
         "total_matched_trades": result.total_matched_trades,
+        "selected_account_label": result.audit_summary.get("selected_account_label"),
     }
     context["audit_summary"] = result.audit_summary
     context["skipped_records"] = result.skipped_records
