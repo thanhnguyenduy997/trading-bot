@@ -500,3 +500,55 @@ def test_invalid_account_id_returns_clear_error(client, db_session):
 
     assert response.status_code == 400
     assert "Selected account_id does not exist." in response.text
+
+
+def test_generated_pine_avoids_reserved_text_variable(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-015")
+    _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 20, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
+    )
+    pine = export.pine_code
+    assert "text = array.get(labelTexts" not in pine
+    assert "fullText = array.get(labelTexts" in pine
+    assert "text=displayText" in pine
+    assert "showFullDetails ? text : compactText" not in pine
+
+
+def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-016")
+    for day in range(1, 33):
+        _create_setup(
+            db_session,
+            created_user,
+            account,
+            symbol="XAUUSD",
+            side="buy" if day % 2 else "sell",
+            executed_at=datetime(2026, 4, 1 + (day % 28), 8, tzinfo=timezone.utc),
+            outcome="managed_win",
+        )
+    export = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30), max_trades=500)
+    )
+    pine = export.pine_code
+    assert "loadTradesPart1() =>" in pine
+    assert "loadTradesPart2() =>" in pine
+    lines = pine.splitlines()
+    start_idx = lines.index("if barstate.isfirst")
+    end_idx = start_idx + 1
+    while end_idx < len(lines) and lines[end_idx].startswith("    "):
+        end_idx += 1
+    init_block = lines[start_idx + 1 : end_idx]
+    assert init_block
+    assert all("loadTradesPart" in line for line in init_block)
+    assert all("array.push" not in line for line in init_block)
+    assert pine.count("array.push(entryTimes") == export.exported_trades
+    assert "raw_setup_count" in pine
