@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card layout-tier-medium stack">
+    <div class="section-header">
+        <div>
+            <h1>TradingView History Export</h1>
+            <p class="muted">Export stored historical outcomes into static Pine v6 for visual review.</p>
+        </div>
+        <a class="button-link secondary-button" href="/admin/users">Back to Admin</a>
+    </div>
+
+    {% if error %}
+    <div class="banner banner-danger">{{ error }}</div>
+    {% endif %}
+    {% for warning in warnings %}
+    <div class="banner banner-warning">{{ warning }}</div>
+    {% endfor %}
+
+    <form method="get" action="/admin/tradingview-export" class="stack">
+        <div class="dashboard-filter-grid">
+            <label>
+                account_id (optional)
+                <input type="number" name="account_id" value="{{ form_data.account_id }}">
+            </label>
+            <label>
+                symbol
+                <input type="text" name="symbol" required value="{{ form_data.symbol }}" placeholder="XAUUSD">
+            </label>
+            <label>
+                start_date
+                <input type="date" name="start_date" value="{{ form_data.start_date }}">
+            </label>
+            <label>
+                end_date
+                <input type="date" name="end_date" value="{{ form_data.end_date }}">
+            </label>
+            <label>
+                quick_range
+                <select name="quick_range">
+                    {% for key in ["last_2_months", "last_30_days", "last_7_days"] %}
+                    <option value="{{ key }}" {% if form_data.quick_range == key %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                outcome (optional)
+                <input type="text" name="outcome" value="{{ form_data.outcome }}" placeholder="closed_at_be">
+            </label>
+            <label>
+                max_trades
+                <input type="number" name="max_trades" min="1" max="500" value="{{ form_data.max_trades or 100 }}">
+            </label>
+        </div>
+        <div class="action-row">
+            <button type="submit">Generate Pine</button>
+        </div>
+    </form>
+
+    {% if result_meta %}
+    <p class="muted">
+        Exported {{ result_meta.exported_trades }} / {{ result_meta.total_matched_trades }}
+        for {{ result_meta.symbol }} ({{ result_meta.range_start.date() }} to {{ result_meta.range_end.date() }}).
+    </p>
+    {% endif %}
+
+    <label for="pine-output">Generated Pine Script</label>
+    <textarea id="pine-output" rows="20" readonly style="width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">{{ generated_pine }}</textarea>
+
+    <div class="action-row">
+        <button type="button" class="secondary-button" id="copy-pine-btn">Copy</button>
+        {% if generated_pine %}
+        <a
+            class="button-link secondary-button"
+            href="/admin/tradingview-export?account_id={{ form_data.account_id }}&symbol={{ form_data.symbol|urlencode }}&start_date={{ form_data.start_date }}&end_date={{ form_data.end_date }}&quick_range={{ form_data.quick_range }}&outcome={{ form_data.outcome|urlencode }}&max_trades={{ form_data.max_trades }}&download=true"
+        >
+            Download .pine
+        </a>
+        {% endif %}
+    </div>
+</section>
+
+<script>
+    (function () {
+        const copyBtn = document.getElementById("copy-pine-btn");
+        const textarea = document.getElementById("pine-output");
+        if (!copyBtn || !textarea) return;
+        copyBtn.addEventListener("click", async () => {
+            if (!textarea.value) return;
+            await navigator.clipboard.writeText(textarea.value);
+            copyBtn.textContent = "Copied";
+            setTimeout(() => { copyBtn.textContent = "Copy"; }, 1400);
+        });
+    })();
+</script>
+{% endblock %}

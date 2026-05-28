@@ -1,7 +1,8 @@
 import logging
+from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.services.app_settings import (
 )
 from app.services.risk_management import RiskManagementService
 from app.services.trade_setup_outcomes import TradeSetupOutcomeService
+from app.services.tradingview_export import TradingViewExportFilters, TradingViewExportService
 from app.services.trading_accounts import (
     DuplicateTradingAccountError,
     create_trading_account,
@@ -100,6 +102,89 @@ def admin_settings_page(
             "error": error,
         },
     )
+
+
+@router.get("/tradingview-export", response_class=HTMLResponse)
+def tradingview_export_page(
+    request: Request,
+    account_id: str | None = None,
+    symbol: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    quick_range: str = "last_2_months",
+    outcome: str | None = None,
+    max_trades: int = 100,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_cookie),
+    admin_user: User = Depends(get_current_admin_user_from_cookie),
+) -> Response:
+    form_data = {
+        "account_id": account_id or "",
+        "symbol": (symbol or "").upper(),
+        "start_date": start_date or "",
+        "end_date": end_date or "",
+        "quick_range": quick_range or "last_2_months",
+        "outcome": outcome or "",
+        "max_trades": max_trades,
+    }
+    context = {
+        "request": request,
+        "user": current_user,
+        "admin_user": admin_user,
+        "form_data": form_data,
+        "generated_pine": "",
+        "warnings": [],
+        "error": None,
+        "result_meta": None,
+    }
+    if not symbol:
+        return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
+
+    try:
+        parsed_account_id = int(account_id) if account_id and account_id.strip() else None
+        parsed_start_date = date.fromisoformat(start_date) if start_date else None
+        parsed_end_date = date.fromisoformat(end_date) if end_date else None
+        filters = TradingViewExportFilters(
+            account_id=parsed_account_id,
+            symbol=symbol,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            quick_range=quick_range,
+            outcome=outcome.strip() if outcome else None,
+            max_trades=max_trades,
+        )
+        result = TradingViewExportService(db).build_export(filters)
+    except ValueError as exc:
+        context["error"] = str(exc)
+        return templates.TemplateResponse(
+            request,
+            "admin_tradingview_export.html",
+            context,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if download:
+        filename = (
+            f"trade_history_{result.symbol}_{result.range_start.date().isoformat()}"
+            f"_to_{result.range_end.date().isoformat()}.pine"
+        )
+        return PlainTextResponse(
+            result.pine_code,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            media_type="text/x-pine",
+        )
+
+    context["generated_pine"] = result.pine_code
+    context["warnings"] = result.warnings
+    context["result_meta"] = {
+        "symbol": result.symbol,
+        "range_start": result.range_start,
+        "range_end": result.range_end,
+        "exported_trades": result.exported_trades,
+        "total_matched_trades": result.total_matched_trades,
+    }
+    return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
 
 
 @router.post("/settings")
