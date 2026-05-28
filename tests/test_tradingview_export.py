@@ -174,6 +174,39 @@ def test_export_max_trades_limit_and_be_outcome_kept_from_db(db_session, created
     assert "sl_hit" not in result.pine_code
 
 
+def test_generated_pine_uses_valid_na_checks_and_function_signature(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-006")
+    _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="buy",
+        executed_at=datetime(2026, 4, 22, 8, tzinfo=timezone.utc),
+        outcome="managed_win",
+    )
+
+    result = TradingViewExportService(db_session).build_export(
+        TradingViewExportFilters(
+            account_id=account.id,
+            symbol="XAUUSD",
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 4, 30),
+        )
+    )
+    pine = result.pine_code
+
+    assert "color outcomeColor" not in pine
+    assert "outcomeColor(string outcome) =>" in pine
+    assert " != na" not in pine
+    assert " == na" not in pine
+    assert "not na(" in pine
+    assert "array.push(entryTimes" in pine
+    assert "array.push(entryPrices" in pine
+    assert "array.push(closeTimes" in pine
+    assert "array.push(closePrices" in pine
+
+
 def test_admin_export_page_and_download(client, db_session):
     admin = _create_admin(db_session)
     user = create_user(
