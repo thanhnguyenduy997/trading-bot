@@ -120,7 +120,7 @@ def test_export_includes_unknown_outcome_and_open_trade_without_close(db_session
     )
 
     assert result.exported_trades == 1
-    assert "var int[] closeTimes = array.from(na, na)" in result.pine_code
+    assert "var int[] closeTimesRaw = array.from(na, na)" in result.pine_code
     assert "var float[] closePrices = array.from(na, na)" in result.pine_code
 
 
@@ -243,16 +243,18 @@ def test_db_timefix_export_uses_order_level_history_without_double_shift(db_sess
     o2_close_ms = service.to_pine_timestamp_ms(histories[setup.order2_ticket].close_time)
     pine = export.pine_code
 
-    assert 'timeShiftHours = input.int(0, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)' in pine
+    assert pine.startswith("//@version=6\nindicator(\"DB History EXACT CLEAN V6 TimeFix - ")
+    assert "// CLEAN V6 TIMEFIX" in pine
+    assert 'timeShiftHours = input.int(0, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)' in pine
     assert f'var string[] ids = array.from("setup-{setup.id}-o1", "setup-{setup.id}-o2")' in pine
-    assert f'var string[] orderLegs = array.from("o1", "o2")' in pine
-    assert f"var int[] entryTimes = array.from({o1_entry_ms}, {o2_entry_ms})" in pine
+    assert f'var string[] orderTags = array.from("o1", "o2")' in pine
+    assert f"var int[] entryTimesRaw = array.from({o1_entry_ms}, {o2_entry_ms})" in pine
     assert f"var float[] entryPrices = array.from(4464.840000, 4464.840000)" in pine
     assert f"var float[] initialSLs = array.from(4469.500000, 4469.500000)" in pine
     assert f"var float[] initialTPs = array.from(4460.220000, 4450.940000)" in pine
-    assert f"var int[] closeTimes = array.from({o1_close_ms}, {o2_close_ms})" in pine
+    assert f"var int[] closeTimesRaw = array.from({o1_close_ms}, {o2_close_ms})" in pine
     assert f"var float[] closePrices = array.from(4459.150000, 4465.460000)" in pine
-    assert f'var string[] results = array.from("TP", "BE")' in pine
+    assert f'var string[] results = array.from("win", "be")' in pine
 
 
 def test_export_includes_setup_time_when_entry_time_missing(db_session, created_user):
@@ -342,10 +344,10 @@ def test_export_debug_payload_and_audit_summary(db_session, created_user):
     assert result.audit_summary["raw_setup_count"] >= 1
     assert isinstance(result.skipped_records, list)
     assert isinstance(result.normalized_rows, list)
-    assert "exported_order_count" in result.pine_code
+    assert "// CLEAN V6 TIMEFIX" in result.pine_code
     assert "timestamp(2026" not in result.pine_code
     assert "array.push(entryTimes" not in result.pine_code
-    assert "var int[] entryTimes = array.from(" in result.pine_code
+    assert "var int[] entryTimesRaw = array.from(" in result.pine_code
 
 
 def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
@@ -619,7 +621,7 @@ def test_generated_pine_avoids_reserved_text_variable(db_session, created_user):
     assert "text = array.get(labelTexts" not in pine
     assert "labelTexts" not in pine
     assert "showTextLabels = input.bool(false" in pine
-    assert "detail = id +" in pine
+    assert "string entryText = id +" in pine
 
 
 def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user):
@@ -641,8 +643,8 @@ def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user)
     assert "loadTradesPart" not in pine
     assert "array.push" not in pine
     assert "var string[] ids = array.from(" in pine
-    assert "var string[] orderLegs = array.from(" in pine
-    assert "exported_order_count" in pine
+    assert "var string[] orderTags = array.from(" in pine
+    assert "// Data source: DB trade history export." in pine
 
 
 def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
@@ -663,7 +665,7 @@ def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
     assert 'focusText = input.string("setup-225", "Focus setup/order/ticket. Empty = show last N positions")' in pine
     assert 'showLastNWhenNoFocus = input.int(4, "If focus empty: show last N positions"' in pine
     assert 'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])' in pine
-    assert "focusAllowed = not hasFocus" in pine
-    assert "rangeAllowed = hasFocus or i >= startIndex" in pine
-    assert "entryTimeShifted = entryTime + shiftMs" in pine
+    assert "f_match_focus(id, setupId, ticket) =>" in pine
+    assert "f_match_order(tag) =>" in pine
+    assert "int entryT = f_shift_time(array.get(entryTimesRaw, i))" in pine
     assert "xloc=xloc.bar_time" in pine
