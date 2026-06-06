@@ -1,7 +1,8 @@
 from datetime import date, datetime, timezone
+import tempfile
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -27,6 +28,7 @@ from app.services.mt5_trade_history import (
     DashboardService,
     MT5TradeHistorySyncService,
 )
+from app.services.mt5_history_pine_export import Mt5HistoryExportOptions, build_mt5_history_export
 from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
@@ -416,6 +418,117 @@ def _drift_warning_payload(setup_id: int, error: PreviewDriftExceededError) -> d
             "total_setup_volume_drift_percent": round(float(drift["total_setup_volume_drift_percent"]), 4),
         },
     }
+
+
+@router.get("/tradingview-export/mt5-history", response_class=HTMLResponse)
+def mt5_history_export_page(
+    request: Request,
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "mt5_history_tradingview_export.html",
+        {
+            "request": request,
+            "user": current_user,
+            "form_data": {
+                "time_shift_hours": 4,
+                "symbol_filter": "",
+                "show_last_n": 20,
+                "ui_mode": "position_tool_style",
+            },
+            "error": None,
+            "setups": [],
+            "generated_pine": "",
+            "generated_csv": "",
+            "parsed_meta": None,
+        },
+    )
+
+
+@router.post("/tradingview-export/mt5-history", response_class=HTMLResponse)
+def mt5_history_export_upload(
+    request: Request,
+    mt5_report: UploadFile = File(...),
+    time_shift_hours: int = Form(4),
+    symbol_filter: str = Form(""),
+    show_last_n: int = Form(20),
+    ui_mode: str = Form("position_tool_style"),
+    output_type: str = Form("preview"),
+    current_user: User = Depends(get_current_user_from_cookie),
+) -> Response:
+    form_data = {
+        "time_shift_hours": time_shift_hours,
+        "symbol_filter": symbol_filter,
+        "show_last_n": show_last_n,
+        "ui_mode": ui_mode,
+    }
+    try:
+        suffix = ".html" if (mt5_report.filename or "").lower().endswith((".html", ".htm")) else ".txt"
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=True) as temp_file:
+            temp_file.write(mt5_report.file.read())
+            temp_file.flush()
+            result = build_mt5_history_export(
+                temp_file.name,
+                Mt5HistoryExportOptions(
+                    time_shift_hours=time_shift_hours,
+                    symbol_filter=symbol_filter.strip() or None,
+                    show_last_n=show_last_n,
+                    ui_mode=ui_mode if ui_mode in {"compact", "position_tool_style", "detailed_focus"} else "position_tool_style",
+                ),
+            )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "mt5_history_tradingview_export.html",
+            {
+                "request": request,
+                "user": current_user,
+                "form_data": form_data,
+                "error": str(exc),
+                "setups": [],
+                "generated_pine": "",
+                "generated_csv": "",
+                "parsed_meta": None,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if output_type == "pine":
+        return PlainTextResponse(
+            result.pine_code,
+            headers={"Content-Disposition": 'attachment; filename="mt5_history_setup_position_tool.pine"'},
+            media_type="text/x-pine",
+        )
+    if output_type == "csv":
+        return PlainTextResponse(
+            result.csv_content,
+            headers={"Content-Disposition": 'attachment; filename="mt5_history_normalized_setups.csv"'},
+            media_type="text/csv",
+        )
+
+    parsed_meta = {
+        "account_name": result.parsed.account_name,
+        "account_number": result.parsed.account_number,
+        "broker_company": result.parsed.broker_company,
+        "report_date": result.parsed.report_date,
+        "position_count": len(result.parsed.positions),
+        "setup_count": len(result.setups),
+    }
+    return templates.TemplateResponse(
+        request,
+        "mt5_history_tradingview_export.html",
+        {
+            "request": request,
+            "user": current_user,
+            "form_data": form_data,
+            "error": None,
+            "setups": result.setups,
+            "generated_pine": result.pine_code,
+            "generated_csv": result.csv_content,
+            "parsed_meta": parsed_meta,
+        },
+    )
 
 
 @router.get("/", response_class=HTMLResponse)

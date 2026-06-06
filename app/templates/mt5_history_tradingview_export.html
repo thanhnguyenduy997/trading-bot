@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card layout-tier-medium stack">
+    <div class="section-header">
+        <div>
+            <h1>MT5 History Pine Export</h1>
+            <p class="muted">Upload an MT5 HTML trade history report and export setup-level TradingView Pine.</p>
+        </div>
+        <a class="button-link secondary-button" href="/dashboard">Back to Dashboard</a>
+    </div>
+
+    {% if error %}
+    <div class="banner banner-danger">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/tradingview-export/mt5-history" enctype="multipart/form-data" class="stack">
+        <div class="dashboard-filter-grid">
+            <label>
+                MT5 HTML report
+                <input type="file" name="mt5_report" accept=".html,.htm,text/html" required>
+            </label>
+            <label>
+                symbol_filter
+                <input type="text" name="symbol_filter" value="{{ form_data.symbol_filter }}" placeholder="XAUUSD">
+            </label>
+            <label>
+                time_shift_hours
+                <input type="number" name="time_shift_hours" value="{{ form_data.time_shift_hours }}" min="-24" max="24">
+            </label>
+            <label>
+                show_last_n
+                <input type="number" name="show_last_n" value="{{ form_data.show_last_n }}" min="1" max="150">
+            </label>
+            <label>
+                ui_mode
+                <select name="ui_mode">
+                    {% for key in ["compact", "position_tool_style", "detailed_focus"] %}
+                    <option value="{{ key }}" {% if form_data.ui_mode == key %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="action-row">
+            <button type="submit" name="output_type" value="preview">Parse Preview</button>
+            <button type="submit" name="output_type" value="pine" class="secondary-button">Download Pine</button>
+            <button type="submit" name="output_type" value="csv" class="secondary-button">Download CSV</button>
+        </div>
+    </form>
+
+    {% if parsed_meta %}
+    <div class="stack">
+        <p class="muted">
+            Parsed {{ parsed_meta.position_count }} position(s) into {{ parsed_meta.setup_count }} setup(s).
+            {% if parsed_meta.account_number %}Account: {{ parsed_meta.account_number }}{% endif %}
+            {% if parsed_meta.broker_company %}Broker: {{ parsed_meta.broker_company }}{% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    {% if setups %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>setup_id</th>
+                    <th>side</th>
+                    <th>entry_time</th>
+                    <th>entry_price</th>
+                    <th>sl</th>
+                    <th>tp1</th>
+                    <th>tp2</th>
+                    <th>close_time</th>
+                    <th>order1_result</th>
+                    <th>order2_result</th>
+                    <th>setup_result</th>
+                    <th>pnl_total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for setup in setups %}
+                <tr>
+                    <td>{{ setup.setup_id }}</td>
+                    <td>{{ setup.side }}</td>
+                    <td>{{ setup.entry_time }}</td>
+                    <td>{{ setup.entry_price }}</td>
+                    <td>{{ setup.initial_sl }}</td>
+                    <td>{{ setup.tp1 }}</td>
+                    <td>{{ setup.tp2 }}</td>
+                    <td>{{ setup.close_time }}</td>
+                    <td>{{ setup.order1_result }}</td>
+                    <td>{{ setup.order2_result }}</td>
+                    <td>{{ setup.setup_result }}</td>
+                    <td>{{ "%.2f"|format(setup.pnl_total) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <label for="pine-output">Generated Pine Script</label>
+    <textarea id="pine-output" rows="18" readonly style="width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">{{ generated_pine }}</textarea>
+
+    {% if generated_csv %}
+    <label for="csv-output">Normalized CSV</label>
+    <textarea id="csv-output" rows="8" readonly style="width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">{{ generated_csv }}</textarea>
+    {% endif %}
+
+    <div class="action-row">
+        <button type="button" class="secondary-button" id="copy-pine-btn">Copy Pine</button>
+        <button type="button" class="secondary-button" id="copy-csv-btn">Copy CSV</button>
+    </div>
+</section>
+
+<script>
+    (function () {
+        const bindCopy = (buttonId, textareaId, label) => {
+            const button = document.getElementById(buttonId);
+            const textarea = document.getElementById(textareaId);
+            if (!button || !textarea) return;
+            button.addEventListener("click", async () => {
+                if (!textarea.value) return;
+                await navigator.clipboard.writeText(textarea.value);
+                button.textContent = "Copied";
+                setTimeout(() => { button.textContent = label; }, 1400);
+            });
+        };
+        bindCopy("copy-pine-btn", "pine-output", "Copy Pine");
+        bindCopy("copy-csv-btn", "csv-output", "Copy CSV");
+    })();
+</script>
+{% endblock %}
