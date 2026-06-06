@@ -667,7 +667,7 @@ class TradingViewExportService:
             f'showLastNWhenNoFocus = input.int(4, "If focus empty: show last N positions", minval=1, maxval={max_count})',
             'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])',
             'slTpSource = input.string("Initial order plan", "SL/TP source", options=["Initial order plan", "DB Positions final/current"])',
-            'timeShiftHours = input.int(0, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)',
+            'timeShiftHours = input.int(-3, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)',
             'timeShiftMinutes = input.int(0, "Time shift minutes if needed", minval=-59, maxval=59)',
             "",
             'showEntryLine = input.bool(true, "Show exact ENTRY line")',

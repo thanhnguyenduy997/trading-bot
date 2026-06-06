@@ -245,7 +245,7 @@ def test_db_timefix_export_uses_order_level_history_without_double_shift(db_sess
 
     assert pine.startswith("//@version=6\nindicator(\"DB History EXACT CLEAN V6 TimeFix - ")
     assert "// CLEAN V6 TIMEFIX" in pine
-    assert 'timeShiftHours = input.int(0, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)' in pine
+    assert 'timeShiftHours = input.int(-3, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)' in pine
     assert 'debugTimeAudit = input.bool(false, "Debug: show time audit table")' in pine
     assert 'debugTimezone = input.string("GMT+7", "Debug display timezone")' in pine
     assert 'f_time_text(t) =>' in pine
