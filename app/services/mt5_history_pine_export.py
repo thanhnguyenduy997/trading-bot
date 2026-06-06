@@ -69,6 +69,10 @@ class TradeSetup:
     order2_entry_price: float | None = None
     order1_close_price: float | None = None
     order2_close_price: float | None = None
+    order1_close_time: str | None = None
+    order2_close_time: str | None = None
+    order1_profit: float | None = None
+    order2_profit: float | None = None
 
 
 @dataclass
@@ -272,6 +276,10 @@ def group_positions_to_setups(positions: list[TradePosition], tolerance_price: f
                 order2_entry_price=order2.entry_price if order2 else None,
                 order1_close_price=order1.close_price if order1 else None,
                 order2_close_price=order2.close_price if order2 else None,
+                order1_close_time=order1.close_time_raw if order1 else None,
+                order2_close_time=order2.close_time_raw if order2 else None,
+                order1_profit=order1.profit if order1 else None,
+                order2_profit=order2.profit if order2 else None,
             )
         )
 
@@ -365,112 +373,97 @@ def generate_normalized_csv(setups: list[TradeSetup]) -> str:
 
 def generate_tradingview_pine_setups(setups: list[TradeSetup], options: Mt5HistoryExportOptions | None = None) -> str:
     resolved = options or Mt5HistoryExportOptions()
+    order_rows = _setup_order_rows(setups)
+    max_count = max(1, min(len(order_rows), 300))
     lines: list[str] = [
         "//@version=6",
-        'indicator("MT5 History Setup Position Tool", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)',
+        'indicator("MT5/DB History EXACT CLEAN V6 TimeFix - MT5 HTML", overlay=true, max_lines_count=500, max_labels_count=500)',
         "",
-        f'focusSetupId = input.string("", "Focus setup id")',
-        f'showLastN = input.int({max(1, min(resolved.show_last_n, 150))}, "Show last N setups", minval=1, maxval=150)',
-        f'timeShiftHours = input.int({resolved.time_shift_hours}, "Time shift hours: MT5 server -> TradingView")',
-        f'uiMode = input.string("{_pine_escape(resolved.ui_mode)}", "UI mode", options=["compact", "position_tool_style", "detailed_focus"])',
-        'showFullWin = input.bool(true, "Show FULL WIN")',
-        'showManagedWin = input.bool(true, "Show TP1 + BE")',
-        'showFullLoss = input.bool(true, "Show FULL LOSS")',
-        'showManual = input.bool(true, "Show MANUAL")',
-        'showReview = input.bool(true, "Show REVIEW")',
+        'focusText = input.string("setup-225", "Focus setup/order/ticket. Empty = show last N positions")',
+        f'showLastNWhenNoFocus = input.int({max(1, min(resolved.show_last_n, max_count))}, "If focus empty: show last N positions", minval=1, maxval={max_count})',
+        'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])',
+        'slTpSource = input.string("Initial order plan", "SL/TP source", options=["Initial order plan", "DB/MT5 final/current"])',
+        f'timeShiftHours = input.int({resolved.time_shift_hours}, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)',
+        'timeShiftMinutes = input.int(0, "Time shift minutes if needed", minval=-59, maxval=59)',
         "",
-        _array_declaration("string", "setupIds", [_pine_str(setup.setup_id) for setup in setups]),
-        _array_declaration("string", "sides", [_pine_str(setup.side) for setup in setups]),
-        _array_declaration("int", "entryTimes", [_pine_time(setup.entry_time) for setup in setups]),
-        _array_declaration("float", "entryPrices", [_pine_float(setup.entry_price) for setup in setups]),
-        _array_declaration("float", "slPrices", [_pine_float(setup.initial_sl) for setup in setups]),
-        _array_declaration("float", "tp1Prices", [_pine_float(setup.tp1) for setup in setups]),
-        _array_declaration("float", "tp2Prices", [_pine_float(setup.tp2) for setup in setups]),
-        _array_declaration("int", "closeTimes", [_pine_time(setup.close_time) for setup in setups]),
-        _array_declaration("float", "closePrices", [_pine_float(setup.close_price) for setup in setups]),
-        _array_declaration("string", "order1Results", [_pine_str(setup.order1_result) for setup in setups]),
-        _array_declaration("string", "order2Results", [_pine_str(setup.order2_result) for setup in setups]),
-        _array_declaration("string", "setupResults", [_pine_str(setup.setup_result) for setup in setups]),
-        _array_declaration("float", "pnlTotals", [_pine_float(setup.pnl_total) for setup in setups]),
-        _array_declaration("string", "order1Tickets", [_pine_str(setup.order1_ticket or "") for setup in setups]),
-        _array_declaration("string", "order2Tickets", [_pine_str(setup.order2_ticket or "") for setup in setups]),
+        'showEntryLine = input.bool(true, "Show exact ENTRY line")',
+        'showSLLine = input.bool(true, "Show exact SL line")',
+        'showTPLine = input.bool(true, "Show exact TP line")',
+        'showCloseLine = input.bool(true, "Show exact CLOSE line")',
+        'showMarkers = input.bool(true, "Show E/C markers")',
+        'showTextLabels = input.bool(false, "Show full text labels")',
+        'lineWidth = input.int(1, "Line width", minval=1, maxval=4)',
         "",
-        "shiftTime(int rawTime) =>",
-        "    na(rawTime) ? na : rawTime + timeShiftHours * 60 * 60 * 1000",
-        "",
-        "resultLabel(string result) =>",
-        "    switch result",
-        '        "full_win" => "FULL WIN"',
-        '        "managed_win" => "TP1 + BE"',
-        '        "full_loss" => "FULL LOSS"',
-        '        "partial_win" => "PARTIAL WIN"',
-        '        "manual_close" => "MANUAL"',
-        '        => "REVIEW"',
-        "",
-        "resultShort(string result) =>",
-        "    switch result",
-        '        "full_win" => "FW"',
-        '        "managed_win" => "BE"',
-        '        "full_loss" => "FL"',
-        '        "partial_win" => "PW"',
-        '        "manual_close" => "MAN"',
-        '        => "REV"',
+        _array_declaration("string", "ids", [_pine_str(row["id"]) for row in order_rows]),
+        _array_declaration("string", "setupIds", [_pine_str(row["setup_id"]) for row in order_rows]),
+        _array_declaration("string", "tickets", [_pine_str(row["ticket"]) for row in order_rows]),
+        _array_declaration("string", "orderLegs", [_pine_str(row["order_leg"]) for row in order_rows]),
+        _array_declaration("string", "sides", [_pine_str(row["side"]) for row in order_rows]),
+        _array_declaration("int", "entryTimes", [_pine_time(row["entry_time"]) for row in order_rows]),
+        _array_declaration("float", "entryPrices", [_pine_float(row["entry_price"]) for row in order_rows]),
+        _array_declaration("float", "initialSLs", [_pine_float(row["initial_sl"]) for row in order_rows]),
+        _array_declaration("float", "currentSLs", [_pine_float(row["current_sl"]) for row in order_rows]),
+        _array_declaration("float", "initialTPs", [_pine_float(row["initial_tp"]) for row in order_rows]),
+        _array_declaration("float", "currentTPs", [_pine_float(row["current_tp"]) for row in order_rows]),
+        _array_declaration("int", "closeTimes", [_pine_time(row["close_time"]) for row in order_rows]),
+        _array_declaration("float", "closePrices", [_pine_float(row["close_price"]) for row in order_rows]),
+        _array_declaration("float", "profits", [_pine_float(row["profit"]) for row in order_rows]),
+        _array_declaration("string", "results", [_pine_str(row["result"]) for row in order_rows]),
         "",
         "resultColor(string result) =>",
-        "    switch result",
-        '        "full_win" => color.new(color.lime, 0)',
-        '        "managed_win" => color.new(color.teal, 0)',
-        '        "full_loss" => color.new(color.red, 0)',
-        '        "partial_win" => color.new(color.green, 15)',
-        '        "manual_close" => color.new(color.blue, 15)',
-        '        => color.new(color.orange, 0)',
-        "",
-        "resultAllowed(string result) =>",
-        '    result == "full_win" ? showFullWin : result == "managed_win" ? showManagedWin : result == "full_loss" ? showFullLoss : result == "manual_close" or result == "partial_win" ? showManual : showReview',
+        "    result == \"TP\" or result == \"FULL WIN\" or result == \"TP1 + BE\" ? color.new(color.lime, 0) :",
+        "     result == \"BE\" ? color.new(color.gray, 0) :",
+        "     result == \"SL\" or result == \"FULL LOSS\" ? color.new(color.red, 0) :",
+        "     result == \"MANUAL\" ? color.new(color.blue, 0) : color.new(color.orange, 0)",
         "",
         "var rendered = false",
         "if barstate.islast and not rendered",
-        "    tradeCount = array.size(setupIds)",
-        "    visibleCount = math.min(showLastN, tradeCount)",
-        "    startIndex = math.max(0, tradeCount - visibleCount)",
-        '    hasFocus = str.length(str.trim(focusSetupId)) > 0',
-        '    compactLabels = not hasFocus and showLastN > 10',
-        "    for i = startIndex to tradeCount - 1",
+        "    tradeCount = array.size(ids)",
+        "    shiftMs = (timeShiftHours * 60 + timeShiftMinutes) * 60 * 1000",
+        "    focus = str.lower(str.trim(focusText))",
+        "    hasFocus = str.length(focus) > 0",
+        "    startIndex = math.max(0, tradeCount - showLastNWhenNoFocus)",
+        "    for i = 0 to tradeCount - 1",
+        "        id = array.get(ids, i)",
         "        setupId = array.get(setupIds, i)",
-        "        shouldRender = not hasFocus or setupId == focusSetupId",
-        "        if shouldRender",
-        "            side = str.upper(array.get(sides, i))",
-        "            entryTime = shiftTime(array.get(entryTimes, i))",
-        "            closeTimeRaw = shiftTime(array.get(closeTimes, i))",
-        "            entryPrice = array.get(entryPrices, i)",
-        "            sl = array.get(slPrices, i)",
-        "            tp1 = array.get(tp1Prices, i)",
-        "            tp2 = array.get(tp2Prices, i)",
-        "            closePrice = array.get(closePrices, i)",
-        "            result = array.get(setupResults, i)",
-        "            if resultAllowed(result) and not na(entryTime) and not na(entryPrice)",
-        "                closeTime = na(closeTimeRaw) ? entryTime + 4 * 60 * 60 * 1000 : closeTimeRaw",
-        "                target = not na(tp2) ? tp2 : tp1",
-        '                isBuy = side == "BUY"',
-        "                rewardTop = isBuy ? target : entryPrice",
-        "                rewardBottom = isBuy ? entryPrice : target",
-        "                riskTop = isBuy ? entryPrice : sl",
-        "                riskBottom = isBuy ? sl : entryPrice",
-        "                if uiMode != \"compact\" and not na(target)",
-        "                    box.new(entryTime, rewardTop, closeTime, rewardBottom, xloc=xloc.bar_time, bgcolor=color.new(color.green, 87), border_color=color.new(color.green, 70))",
-        "                if uiMode != \"compact\" and not na(sl)",
-        "                    box.new(entryTime, riskTop, closeTime, riskBottom, xloc=xloc.bar_time, bgcolor=color.new(color.red, 86), border_color=color.new(color.red, 70))",
-        "                line.new(entryTime, entryPrice, closeTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.yellow, 0), width=1)",
-        "                if not na(tp1)",
-        "                    line.new(entryTime, tp1, closeTime, tp1, xloc=xloc.bar_time, color=color.new(color.green, 25), width=1, style=line.style_dotted)",
-        "                if not na(tp2)",
-        "                    line.new(entryTime, tp2, closeTime, tp2, xloc=xloc.bar_time, color=color.new(color.teal, 20), width=1, style=line.style_dotted)",
-        "                badgePrice = na(closePrice) ? entryPrice : closePrice",
-        "                badgeText = compactLabels ? resultShort(result) : resultLabel(result)",
-        "                label.new(closeTime, badgePrice, text=badgeText, xloc=xloc.bar_time, style=label.style_label_left, color=resultColor(result), textcolor=color.white, size=size.small)",
-        "                if hasFocus or uiMode == \"detailed_focus\"",
-        "                    details = setupId + \"\\n\" + side + \"\\nEntry: \" + str.tostring(entryPrice) + \"\\nSL: \" + str.tostring(sl) + \"\\nTP1: \" + str.tostring(tp1) + \"\\nTP2: \" + str.tostring(tp2) + \"\\nClose: \" + str.tostring(closePrice) + \"\\nP/L: \" + str.tostring(array.get(pnlTotals, i)) + \"\\nO1: \" + array.get(order1Results, i) + \"\\nO2: \" + array.get(order2Results, i)",
-        "                    label.new(closeTime, badgePrice, text=details, xloc=xloc.bar_time, style=label.style_label_lower_left, color=color.new(color.black, 10), textcolor=color.white, size=size.small)",
+        "        ticket = array.get(tickets, i)",
+        "        leg = array.get(orderLegs, i)",
+        "        side = array.get(sides, i)",
+        "        entryTime = array.get(entryTimes, i)",
+        "        closeTime = array.get(closeTimes, i)",
+        "        entryPrice = array.get(entryPrices, i)",
+        "        initialSL = array.get(initialSLs, i)",
+        "        currentSL = array.get(currentSLs, i)",
+        "        initialTP = array.get(initialTPs, i)",
+        "        currentTP = array.get(currentTPs, i)",
+        "        closePrice = array.get(closePrices, i)",
+        "        profit = array.get(profits, i)",
+        "        result = array.get(results, i)",
+        "        orderAllowed = orderFilter == \"Both\" or leg == orderFilter",
+        "        focusAllowed = not hasFocus or str.contains(str.lower(id), focus) or str.contains(str.lower(setupId), focus) or str.contains(str.lower(ticket), focus)",
+        "        rangeAllowed = hasFocus or i >= startIndex",
+        "        if orderAllowed and focusAllowed and rangeAllowed and not na(entryTime) and not na(entryPrice)",
+        "            entryTimeShifted = entryTime + shiftMs",
+        "            closeTimeShifted = na(closeTime) ? na : closeTime + shiftMs",
+        "            rightTime = na(closeTimeShifted) ? entryTimeShifted + 60 * 60 * 1000 : closeTimeShifted",
+        "            selectedSL = slTpSource == \"Initial order plan\" ? initialSL : currentSL",
+        "            selectedTP = slTpSource == \"Initial order plan\" ? initialTP : currentTP",
+        "            markerColor = resultColor(result)",
+        "            if showEntryLine",
+        "                line.new(entryTimeShifted, entryPrice, rightTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.yellow, 0), width=lineWidth)",
+        "            if showSLLine and not na(selectedSL)",
+        "                line.new(entryTimeShifted, selectedSL, rightTime, selectedSL, xloc=xloc.bar_time, color=color.new(color.red, 0), width=lineWidth)",
+        "            if showTPLine and not na(selectedTP)",
+        "                line.new(entryTimeShifted, selectedTP, rightTime, selectedTP, xloc=xloc.bar_time, color=color.new(color.lime, 0), width=lineWidth)",
+        "            if showCloseLine and not na(closeTimeShifted) and not na(closePrice)",
+        "                line.new(closeTimeShifted, closePrice, closeTimeShifted + 30 * 60 * 1000, closePrice, xloc=xloc.bar_time, color=markerColor, width=lineWidth)",
+        "            if showMarkers",
+        "                label.new(entryTimeShifted, entryPrice, text=\"E\", xloc=xloc.bar_time, style=side == \"BUY\" ? label.style_label_up : label.style_label_down, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny)",
+        "                if not na(closeTimeShifted) and not na(closePrice)",
+        "                    label.new(closeTimeShifted, closePrice, text=result, xloc=xloc.bar_time, style=label.style_label_left, color=markerColor, textcolor=color.white, size=size.tiny)",
+        "            if showTextLabels",
+        "                detail = id + \" \" + side + \"\\nEntry: \" + str.tostring(entryPrice) + \"\\nSL: \" + str.tostring(selectedSL) + \"\\nTP: \" + str.tostring(selectedTP) + \"\\nClose: \" + str.tostring(closePrice) + \"\\nP/L: \" + str.tostring(profit)",
+        "                label.new(rightTime, entryPrice, text=detail, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.black, 10), textcolor=color.white, size=size.small)",
         "    rendered := true",
         "",
         "plot(na)",
@@ -486,6 +479,92 @@ def _find_positions_table(tables: list[list[list[str]]]) -> tuple[list[list[str]
                 if "close_time" in normalized or "profit" in normalized:
                     return table, index
     return None, None
+
+
+def _setup_order_rows(setups: list[TradeSetup]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for setup in setups:
+        if setup.order1_ticket:
+            rows.append(
+                {
+                    "id": f"{setup.setup_id}-o1",
+                    "setup_id": setup.setup_id,
+                    "ticket": setup.order1_ticket,
+                    "order_leg": "o1",
+                    "side": setup.side,
+                    "entry_time": setup.entry_time,
+                    "entry_price": setup.order1_entry_price if setup.order1_entry_price is not None else setup.entry_price,
+                    "initial_sl": setup.initial_sl,
+                    "current_sl": setup.initial_sl,
+                    "initial_tp": setup.tp1,
+                    "current_tp": setup.tp1,
+                    "close_time": setup.order1_close_time or setup.close_time,
+                    "close_price": setup.order1_close_price,
+                    "profit": setup.order1_profit,
+                    "result": _short_result(setup.order1_result, setup.setup_result),
+                }
+            )
+        if setup.order2_ticket:
+            current_sl = setup.order2_entry_price if setup.order2_result == "be" and setup.order2_entry_price is not None else setup.initial_sl
+            rows.append(
+                {
+                    "id": f"{setup.setup_id}-o2",
+                    "setup_id": setup.setup_id,
+                    "ticket": setup.order2_ticket,
+                    "order_leg": "o2",
+                    "side": setup.side,
+                    "entry_time": setup.entry_time,
+                    "entry_price": setup.order2_entry_price if setup.order2_entry_price is not None else setup.entry_price,
+                    "initial_sl": setup.initial_sl,
+                    "current_sl": current_sl,
+                    "initial_tp": setup.tp2,
+                    "current_tp": setup.tp2,
+                    "close_time": setup.order2_close_time or setup.close_time,
+                    "close_price": setup.order2_close_price,
+                    "profit": setup.order2_profit,
+                    "result": _short_result(setup.order2_result, setup.setup_result),
+                }
+            )
+        if not setup.order1_ticket and not setup.order2_ticket:
+            rows.append(
+                {
+                    "id": f"pos-{setup.setup_id}",
+                    "setup_id": setup.setup_id,
+                    "ticket": setup.setup_id,
+                    "order_leg": "manual",
+                    "side": setup.side,
+                    "entry_time": setup.entry_time,
+                    "entry_price": setup.entry_price,
+                    "initial_sl": setup.initial_sl,
+                    "current_sl": setup.initial_sl,
+                    "initial_tp": setup.tp1,
+                    "current_tp": setup.tp1,
+                    "close_time": setup.close_time,
+                    "close_price": setup.close_price,
+                    "profit": setup.pnl_total,
+                    "result": _short_result("manual", setup.setup_result),
+                }
+            )
+    return rows
+
+
+def _short_result(order_result: str | None, setup_result: str | None = None) -> str:
+    value = (order_result or setup_result or "").lower()
+    if value == "tp":
+        return "TP"
+    if value == "be":
+        return "BE"
+    if value == "sl":
+        return "SL"
+    if value == "full_win":
+        return "FULL WIN"
+    if value == "managed_win":
+        return "TP1 + BE"
+    if value == "full_loss":
+        return "FULL LOSS"
+    if value.startswith("manual") or value == "partial_win":
+        return "MANUAL"
+    return "REVIEW"
 
 
 def _normalize_position_headers(row: list[str]) -> list[str]:

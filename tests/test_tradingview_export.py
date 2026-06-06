@@ -119,8 +119,8 @@ def test_export_includes_unknown_outcome_and_open_trade_without_close(db_session
     )
 
     assert result.exported_trades == 1
-    assert "array.push(closeTimes, na)" in result.pine_code
-    assert "array.push(closePrices, na)" in result.pine_code
+    assert "var int[] closeTimes = array.from(na, na)" in result.pine_code
+    assert "var float[] closePrices = array.from(na, na)" in result.pine_code
 
 
 def test_export_includes_entry_inside_range_and_close_inside_range(db_session, created_user):
@@ -245,9 +245,10 @@ def test_export_debug_payload_and_audit_summary(db_session, created_user):
     assert result.audit_summary["raw_setup_count"] >= 1
     assert isinstance(result.skipped_records, list)
     assert isinstance(result.normalized_rows, list)
-    assert "raw_setup_count" in result.pine_code
+    assert "exported_order_count" in result.pine_code
     assert "timestamp(2026" not in result.pine_code
-    assert result.pine_code.count("array.push(entryTimes") == result.exported_trades
+    assert "array.push(entryTimes" not in result.pine_code
+    assert "var int[] entryTimes = array.from(" in result.pine_code
 
 
 def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
@@ -291,7 +292,7 @@ def test_same_candle_ambiguity_sets_review_reason(db_session, created_user):
             review_timeframe="M5",
         )
     )
-    assert "same_candle_ambiguity" in export.pine_code
+    assert "same_candle_ambiguity" not in export.pine_code
     assert any("same_candle_ambiguity" in warning for warning in export.warnings)
 
 
@@ -363,8 +364,9 @@ def test_close_data_not_reused_between_trades(db_session, created_user):
         TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
     )
     code = export.pine_code
-    assert "array.push(closePrices, na)" in code
-    assert code.count("array.push(closeTimes") >= 2
+    assert "var float[] closePrices = array.from(" in code
+    assert "na" in code
+    assert "array.push(closeTimes" not in code
     assert export.audit_summary["exported_trade_count"] == export.exported_trades
 
 
@@ -518,9 +520,9 @@ def test_generated_pine_avoids_reserved_text_variable(db_session, created_user):
     )
     pine = export.pine_code
     assert "text = array.get(labelTexts" not in pine
-    assert "fullText = array.get(labelTexts" in pine
-    assert "text=displayText" in pine
-    assert "showFullDetails ? text : compactText" not in pine
+    assert "labelTexts" not in pine
+    assert "showTextLabels = input.bool(false" in pine
+    assert "detail = id +" in pine
 
 
 def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user):
@@ -539,19 +541,11 @@ def test_generated_pine_chunks_large_if_barstate_block(db_session, created_user)
         TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30), max_trades=500)
     )
     pine = export.pine_code
-    assert "loadTradesPart1() =>" in pine
-    assert "loadTradesPart2() =>" in pine
-    lines = pine.splitlines()
-    start_idx = lines.index("if barstate.isfirst")
-    end_idx = start_idx + 1
-    while end_idx < len(lines) and lines[end_idx].startswith("    "):
-        end_idx += 1
-    init_block = lines[start_idx + 1 : end_idx]
-    assert init_block
-    assert all("loadTradesPart" in line for line in init_block)
-    assert all("array.push" not in line for line in init_block)
-    assert pine.count("array.push(entryTimes") == export.exported_trades
-    assert "raw_setup_count" in pine
+    assert "loadTradesPart" not in pine
+    assert "array.push" not in pine
+    assert "var string[] ids = array.from(" in pine
+    assert "var string[] orderLegs = array.from(" in pine
+    assert "exported_order_count" in pine
 
 
 def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
@@ -569,15 +563,10 @@ def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
         TradingViewExportFilters(account_id=account.id, symbol="XAUUSD", start_date=date(2026, 4, 1), end_date=date(2026, 4, 30))
     )
     pine = export.pine_code
-    assert "focusTradeNo = input.int(1, 'Focus trade number (0 = all trades)', minval=0, group=groupTradeVisual)" in pine
-    assert "showAllTradeLabels = input.bool(true, 'All mode: show BUY/SELL labels', group=groupTradeVisual)" in pine
-    assert "showAllTradeBoxes = input.bool(false, 'All mode: show compact position boxes', group=groupTradeVisual)" in pine
-    assert "showAllTradeLevels = input.bool(false, 'All mode: show Entry/SL/TP lines', group=groupTradeVisual)" in pine
-    assert "allPositionWidthHours = input.int(4, 'All mode: position width hours', minval=1, maxval=72, group=groupTradeVisual)" in pine
-    assert "if focusTradeNo == 0" in pine
-    assert "BUY #" in pine or "SELL #" in pine or "B#" in pine or "S#" in pine
-    assert "color=directionIsBuy ? color.new(color.green, 0) : color.new(color.red, 0)" in pine
-    assert "label.style_circle" not in pine
-    assert "label.style_diamond" not in pine
-    assert "showTinyMarkersForAllTrades" not in pine
-    assert "else if focusTradeNo > 0 and focusTradeNo <= tradeCount" in pine
+    assert 'focusText = input.string("setup-225", "Focus setup/order/ticket. Empty = show last N positions")' in pine
+    assert 'showLastNWhenNoFocus = input.int(4, "If focus empty: show last N positions"' in pine
+    assert 'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])' in pine
+    assert "focusAllowed = not hasFocus" in pine
+    assert "rangeAllowed = hasFocus or i >= startIndex" in pine
+    assert "entryTimeShifted = entryTime + shiftMs" in pine
+    assert "xloc=xloc.bar_time" in pine

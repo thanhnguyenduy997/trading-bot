@@ -155,8 +155,11 @@ def test_generated_pine_has_required_inputs_xloc_and_no_broken_multiline_literal
 
     assert pine.startswith("//@version=6")
     assert "xloc=xloc.bar_time" in pine
-    assert "focusSetupId = input.string" in pine
+    assert "focusText = input.string" in pine
     assert "timeShiftHours = input.int" in pine
-    assert 'var string[] setupIds = array.from("setup-225")' in pine
+    assert 'var string[] ids = array.from("setup-225-o1", "setup-225-o2")' in pine
+    assert 'var string[] setupIds = array.from("setup-225", "setup-225")' in pine
+    assert "loadTradesPart" not in pine
+    assert "array.push" not in pine
     assert '"\\nEntry: "' in pine
-    assert 'details = setupId + "\\n"' in pine
+    assert 'detail = id + " "' in pine

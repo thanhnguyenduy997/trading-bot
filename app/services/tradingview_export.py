@@ -358,6 +358,12 @@ class TradingViewExportService:
             "planned_rr_tp2": self._to_float(setup.rr_order2),
             "order1_outcome": setup.order1_outcome,
             "order2_outcome": setup.order2_outcome,
+            "order1_close_time_ms": self.to_pine_timestamp_ms(setup.order1_closed_at),
+            "order2_close_time_ms": self.to_pine_timestamp_ms(setup.order2_closed_at),
+            "order1_close_price": self._to_float(setup.order1_close_price),
+            "order2_close_price": self._to_float(setup.order2_close_price),
+            "order1_realized_pnl": self._to_float(setup.order1_realized_pnl),
+            "order2_realized_pnl": self._to_float(setup.order2_realized_pnl),
             "final_outcome": setup.setup_outcome,
             "setup_outcome": setup.setup_outcome,
             "outcome": setup.setup_outcome,
@@ -386,7 +392,7 @@ class TradingViewExportService:
         valid = [item for item in times if item is not None]
         if not valid:
             return None
-        return max(valid)
+        return max(self._normalize_datetime(item) for item in valid)
 
     def _resolve_close_price(self, setup: TradeSetup) -> float | None:
         if setup.order2_close_price is not None:
@@ -394,6 +400,9 @@ class TradingViewExportService:
         if setup.order1_close_price is not None:
             return self._to_float(setup.order1_close_price)
         return None
+
+    def _normalize_datetime(self, value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
     def _resolve_realized_pnl(self, setup: TradeSetup) -> float | None:
         components = [setup.order1_realized_pnl, setup.order2_realized_pnl]
@@ -410,7 +419,7 @@ class TradingViewExportService:
         if dt is None:
             return None
         if dt.tzinfo is None:
-            app_timezone = get_settings().timezone
+            app_timezone = getattr(get_settings(), "timezone", "UTC")
             try:
                 if app_timezone.upper() == "UTC":
                     aware = dt.replace(tzinfo=timezone.utc)
@@ -627,285 +636,202 @@ class TradingViewExportService:
         audit_summary: dict[str, Any],
         skipped_records: list[dict[str, Any]],
     ) -> str:
-        lines: list[str] = []
-        lines.append("//@version=6")
-        lines.append("// Export audit:")
-        for key in (
-            "requested_symbol",
-            "requested_start_date",
-            "requested_end_date",
-            "raw_setup_count",
-            "normalized_trade_count",
-            "exported_trade_count",
-            "skipped_trade_count",
-            "max_trades",
-            "was_limited_by_max_trades",
-            "first_exported_entry_time",
-            "last_exported_entry_time",
-        ):
-            lines.append(f"// {key}: {audit_summary.get(key)}")
-        if skipped_records:
-            lines.append(f"// skipped_records_json: {self._pine_comment_json(skipped_records)}")
-        lines.append(
-            f'indicator("Trade History - {symbol} - {range_start.date().isoformat()} to {range_end.date().isoformat()}", '
-            "overlay=true, max_labels_count=500, max_lines_count=500)"
-        )
-        lines.append("")
-        lines.append("var entryTimes = array.new_int()")
-        lines.append("var entryPrices = array.new_float()")
-        lines.append("var closeTimes = array.new_int()")
-        lines.append("var closePrices = array.new_float()")
-        lines.append("var slPrices = array.new_float()")
-        lines.append("var tp1Prices = array.new_float()")
-        lines.append("var tp2Prices = array.new_float()")
-        lines.append("var signalTimes = array.new_int()")
-        lines.append("var entryBarTimes = array.new_int()")
-        lines.append("var closeBarTimes = array.new_int()")
-        lines.append("var tp1HitTimes = array.new_int()")
-        lines.append("var tp2HitTimes = array.new_int()")
-        lines.append("var slHitTimes = array.new_int()")
-        lines.append("var beMovedTimes = array.new_int()")
-        lines.append("var beHitTimes = array.new_int()")
-        lines.append("var directions = array.new_string()")
-        lines.append("var outcomes = array.new_string()")
-        lines.append("var riskRs = array.new_float()")
-        lines.append("var labelTexts = array.new_string()")
-        lines.append("var reviewReasons = array.new_string()")
-        lines.append("")
-        lines.append("outcomeColor(string outcome) =>")
-        lines.append("    switch outcome")
-        lines.append('        "full_win" => color.new(color.green, 0)')
-        lines.append('        "managed_win" => color.new(color.green, 0)')
-        lines.append('        "closed_at_be" => color.new(color.gray, 0)')
-        lines.append('        "sl_hit" => color.new(color.red, 0)')
-        lines.append('        "full_loss" => color.new(color.red, 0)')
-        lines.append('        "review_required" => color.new(color.orange, 0)')
-        lines.append('        "manual_close" => color.new(color.blue, 20)')
-        lines.append("        => color.new(color.gray, 0)")
-        lines.append("")
-        chunk_size = 5
-        load_parts: list[list[str]] = []
-        current_part: list[str] = []
-        for index, trade in enumerate(trades):
-            if index % chunk_size == 0 and current_part:
-                load_parts.append(current_part)
-                current_part = []
-            entry_ts = self._pine_ms(trade["entry_time_ms"])
-            close_ts = self._pine_ms(trade["close_time_ms"])
-            signal_ts = self._pine_ms(trade["signal_time_ms"])
-            entry_bar_ts = self._pine_ms(trade["entry_bar_time_ms"])
-            close_bar_ts = self._pine_ms(trade["close_bar_time_ms"])
-            tp1_hit_ts = self._pine_ms(trade["tp1_hit_time_ms"])
-            tp2_hit_ts = self._pine_ms(trade["tp2_hit_time_ms"])
-            sl_hit_ts = self._pine_ms(trade["sl_hit_time_ms"])
-            be_moved_ts = self._pine_ms(trade["be_moved_time_ms"])
-            be_hit_ts = self._pine_ms(trade["be_hit_time_ms"])
-            entry_price = self._pine_num(trade["entry_price"])
-            close_price = self._pine_num(trade["actual_close_price"])
-            sl = self._pine_num(trade["initial_sl"])
-            tp1 = self._pine_num(trade["tp1_price"])
-            tp2 = self._pine_num(trade["tp2_price"])
-            direction = self._pine_str(trade["direction"] or "unknown")
-            outcome = self._pine_str(trade["outcome"] or "unknown")
-            risk_r = self._pine_num(trade.get("risk_r"))
-            label_text = self._pine_str(self._label_text(trade))
-            review_reason = self._pine_str(trade.get("review_required_reason") or "")
-            current_part.append(f"    array.push(entryTimes, {entry_ts})")
-            current_part.append(f"    array.push(entryPrices, {entry_price})")
-            current_part.append(f"    array.push(closeTimes, {close_ts})")
-            current_part.append(f"    array.push(closePrices, {close_price})")
-            current_part.append(f"    array.push(slPrices, {sl})")
-            current_part.append(f"    array.push(tp1Prices, {tp1})")
-            current_part.append(f"    array.push(tp2Prices, {tp2})")
-            current_part.append(f"    array.push(signalTimes, {signal_ts})")
-            current_part.append(f"    array.push(entryBarTimes, {entry_bar_ts})")
-            current_part.append(f"    array.push(closeBarTimes, {close_bar_ts})")
-            current_part.append(f"    array.push(tp1HitTimes, {tp1_hit_ts})")
-            current_part.append(f"    array.push(tp2HitTimes, {tp2_hit_ts})")
-            current_part.append(f"    array.push(slHitTimes, {sl_hit_ts})")
-            current_part.append(f"    array.push(beMovedTimes, {be_moved_ts})")
-            current_part.append(f"    array.push(beHitTimes, {be_hit_ts})")
-            current_part.append(f"    array.push(directions, {direction})")
-            current_part.append(f"    array.push(outcomes, {outcome})")
-            current_part.append(f"    array.push(riskRs, {risk_r})")
-            current_part.append(f"    array.push(labelTexts, {label_text})")
-            current_part.append(f"    array.push(reviewReasons, {review_reason})")
-        if current_part:
-            load_parts.append(current_part)
-        for idx, part_lines in enumerate(load_parts, start=1):
-            lines.append(f"loadTradesPart{idx}() =>")
-            lines.extend(part_lines)
-            lines.append("")
-        lines.append("if barstate.isfirst")
-        if load_parts:
-            for idx in range(1, len(load_parts) + 1):
-                lines.append(f"    loadTradesPart{idx}()")
-        else:
-            lines.append("    // no trades loaded")
-        lines.append("")
-        lines.append("groupTradeVisual = 'Trade History Visual'")
-        lines.append("focusTradeNo = input.int(1, 'Focus trade number (0 = all trades)', minval=0, group=groupTradeVisual)")
-        lines.append("tradeLabelMode = input.string('Outcome', 'Trade Label Mode', options=['Entry Only', 'Outcome', 'Full'], group=groupTradeVisual)")
-        lines.append("maxVisibleTrades = input.int(20, 'Max Visible Trades', minval=1, maxval=200, group=groupTradeVisual)")
-        lines.append("showTradeEntryMarkers = input.bool(true, 'Show Entry Markers', group=groupTradeVisual)")
-        lines.append("showTradeOutcomeLabels = input.bool(true, 'Show Outcome Labels', group=groupTradeVisual)")
-        lines.append("showTradeRiskRewardBoxes = input.bool(true, 'Show SL/TP Boxes', group=groupTradeVisual)")
-        lines.append("showEntryExitConnector = input.bool(true, 'Show Entry-Exit Connector', group=groupTradeVisual)")
-        lines.append("showAllTradeLabels = input.bool(true, 'All mode: show BUY/SELL labels', group=groupTradeVisual)")
-        lines.append("showAllTradeBoxes = input.bool(false, 'All mode: show compact position boxes', group=groupTradeVisual)")
-        lines.append("showAllTradeLevels = input.bool(false, 'All mode: show Entry/SL/TP lines', group=groupTradeVisual)")
-        lines.append("allPositionWidthHours = input.int(4, 'All mode: position width hours', minval=1, maxval=72, group=groupTradeVisual)")
-        lines.append("positionTarget = input.string('TP1', 'Position target', options=['TP1', 'TP2'], group=groupTradeVisual)")
-        lines.append("positionWidthHours = input.int(12, 'Position width hours', minval=1, maxval=240, group=groupTradeVisual)")
-        lines.append("showSelectedBox = input.bool(true, 'Show selected risk/reward box', group=groupTradeVisual)")
-        lines.append("showSelectedLevels = input.bool(true, 'Show Entry / SL / TP levels', group=groupTradeVisual)")
-        lines.append("showSelectedPriceTags = input.bool(true, 'Show price tags', group=groupTradeVisual)")
-        lines.append("showSelectedEntryLabel = input.bool(true, 'Show entry label', group=groupTradeVisual)")
-        lines.append("showEventMarkers = input.bool(true, 'Show TP/SL/BE event markers', group=groupTradeVisual)")
-        lines.append("")
-        lines.append("outcomeTag(string outcome) =>")
-        lines.append("    lowerOutcome = str.lower(outcome)")
-        lines.append("    lowerOutcome == 'tp_hit' or lowerOutcome == 'tp1_hit' or lowerOutcome == 'tp2_hit' or lowerOutcome == 'full_win' or lowerOutcome == 'managed_win' or lowerOutcome == 'profit' or lowerOutcome == 'win' ? 'WIN' :")
-        lines.append("     lowerOutcome == 'sl_hit' or lowerOutcome == 'full_loss' or lowerOutcome == 'loss' ? 'LOSS' :")
-        lines.append("     lowerOutcome == 'closed_at_be' or lowerOutcome == 'breakeven' or lowerOutcome == 'be' or lowerOutcome == 'order2_be' ? 'BE' :")
-        lines.append("     lowerOutcome == 'open' or lowerOutcome == 'running' or lowerOutcome == 'active' ? 'OPEN' :")
-        lines.append("     lowerOutcome == 'review_required' or lowerOutcome == 'unknown' or lowerOutcome == 'inconsistent' or lowerOutcome == 'missing data' ? 'REVIEW' : 'REVIEW'")
-        lines.append("")
-        lines.append("outcomeColorByTag(string tag) =>")
-        lines.append("    tag == 'WIN' ? color.new(color.green, 0) :")
-        lines.append("     tag == 'LOSS' ? color.new(color.red, 0) :")
-        lines.append("     tag == 'BE' ? color.new(color.gray, 0) :")
-        lines.append("     tag == 'OPEN' ? color.new(color.blue, 15) : color.new(color.orange, 0)")
-        lines.append("")
-        lines.append("var rendered = false")
-        lines.append("if barstate.islast and not rendered")
-        lines.append("    tradeCount = array.size(entryTimes)")
-        lines.append("    visibleCount = math.min(maxVisibleTrades, tradeCount)")
-        lines.append("    startIndex = math.max(0, tradeCount - visibleCount)")
-        lines.append("    if focusTradeNo == 0")
-        lines.append("        for i = startIndex to tradeCount - 1")
-        lines.append("            entryTime = array.get(entryTimes, i)")
-        lines.append("            entryBarTime = array.get(entryBarTimes, i)")
-        lines.append("            entryPrice = array.get(entryPrices, i)")
-        lines.append("            closeTime = array.get(closeTimes, i)")
-        lines.append("            closePrice = array.get(closePrices, i)")
-        lines.append("            sl = array.get(slPrices, i)")
-        lines.append("            tp1 = array.get(tp1Prices, i)")
-        lines.append("            tp2 = array.get(tp2Prices, i)")
-        lines.append("            direction = array.get(directions, i)")
-        lines.append("            outcome = array.get(outcomes, i)")
-        lines.append("            riskR = array.get(riskRs, i)")
-        lines.append("            reviewReason = array.get(reviewReasons, i)")
-        lines.append("            markerTime = not na(entryBarTime) ? entryBarTime : entryTime")
-        lines.append("            outcomeText = outcomeTag(outcome)")
-        lines.append("            directionIsBuy = direction == 'buy'")
-        lines.append("            entryLabel = directionIsBuy ? 'B' : 'S'")
-        lines.append("            outcomeLabel = tradeLabelMode == 'Full' ? (directionIsBuy ? 'BUY ' : 'SELL ') + outcomeText : outcomeText")
-        lines.append("            tooltipText = 'Trade #' + str.tostring(i + 1) + '\\nDirection: ' + str.upper(direction) + '\\nEntry: ' + str.tostring(entryPrice) + '\\nSL: ' + str.tostring(sl) + '\\nTP1: ' + str.tostring(tp1) + '\\nTP2: ' + str.tostring(tp2) + '\\nOutcome: ' + outcomeText + '\\nExit: ' + str.tostring(closePrice) + (not na(riskR) ? ('\\nR: ' + str.tostring(riskR)) : '') + (str.length(reviewReason) > 0 ? ('\\nReview: ' + reviewReason) : '')")
-        lines.append("            if showTradeEntryMarkers and showAllTradeLabels and not na(markerTime) and not na(entryPrice)")
-        lines.append("                label.new(markerTime, entryPrice, text=entryLabel + '#' + str.tostring(i + 1), xloc=xloc.bar_time, style=directionIsBuy ? label.style_label_up : label.style_label_down, color=directionIsBuy ? color.new(color.green, 0) : color.new(color.red, 0), textcolor=color.white, size=size.small, tooltip=tooltipText)")
-        lines.append("            if showTradeOutcomeLabels and tradeLabelMode != 'Entry Only' and not na(closeTime) and not na(closePrice)")
-        lines.append("                label.new(closeTime, closePrice, text=outcomeLabel, xloc=xloc.bar_time, style=label.style_label_left, color=outcomeColorByTag(outcomeText), textcolor=color.white, size=size.small, tooltip=tooltipText)")
-        lines.append("            if showAllTradeLabels and not na(markerTime) and not na(entryPrice)")
-        lines.append("                // all-trade labels handled by showTradeEntryMarkers")
-        lines.append("            allWidthMs = allPositionWidthHours * 60 * 60 * 1000")
-        lines.append("            allRightTime = markerTime + allWidthMs")
-        lines.append("            if showTradeRiskRewardBoxes and showAllTradeBoxes and not na(markerTime) and not na(entryPrice) and not na(sl) and not na(tp1)")
-        lines.append("                rewardTopAll = directionIsBuy ? tp1 : entryPrice")
-        lines.append("                rewardBottomAll = directionIsBuy ? entryPrice : tp1")
-        lines.append("                riskTopAll = directionIsBuy ? entryPrice : sl")
-        lines.append("                riskBottomAll = directionIsBuy ? sl : entryPrice")
-        lines.append("                box.new(markerTime, rewardTopAll, allRightTime, rewardBottomAll, xloc=xloc.bar_time, bgcolor=color.new(color.green, 90), border_color=color.new(color.green, 70))")
-        lines.append("                box.new(markerTime, riskTopAll, allRightTime, riskBottomAll, xloc=xloc.bar_time, bgcolor=color.new(color.red, 90), border_color=color.new(color.red, 70))")
-        lines.append("            if showAllTradeLevels and not na(markerTime)")
-        lines.append("                if not na(entryPrice)")
-        lines.append("                    line.new(markerTime, entryPrice, allRightTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.white, 25), width=1)")
-        lines.append("                if not na(sl)")
-        lines.append("                    line.new(markerTime, sl, allRightTime, sl, xloc=xloc.bar_time, color=color.new(color.red, 35), width=1)")
-        lines.append("                if not na(tp1)")
-        lines.append("                    line.new(markerTime, tp1, allRightTime, tp1, xloc=xloc.bar_time, color=color.new(color.green, 35), width=1)")
-        lines.append("                if not na(tp2)")
-        lines.append("                    line.new(markerTime, tp2, allRightTime, tp2, xloc=xloc.bar_time, color=color.new(color.teal, 35), width=1)")
-        lines.append("            if showEntryExitConnector and not na(markerTime) and not na(entryPrice)")
-        lines.append("                connectorEndTime = not na(closeTime) ? closeTime : markerTime")
-        lines.append("                connectorEndPrice = not na(closePrice) ? closePrice : entryPrice")
-        lines.append("                line.new(markerTime, entryPrice, connectorEndTime, connectorEndPrice, xloc=xloc.bar_time, color=color.new(color.silver, 55), width=1)")
-        lines.append("    else if focusTradeNo > 0 and focusTradeNo <= tradeCount")
-        lines.append("        i = focusTradeNo - 1")
-        lines.append("        entryTime = array.get(entryTimes, i)")
-        lines.append("        entryBarTime = array.get(entryBarTimes, i)")
-        lines.append("        entryPrice = array.get(entryPrices, i)")
-        lines.append("        closeTime = array.get(closeTimes, i)")
-        lines.append("        closePrice = array.get(closePrices, i)")
-        lines.append("        sl = array.get(slPrices, i)")
-        lines.append("        tp1 = array.get(tp1Prices, i)")
-        lines.append("        tp2 = array.get(tp2Prices, i)")
-        lines.append("        tp1HitTime = array.get(tp1HitTimes, i)")
-        lines.append("        tp2HitTime = array.get(tp2HitTimes, i)")
-        lines.append("        slHitTime = array.get(slHitTimes, i)")
-        lines.append("        beMovedTime = array.get(beMovedTimes, i)")
-        lines.append("        beHitTime = array.get(beHitTimes, i)")
-        lines.append("        direction = array.get(directions, i)")
-        lines.append("        outcome = array.get(outcomes, i)")
-        lines.append("        riskR = array.get(riskRs, i)")
-        lines.append("        fullText = array.get(labelTexts, i)")
-        lines.append("        reviewReason = array.get(reviewReasons, i)")
-        lines.append("        compactText = outcome + ' #' + str.tostring(i + 1)")
-        lines.append("        displayText = showFullDetails ? fullText : compactText")
-        lines.append("        selectedOutcomeTag = outcomeTag(outcome)")
-        lines.append("        directionIsBuy = direction == 'buy'")
-        lines.append("        targetPrice = positionTarget == 'TP2' and not na(tp2) ? tp2 : tp1")
-        lines.append("        widthMs = positionWidthHours * 60 * 60 * 1000")
-        lines.append("        rightTime = entryBarTime + widthMs")
-        lines.append("        rewardTop = directionIsBuy ? targetPrice : entryPrice")
-        lines.append("        rewardBottom = directionIsBuy ? entryPrice : targetPrice")
-        lines.append("        riskTop = directionIsBuy ? entryPrice : sl")
-        lines.append("        riskBottom = directionIsBuy ? sl : entryPrice")
-        lines.append("        if showSelectedBox and not na(targetPrice) and not na(sl)")
-        lines.append("            box.new(entryBarTime, rewardTop, rightTime, rewardBottom, xloc=xloc.bar_time, bgcolor=color.new(color.green, 85), border_color=color.new(color.green, 10))")
-        lines.append("            box.new(entryBarTime, riskTop, rightTime, riskBottom, xloc=xloc.bar_time, bgcolor=color.new(color.red, 86), border_color=color.new(color.red, 10))")
-        lines.append("        if showSelectedLevels")
-        lines.append("            line.new(entryBarTime, entryPrice, rightTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.white, 0), width=1)")
-        lines.append("            line.new(entryBarTime, sl, rightTime, sl, xloc=xloc.bar_time, color=color.new(color.red, 0), width=1)")
-        lines.append("            line.new(entryBarTime, tp1, rightTime, tp1, xloc=xloc.bar_time, color=color.new(color.green, 0), width=1)")
-        lines.append("            if not na(tp2)")
-        lines.append("                line.new(entryBarTime, tp2, rightTime, tp2, xloc=xloc.bar_time, color=color.new(color.teal, 0), width=1)")
-        lines.append("        if showSelectedPriceTags")
-        lines.append("            label.new(rightTime, entryPrice, text='Entry', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.black, 0), textcolor=color.white)")
-        lines.append("            label.new(rightTime, sl, text='SL', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white)")
-        lines.append("            label.new(rightTime, tp1, text='TP1', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white)")
-        lines.append("            if not na(tp2)")
-        lines.append("                label.new(rightTime, tp2, text='TP2', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.teal, 0), textcolor=color.white)")
-        lines.append("        if showTradeEntryMarkers and showSelectedEntryLabel")
-        lines.append("            style = directionIsBuy ? label.style_label_up : label.style_label_down")
-        lines.append("            label.new(entryTime, entryPrice, text=directionIsBuy ? 'B' : 'S', xloc=xloc.bar_time, style=style, color=directionIsBuy ? color.new(color.green, 0) : color.new(color.red, 0), textcolor=color.white)")
-        lines.append("        if showTradeOutcomeLabels and tradeLabelMode != 'Entry Only' and not na(closeTime) and not na(closePrice)")
-        lines.append("            selectedOutcomeText = tradeLabelMode == 'Full' ? (directionIsBuy ? 'BUY ' : 'SELL ') + selectedOutcomeTag : selectedOutcomeTag")
-        lines.append("            selectedTooltip = selectedOutcomeText + '\\nEntry: ' + str.tostring(entryPrice) + '\\nSL: ' + str.tostring(sl) + '\\nTP1: ' + str.tostring(tp1) + '\\nTP2: ' + str.tostring(tp2) + '\\nExit: ' + str.tostring(closePrice) + (not na(riskR) ? ('\\nR: ' + str.tostring(riskR)) : '')")
-        lines.append("            label.new(closeTime, closePrice, text=selectedOutcomeText, xloc=xloc.bar_time, style=label.style_label_left, color=outcomeColorByTag(selectedOutcomeTag), textcolor=color.white, size=size.small, tooltip=selectedTooltip)")
-        lines.append("        if showEventMarkers")
-        lines.append("            if not na(tp1HitTime)")
-        lines.append("                label.new(tp1HitTime, tp1, text='TP1', xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white)")
-        lines.append("            if not na(tp2HitTime) and not na(tp2)")
-        lines.append("                label.new(tp2HitTime, tp2, text='TP2', xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.teal, 0), textcolor=color.white)")
-        lines.append("            if not na(slHitTime)")
-        lines.append("                label.new(slHitTime, sl, text='SL', xloc=xloc.bar_time, style=label.style_label_up, color=color.new(color.red, 0), textcolor=color.white)")
-        lines.append("            if not na(beMovedTime)")
-        lines.append("                label.new(beMovedTime, entryPrice, text='BE Move', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.gray, 15), textcolor=color.white)")
-        lines.append("            if not na(beHitTime)")
-        lines.append("                label.new(beHitTime, entryPrice, text='BE Hit', xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.gray, 0), textcolor=color.white)")
-        lines.append("            if not na(closeTime) and not na(closePrice)")
-        lines.append("                label.new(closeTime, closePrice, text='Close\\n' + outcome, xloc=xloc.bar_time, style=label.style_label_left, color=outcomeColor(outcome), textcolor=color.white)")
-        lines.append("            if str.length(reviewReason) > 0")
-        lines.append("                label.new(entryTime, entryPrice, text='Review: ' + reviewReason, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white)")
-        lines.append("        if showEntryExitConnector and not na(entryPrice)")
-        lines.append("            connectorEndTime = not na(closeTime) ? closeTime : entryTime")
-        lines.append("            connectorEndPrice = not na(closePrice) ? closePrice : entryPrice")
-        lines.append("            line.new(entryTime, entryPrice, connectorEndTime, connectorEndPrice, xloc=xloc.bar_time, color=color.new(color.silver, 55), width=1)")
-        lines.append("    rendered := true")
-        lines.append("")
-        lines.append("plot(na)")
+        order_rows = self._build_timefix_order_rows(trades)
+        title_suffix = audit_summary.get("selected_account_label") or symbol
+        max_count = max(1, min(len(order_rows), ABSOLUTE_MAX_TRADES * 2))
+        lines: list[str] = [
+            "//@version=6",
+            f'indicator("MT5/DB History EXACT CLEAN V6 TimeFix - {self._pine_title(title_suffix)}", overlay=true, max_lines_count=500, max_labels_count=500)',
+            f"// exported_order_count: {len(order_rows)}",
+            f"// requested_symbol: {symbol}",
+            f"// requested_range: {range_start.date().isoformat()} to {range_end.date().isoformat()}",
+            "",
+            'focusText = input.string("setup-225", "Focus setup/order/ticket. Empty = show last N positions")',
+            f'showLastNWhenNoFocus = input.int(4, "If focus empty: show last N positions", minval=1, maxval={max_count})',
+            'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])',
+            'slTpSource = input.string("Initial order plan", "SL/TP source", options=["Initial order plan", "DB/MT5 final/current"])',
+            'timeShiftHours = input.int(4, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)',
+            'timeShiftMinutes = input.int(0, "Time shift minutes if needed", minval=-59, maxval=59)',
+            "",
+            'showEntryLine = input.bool(true, "Show exact ENTRY line")',
+            'showSLLine = input.bool(true, "Show exact SL line")',
+            'showTPLine = input.bool(true, "Show exact TP line")',
+            'showCloseLine = input.bool(true, "Show exact CLOSE line")',
+            'showMarkers = input.bool(true, "Show E/C markers")',
+            'showTextLabels = input.bool(false, "Show full text labels")',
+            'lineWidth = input.int(1, "Line width", minval=1, maxval=4)',
+            "",
+            self._pine_array("string", "ids", [self._pine_str(row["id"]) for row in order_rows]),
+            self._pine_array("string", "setupIds", [self._pine_str(row["setup_id"]) for row in order_rows]),
+            self._pine_array("string", "tickets", [self._pine_str(row["ticket"]) for row in order_rows]),
+            self._pine_array("string", "orderLegs", [self._pine_str(row["order_leg"]) for row in order_rows]),
+            self._pine_array("string", "sides", [self._pine_str(row["side"]) for row in order_rows]),
+            self._pine_array("int", "entryTimes", [self._pine_ms(row["entry_time_ms"]) for row in order_rows]),
+            self._pine_array("float", "entryPrices", [self._pine_num(row["entry_price"]) for row in order_rows]),
+            self._pine_array("float", "initialSLs", [self._pine_num(row["initial_sl"]) for row in order_rows]),
+            self._pine_array("float", "currentSLs", [self._pine_num(row["current_sl"]) for row in order_rows]),
+            self._pine_array("float", "initialTPs", [self._pine_num(row["initial_tp"]) for row in order_rows]),
+            self._pine_array("float", "currentTPs", [self._pine_num(row["current_tp"]) for row in order_rows]),
+            self._pine_array("int", "closeTimes", [self._pine_ms(row["close_time_ms"]) for row in order_rows]),
+            self._pine_array("float", "closePrices", [self._pine_num(row["close_price"]) for row in order_rows]),
+            self._pine_array("float", "profits", [self._pine_num(row["profit"]) for row in order_rows]),
+            self._pine_array("string", "results", [self._pine_str(row["result"]) for row in order_rows]),
+            "",
+            "resultColor(string result) =>",
+            "    result == \"TP\" or result == \"FULL WIN\" or result == \"TP1 + BE\" ? color.new(color.lime, 0) :",
+            "     result == \"BE\" ? color.new(color.gray, 0) :",
+            "     result == \"SL\" or result == \"FULL LOSS\" ? color.new(color.red, 0) :",
+            "     result == \"MANUAL\" ? color.new(color.blue, 0) : color.new(color.orange, 0)",
+            "",
+            "var rendered = false",
+            "if barstate.islast and not rendered",
+            "    tradeCount = array.size(ids)",
+            "    shiftMs = (timeShiftHours * 60 + timeShiftMinutes) * 60 * 1000",
+            "    focus = str.lower(str.trim(focusText))",
+            "    hasFocus = str.length(focus) > 0",
+            "    startIndex = math.max(0, tradeCount - showLastNWhenNoFocus)",
+            "    for i = 0 to tradeCount - 1",
+            "        id = array.get(ids, i)",
+            "        setupId = array.get(setupIds, i)",
+            "        ticket = array.get(tickets, i)",
+            "        leg = array.get(orderLegs, i)",
+            "        side = array.get(sides, i)",
+            "        entryTime = array.get(entryTimes, i)",
+            "        closeTime = array.get(closeTimes, i)",
+            "        entryPrice = array.get(entryPrices, i)",
+            "        initialSL = array.get(initialSLs, i)",
+            "        currentSL = array.get(currentSLs, i)",
+            "        initialTP = array.get(initialTPs, i)",
+            "        currentTP = array.get(currentTPs, i)",
+            "        closePrice = array.get(closePrices, i)",
+            "        profit = array.get(profits, i)",
+            "        result = array.get(results, i)",
+            "        orderAllowed = orderFilter == \"Both\" or leg == orderFilter",
+            "        focusAllowed = not hasFocus or str.contains(str.lower(id), focus) or str.contains(str.lower(setupId), focus) or str.contains(str.lower(ticket), focus)",
+            "        rangeAllowed = hasFocus or i >= startIndex",
+            "        if orderAllowed and focusAllowed and rangeAllowed and not na(entryTime) and not na(entryPrice)",
+            "            entryTimeShifted = entryTime + shiftMs",
+            "            closeTimeShifted = na(closeTime) ? na : closeTime + shiftMs",
+            "            rightTime = na(closeTimeShifted) ? entryTimeShifted + 60 * 60 * 1000 : closeTimeShifted",
+            "            selectedSL = slTpSource == \"Initial order plan\" ? initialSL : currentSL",
+            "            selectedTP = slTpSource == \"Initial order plan\" ? initialTP : currentTP",
+            "            markerColor = resultColor(result)",
+            "            if showEntryLine",
+            "                line.new(entryTimeShifted, entryPrice, rightTime, entryPrice, xloc=xloc.bar_time, color=color.new(color.yellow, 0), width=lineWidth)",
+            "            if showSLLine and not na(selectedSL)",
+            "                line.new(entryTimeShifted, selectedSL, rightTime, selectedSL, xloc=xloc.bar_time, color=color.new(color.red, 0), width=lineWidth)",
+            "            if showTPLine and not na(selectedTP)",
+            "                line.new(entryTimeShifted, selectedTP, rightTime, selectedTP, xloc=xloc.bar_time, color=color.new(color.lime, 0), width=lineWidth)",
+            "            if showCloseLine and not na(closeTimeShifted) and not na(closePrice)",
+            "                line.new(closeTimeShifted, closePrice, closeTimeShifted + 30 * 60 * 1000, closePrice, xloc=xloc.bar_time, color=markerColor, width=lineWidth)",
+            "            if showMarkers",
+            "                label.new(entryTimeShifted, entryPrice, text=\"E\", xloc=xloc.bar_time, style=side == \"BUY\" ? label.style_label_up : label.style_label_down, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny)",
+            "                if not na(closeTimeShifted) and not na(closePrice)",
+            "                    label.new(closeTimeShifted, closePrice, text=result, xloc=xloc.bar_time, style=label.style_label_left, color=markerColor, textcolor=color.white, size=size.tiny)",
+            "            if showTextLabels",
+            "                detail = id + \" \" + side + \"\\nEntry: \" + str.tostring(entryPrice) + \"\\nSL: \" + str.tostring(selectedSL) + \"\\nTP: \" + str.tostring(selectedTP) + \"\\nClose: \" + str.tostring(closePrice) + \"\\nP/L: \" + str.tostring(profit)",
+            "                label.new(rightTime, entryPrice, text=detail, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.black, 10), textcolor=color.white, size=size.small)",
+            "    rendered := true",
+            "",
+            "plot(na)",
+        ]
         return "\n".join(lines) + "\n"
+
+    def _build_timefix_order_rows(self, trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for trade in trades:
+            setup_ref = f"setup-{trade.get('setup_id')}"
+            side = str(trade.get("direction") or "").upper()
+            entry_price = trade.get("actual_entry_price") if trade.get("actual_entry_price") is not None else trade.get("entry_price")
+            base = {
+                "setup_id": setup_ref,
+                "side": side,
+                "entry_time_ms": trade.get("entry_time_ms"),
+                "entry_price": entry_price,
+                "initial_sl": trade.get("initial_sl"),
+            }
+            order1_ticket = trade.get("order1_id")
+            if order1_ticket:
+                rows.append(
+                    {
+                        **base,
+                        "id": f"{setup_ref}-o1",
+                        "ticket": str(order1_ticket),
+                        "order_leg": "o1",
+                        "initial_tp": trade.get("tp1_price"),
+                        "current_sl": trade.get("initial_sl"),
+                        "current_tp": trade.get("tp1_hit_price") if trade.get("tp1_hit_price") is not None else trade.get("tp1_price"),
+                        "close_time_ms": trade.get("order1_close_time_ms") or trade.get("tp1_hit_time_ms"),
+                        "close_price": trade.get("order1_close_price"),
+                        "profit": trade.get("order1_realized_pnl"),
+                        "result": self._timefix_result_label(trade.get("order1_outcome"), trade.get("setup_outcome")),
+                    }
+                )
+            order2_ticket = trade.get("order2_id")
+            if order2_ticket:
+                current_sl = trade.get("be_price") if trade.get("be_price") is not None else trade.get("initial_sl")
+                current_tp = trade.get("tp2_hit_price") if trade.get("tp2_hit_price") is not None else trade.get("tp2_price")
+                rows.append(
+                    {
+                        **base,
+                        "id": f"{setup_ref}-o2",
+                        "ticket": str(order2_ticket),
+                        "order_leg": "o2",
+                        "initial_tp": trade.get("tp2_price"),
+                        "current_sl": current_sl,
+                        "current_tp": current_tp,
+                        "close_time_ms": trade.get("order2_close_time_ms") or trade.get("tp2_hit_time_ms") or trade.get("be_hit_time_ms") or trade.get("sl_hit_time_ms"),
+                        "close_price": trade.get("order2_close_price") if trade.get("order2_close_price") is not None else trade.get("actual_close_price"),
+                        "profit": trade.get("order2_realized_pnl"),
+                        "result": self._timefix_result_label(trade.get("order2_outcome"), trade.get("setup_outcome")),
+                    }
+                )
+            if not order1_ticket and not order2_ticket:
+                ticket = str(trade.get("order_id") or trade.get("setup_id") or "")
+                rows.append(
+                    {
+                        **base,
+                        "id": f"pos-{ticket}" if ticket else setup_ref,
+                        "ticket": ticket,
+                        "order_leg": "manual",
+                        "initial_tp": trade.get("tp1_price"),
+                        "current_sl": trade.get("initial_sl"),
+                        "current_tp": trade.get("tp1_price"),
+                        "close_time_ms": trade.get("close_time_ms"),
+                        "close_price": trade.get("actual_close_price"),
+                        "profit": trade.get("realized_pnl"),
+                        "result": self._timefix_result_label(trade.get("setup_outcome"), trade.get("outcome")),
+                    }
+                )
+        return rows
+
+    def _timefix_result_label(self, outcome: object | None, fallback: object | None = None) -> str:
+        value = str(outcome or fallback or "").lower()
+        if value in {"tp", "tp_hit", "tp1_hit", "tp2_hit", "order2_tp_hit"}:
+            return "TP"
+        if value in {"be", "closed_at_be", "breakeven", "order2_be", "order2_closed_at_be"}:
+            return "BE"
+        if value in {"sl", "sl_hit", "order2_sl_hit"}:
+            return "SL"
+        if value == "full_win":
+            return "FULL WIN"
+        if value in {"managed_win", "tp1_be", "tp1_plus_be"}:
+            return "TP1 + BE"
+        if value == "full_loss":
+            return "FULL LOSS"
+        if "manual" in value:
+            return "MANUAL"
+        return "REVIEW"
+
+    def _pine_array(self, pine_type: str, name: str, values: list[str]) -> str:
+        if not values:
+            fallback = '""' if pine_type == "string" else "na"
+            return f"var {pine_type}[] {name} = array.from({fallback})"
+        return f"var {pine_type}[] {name} = array.from({', '.join(values)})"
+
+    def _pine_title(self, value: object) -> str:
+        text = str(value or "history")
+        return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")[:80]
 
     def _pine_comment_json(self, payload: object) -> str:
         text = json.dumps(payload, separators=(",", ":"), default=str)

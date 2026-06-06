@@ -3,6 +3,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -292,13 +293,13 @@ def tradingview_export_page(
     )
     if debug and request.headers.get("accept") == "application/json":
         return JSONResponse(
-            {
+            jsonable_encoder({
                 "pine_code": result.pine_code,
                 "audit_summary": result.audit_summary,
                 "warnings": result.warnings,
                 "normalized_rows": result.normalized_rows,
                 "skipped_records": result.skipped_records,
-            }
+            })
         )
     return templates.TemplateResponse(request, "admin_tradingview_export.html", context)
 
