@@ -246,6 +246,15 @@ def test_db_timefix_export_uses_order_level_history_without_double_shift(db_sess
     assert pine.startswith("//@version=6\nindicator(\"DB History EXACT CLEAN V6 TimeFix - ")
     assert "// CLEAN V6 TIMEFIX" in pine
     assert 'timeShiftHours = input.int(0, "Time shift hours: DB time -> TradingView", minval=-12, maxval=12)' in pine
+    assert 'debugTimeAudit = input.bool(false, "Debug: show time audit table")' in pine
+    assert 'debugTimezone = input.string("GMT+7", "Debug display timezone")' in pine
+    assert 'f_time_text(t) =>' in pine
+    assert 'na(t) ? "na" : str.format_time(t, "yyyy-MM-dd HH:mm:ss", debugTimezone)' in pine
+    assert 'var table timeAuditTable = table.new(position.top_right, 9,' in pine
+    assert 'table.cell(timeAuditTable, 2, 0, "Entry raw"' in pine
+    assert 'table.cell(timeAuditTable, 3, 0, "Entry shifted"' in pine
+    assert 'table.cell(timeAuditTable, 4, 0, "Close raw"' in pine
+    assert 'table.cell(timeAuditTable, 5, 0, "Close shifted"' in pine
     assert f'var string[] ids = array.from("setup-{setup.id}-o1", "setup-{setup.id}-o2")' in pine
     assert f'var string[] orderTags = array.from("o1", "o2")' in pine
     assert f"var int[] entryTimesRaw = array.from({o1_entry_ms}, {o2_entry_ms})" in pine
@@ -255,6 +264,12 @@ def test_db_timefix_export_uses_order_level_history_without_double_shift(db_sess
     assert f"var int[] closeTimesRaw = array.from({o1_close_ms}, {o2_close_ms})" in pine
     assert f"var float[] closePrices = array.from(4459.150000, 4465.460000)" in pine
     assert f'var string[] results = array.from("win", "be")' in pine
+    assert "int entryRaw = array.get(entryTimesRaw, i)" in pine
+    assert "int closeRaw = array.get(closeTimesRaw, i)" in pine
+    assert "int entryT = f_shift_time(entryRaw)" in pine
+    assert "int closeT = f_shift_time(closeRaw)" in pine
+    assert "table.cell(timeAuditTable, 2, auditRow, f_time_text(entryRaw))" in pine
+    assert "table.cell(timeAuditTable, 3, auditRow, f_time_text(entryT))" in pine
 
 
 def test_export_includes_setup_time_when_entry_time_missing(db_session, created_user):
@@ -667,5 +682,6 @@ def test_focus_trade_zero_all_mode_inputs_and_logic(db_session, created_user):
     assert 'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])' in pine
     assert "f_match_focus(id, setupId, ticket) =>" in pine
     assert "f_match_order(tag) =>" in pine
-    assert "int entryT = f_shift_time(array.get(entryTimesRaw, i))" in pine
+    assert "int entryRaw = array.get(entryTimesRaw, i)" in pine
+    assert "int entryT = f_shift_time(entryRaw)" in pine
     assert "xloc=xloc.bar_time" in pine
