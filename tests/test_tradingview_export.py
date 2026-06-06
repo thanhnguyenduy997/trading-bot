@@ -1,5 +1,6 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
+from app.models.mt5_trade_history import MT5TradeHistory
 from app.models.trade_event import TradeEvent
 from app.models.trade_setup import TradeSetup
 from app.schemas.trade_setup import TradeSetupCreate
@@ -157,6 +158,102 @@ def test_export_includes_entry_inside_range_and_close_inside_range(db_session, c
         )
     )
     assert result.exported_trades == 2
+
+
+def test_db_timefix_export_uses_order_level_history_without_double_shift(db_session, created_user):
+    account = _create_account(db_session, created_user, "TV-225")
+    setup = _create_setup(
+        db_session,
+        created_user,
+        account,
+        symbol="XAUUSD",
+        side="sell",
+        executed_at=datetime(2026, 6, 5, 16, 50, 21, tzinfo=timezone(timedelta(hours=7))),
+        outcome="managed_win",
+    )
+    setup.sl_price = 4469.50
+    setup.estimated_entry = 4464.84
+    setup.tp1_price = 4460.22
+    setup.tp2_price = 4450.94
+    setup.order1_close_price = 4459.15
+    setup.order2_close_price = 4465.46
+    setup.order1_closed_at = datetime(2026, 6, 5, 18, 24, 15, tzinfo=timezone(timedelta(hours=7)))
+    setup.order2_closed_at = datetime(2026, 6, 5, 17, 0, 1, tzinfo=timezone(timedelta(hours=7)))
+    setup.order1_outcome = "tp_hit"
+    setup.order2_outcome = "closed_at_be"
+    db_session.add_all(
+        [
+            setup,
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                linked_setup_id=setup.id,
+                position_ticket=setup.order1_ticket,
+                symbol="XAUUSD",
+                side="sell",
+                trade_source="system",
+                outcome="tp",
+                volume=0.5,
+                open_price=4464.84,
+                close_price=4459.15,
+                realized_pnl=50.0,
+                open_time=datetime(2026, 6, 5, 16, 50, 20, tzinfo=timezone(timedelta(hours=7))),
+                close_time=datetime(2026, 6, 5, 18, 24, 15, tzinfo=timezone(timedelta(hours=7))),
+                comment=f"setup-{setup.id}-o1",
+            ),
+            MT5TradeHistory(
+                user_id=created_user.id,
+                trading_account_id=account.id,
+                linked_setup_id=setup.id,
+                position_ticket=setup.order2_ticket,
+                symbol="XAUUSD",
+                side="sell",
+                trade_source="system",
+                outcome="be",
+                volume=0.5,
+                open_price=4464.84,
+                close_price=4465.46,
+                realized_pnl=-0.2,
+                open_time=datetime(2026, 6, 5, 16, 50, 21, tzinfo=timezone(timedelta(hours=7))),
+                close_time=datetime(2026, 6, 5, 17, 0, 1, tzinfo=timezone(timedelta(hours=7))),
+                comment=f"setup-{setup.id}-o2",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    service = TradingViewExportService(db_session)
+    export = service.build_export(
+        TradingViewExportFilters(
+            account_id=account.id,
+            symbol="XAUUSD",
+            start_date=date(2026, 6, 5),
+            end_date=date(2026, 6, 5),
+        )
+    )
+    histories = {
+        trade.position_ticket: trade
+        for trade in db_session.query(MT5TradeHistory)
+        .filter(MT5TradeHistory.linked_setup_id == setup.id)
+        .all()
+    }
+    o1_entry_ms = service.to_pine_timestamp_ms(histories[setup.order1_ticket].open_time)
+    o2_entry_ms = service.to_pine_timestamp_ms(histories[setup.order2_ticket].open_time)
+    o1_close_ms = service.to_pine_timestamp_ms(histories[setup.order1_ticket].close_time)
+    o2_close_ms = service.to_pine_timestamp_ms(histories[setup.order2_ticket].close_time)
+    pine = export.pine_code
+
+    assert 'timeShiftHours = input.int(0, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)' in pine
+    assert f'var string[] ids = array.from("setup-{setup.id}-o1", "setup-{setup.id}-o2")' in pine
+    assert f'var string[] orderLegs = array.from("o1", "o2")' in pine
+    assert f"var int[] entryTimes = array.from({o1_entry_ms}, {o2_entry_ms})" in pine
+    assert f"var float[] entryPrices = array.from(4464.840000, 4464.840000)" in pine
+    assert f"var float[] initialSLs = array.from(4469.500000, 4469.500000)" in pine
+    assert f"var float[] initialTPs = array.from(4460.220000, 4450.940000)" in pine
+    assert f"var int[] closeTimes = array.from({o1_close_ms}, {o2_close_ms})" in pine
+    assert f"var float[] closePrices = array.from(4459.150000, 4465.460000)" in pine
+    assert f'var string[] results = array.from("TP", "BE")' in pine
+
 
 def test_export_includes_setup_time_when_entry_time_missing(db_session, created_user):
     account = _create_account(db_session, created_user, "TV-005")

@@ -266,6 +266,8 @@ class TradingViewExportService:
         tp2_hit_price = self._resolve_event_price(event_map, "order2_tp_hit", self._to_float(setup.tp2_price))
         sl_hit_price = self._resolve_event_price(event_map, "order2_sl_hit", self._to_float(setup.sl_price))
         be_price = self._resolve_event_price(event_map, "be_move_completed", self._to_float(setup.estimated_entry))
+        order1_history = history_map.get(int(setup.order1_ticket)) if setup.order1_ticket else None
+        order2_history = history_map.get(int(setup.order2_ticket)) if setup.order2_ticket else None
 
         realized_pnl = self._resolve_realized_pnl(setup)
         risk_r = None
@@ -358,12 +360,18 @@ class TradingViewExportService:
             "planned_rr_tp2": self._to_float(setup.rr_order2),
             "order1_outcome": setup.order1_outcome,
             "order2_outcome": setup.order2_outcome,
-            "order1_close_time_ms": self.to_pine_timestamp_ms(setup.order1_closed_at),
-            "order2_close_time_ms": self.to_pine_timestamp_ms(setup.order2_closed_at),
-            "order1_close_price": self._to_float(setup.order1_close_price),
-            "order2_close_price": self._to_float(setup.order2_close_price),
-            "order1_realized_pnl": self._to_float(setup.order1_realized_pnl),
-            "order2_realized_pnl": self._to_float(setup.order2_realized_pnl),
+            "order1_entry_time_ms": self.to_pine_timestamp_ms(order1_history.open_time if order1_history else entry_time),
+            "order2_entry_time_ms": self.to_pine_timestamp_ms(order2_history.open_time if order2_history else entry_time),
+            "order1_entry_price": self._history_float(order1_history, "open_price", actual_entry_price),
+            "order2_entry_price": self._history_float(order2_history, "open_price", actual_entry_price),
+            "order1_close_time_ms": self.to_pine_timestamp_ms(order1_history.close_time if order1_history and order1_history.close_time else setup.order1_closed_at),
+            "order2_close_time_ms": self.to_pine_timestamp_ms(order2_history.close_time if order2_history and order2_history.close_time else setup.order2_closed_at),
+            "order1_close_price": self._history_float(order1_history, "close_price", self._to_float(setup.order1_close_price)),
+            "order2_close_price": self._history_float(order2_history, "close_price", self._to_float(setup.order2_close_price)),
+            "order1_realized_pnl": self._history_float(order1_history, "realized_pnl", self._to_float(setup.order1_realized_pnl)),
+            "order2_realized_pnl": self._history_float(order2_history, "realized_pnl", self._to_float(setup.order2_realized_pnl)),
+            "order1_history_outcome": order1_history.outcome if order1_history else None,
+            "order2_history_outcome": order2_history.outcome if order2_history else None,
             "final_outcome": setup.setup_outcome,
             "setup_outcome": setup.setup_outcome,
             "outcome": setup.setup_outcome,
@@ -413,6 +421,14 @@ class TradingViewExportService:
     def _to_float(self, value: object | None) -> float | None:
         if value is None:
             return None
+        return float(value)
+
+    def _history_float(self, history: MT5TradeHistory | None, field_name: str, fallback: float | None) -> float | None:
+        if history is None:
+            return fallback
+        value = getattr(history, field_name)
+        if value is None:
+            return fallback
         return float(value)
 
     def to_pine_timestamp_ms(self, dt: datetime | None) -> int | None:
@@ -650,7 +666,7 @@ class TradingViewExportService:
             f'showLastNWhenNoFocus = input.int(4, "If focus empty: show last N positions", minval=1, maxval={max_count})',
             'orderFilter = input.string("Both", "Order filter", options=["Both", "o1", "o2", "manual"])',
             'slTpSource = input.string("Initial order plan", "SL/TP source", options=["Initial order plan", "DB/MT5 final/current"])',
-            'timeShiftHours = input.int(4, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)',
+            'timeShiftHours = input.int(0, "Time shift hours: MT5 server -> TradingView", minval=-12, maxval=12)',
             'timeShiftMinutes = input.int(0, "Time shift minutes if needed", minval=-59, maxval=59)',
             "",
             'showEntryLine = input.bool(true, "Show exact ENTRY line")',
@@ -742,12 +758,9 @@ class TradingViewExportService:
         for trade in trades:
             setup_ref = f"setup-{trade.get('setup_id')}"
             side = str(trade.get("direction") or "").upper()
-            entry_price = trade.get("actual_entry_price") if trade.get("actual_entry_price") is not None else trade.get("entry_price")
             base = {
                 "setup_id": setup_ref,
                 "side": side,
-                "entry_time_ms": trade.get("entry_time_ms"),
-                "entry_price": entry_price,
                 "initial_sl": trade.get("initial_sl"),
             }
             order1_ticket = trade.get("order1_id")
@@ -758,13 +771,15 @@ class TradingViewExportService:
                         "id": f"{setup_ref}-o1",
                         "ticket": str(order1_ticket),
                         "order_leg": "o1",
+                        "entry_time_ms": trade.get("order1_entry_time_ms") or trade.get("entry_time_ms"),
+                        "entry_price": trade.get("order1_entry_price") if trade.get("order1_entry_price") is not None else trade.get("entry_price"),
                         "initial_tp": trade.get("tp1_price"),
                         "current_sl": trade.get("initial_sl"),
                         "current_tp": trade.get("tp1_hit_price") if trade.get("tp1_hit_price") is not None else trade.get("tp1_price"),
                         "close_time_ms": trade.get("order1_close_time_ms") or trade.get("tp1_hit_time_ms"),
                         "close_price": trade.get("order1_close_price"),
                         "profit": trade.get("order1_realized_pnl"),
-                        "result": self._timefix_result_label(trade.get("order1_outcome"), trade.get("setup_outcome")),
+                        "result": self._timefix_result_label(trade.get("order1_history_outcome") or trade.get("order1_outcome"), trade.get("setup_outcome")),
                     }
                 )
             order2_ticket = trade.get("order2_id")
@@ -777,13 +792,15 @@ class TradingViewExportService:
                         "id": f"{setup_ref}-o2",
                         "ticket": str(order2_ticket),
                         "order_leg": "o2",
+                        "entry_time_ms": trade.get("order2_entry_time_ms") or trade.get("entry_time_ms"),
+                        "entry_price": trade.get("order2_entry_price") if trade.get("order2_entry_price") is not None else trade.get("entry_price"),
                         "initial_tp": trade.get("tp2_price"),
                         "current_sl": current_sl,
                         "current_tp": current_tp,
                         "close_time_ms": trade.get("order2_close_time_ms") or trade.get("tp2_hit_time_ms") or trade.get("be_hit_time_ms") or trade.get("sl_hit_time_ms"),
-                        "close_price": trade.get("order2_close_price") if trade.get("order2_close_price") is not None else trade.get("actual_close_price"),
+                        "close_price": trade.get("order2_close_price"),
                         "profit": trade.get("order2_realized_pnl"),
-                        "result": self._timefix_result_label(trade.get("order2_outcome"), trade.get("setup_outcome")),
+                        "result": self._timefix_result_label(trade.get("order2_history_outcome") or trade.get("order2_outcome"), trade.get("setup_outcome")),
                     }
                 )
             if not order1_ticket and not order2_ticket:
@@ -794,6 +811,8 @@ class TradingViewExportService:
                         "id": f"pos-{ticket}" if ticket else setup_ref,
                         "ticket": ticket,
                         "order_leg": "manual",
+                        "entry_time_ms": trade.get("entry_time_ms"),
+                        "entry_price": trade.get("actual_entry_price") if trade.get("actual_entry_price") is not None else trade.get("entry_price"),
                         "initial_tp": trade.get("tp1_price"),
                         "current_sl": trade.get("initial_sl"),
                         "current_tp": trade.get("tp1_price"),
