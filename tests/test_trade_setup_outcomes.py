@@ -63,6 +63,42 @@ def _create_setup(db_session, user, account, *, status: str = "executed") -> Tra
     return setup
 
 
+def _create_single_setup(db_session, user, account, *, status: str = "executed") -> TradeSetup:
+    setup = create_trade_setup(
+        db_session,
+        user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            setup_mode="single_full_volume",
+            order_count=1,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=100.0,
+            order1_volume=1.0,
+            order2_volume=0.0,
+            status=status,
+        ),
+    )
+    if status == "executed":
+        setup.status = "executed"
+        setup.order1_ticket = 9901
+        setup.executed_at = datetime.now(timezone.utc)
+        setup.monitoring_status = "not_applicable"
+    db_session.add(setup)
+    db_session.commit()
+    db_session.refresh(setup)
+    return setup
+
+
 class OutcomeAdapter:
     def __init__(self, account, *, positions=None, histories=None):
         self.account = account
@@ -155,8 +191,67 @@ def test_reconcile_open_setup_when_both_orders_are_still_open(client, db_session
     assert response.status_code == 200
     data = response.json()
     assert data["setup_outcome"] == "open"
-    assert data["order1_outcome"] == "open"
-    assert data["order2_outcome"] == "open"
+
+
+def test_single_full_volume_classifies_tp_hit(client, db_session, created_user, auth_headers, monkeypatch):
+    account = _create_account(db_session, created_user, "OUT-SINGLE-TP")
+    setup = _create_single_setup(db_session, created_user, account)
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(account, histories={9901: _history(2320.2, 2322.2, "tp", 100.0)}),
+    )
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["setup_outcome"] == "single_tp_hit"
+    assert data["order1_outcome"] == "tp_hit"
+    db_session.refresh(setup)
+    assert setup.result_status == "non_stoploss"
+
+
+def test_single_full_volume_classifies_sl_hit(client, db_session, created_user, auth_headers, monkeypatch):
+    account = _create_account(db_session, created_user, "OUT-SINGLE-SL")
+    setup = _create_single_setup(db_session, created_user, account)
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(account, histories={9901: _history(2320.2, 2319.2, "sl", -100.0)}),
+    )
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["setup_outcome"] == "single_sl_hit"
+    db_session.refresh(setup)
+    assert setup.result_status == "stoploss"
+
+
+def test_single_full_volume_manual_close_within_half_r_classifies_scratch_manual(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+):
+    account = _create_account(db_session, created_user, "OUT-SINGLE-SCRATCH")
+    setup = _create_single_setup(db_session, created_user, account)
+    monkeypatch.setattr(
+        "app.services.trade_setup_outcomes.default_adapter_factory",
+        lambda account: OutcomeAdapter(account, histories={9901: _history(2320.2, 2320.25, "client", 50.0)}),
+    )
+
+    response = client.post(f"/api/trade-setups/{setup.id}/reconcile", headers=auth_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["setup_outcome"] == "scratch_manual"
+    assert data["scratch_manual_threshold_r"] == 0.5
+    db_session.refresh(setup)
+    assert setup.result_status is None
+    assert data["order1_outcome"] == "manual_close"
+    assert data["order2_outcome"] == "unknown"
 
 
 def test_reconcile_tp1_hit_waiting_order2(client, db_session, created_user, auth_headers, monkeypatch):

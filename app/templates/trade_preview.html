@@ -51,6 +51,13 @@
                     </select>
                 </label>
                 <label>
+                    Execution mode
+                    <select name="setup_mode" id="preview-setup-mode-select" required>
+                        <option value="split_two_orders" {% if form_data.setup_mode == "split_two_orders" or not form_data.setup_mode %}selected{% endif %}>Split 2 orders</option>
+                        <option value="single_full_volume" {% if form_data.setup_mode == "single_full_volume" %}selected{% endif %}>Single full-volume order</option>
+                    </select>
+                </label>
+                <label>
                     Stop loss price
                     <input type="number" name="sl_price" step="0.0001" min="0" value="{{ form_data.sl_price or '' }}" required>
                 </label>
@@ -67,7 +74,7 @@
                     <input type="number" id="preview-risk-value-input" name="risk_value" step="0.01" min="0.01" value="{{ form_data.risk_value or '' }}" required>
                 </label>
                 <label>
-                    RR order 2
+                    <span id="preview-rr-label">{{ "TP RR target" if form_data.setup_mode == "single_full_volume" else "RR order 2" }}</span>
                     <input type="number" id="preview-rr-order-2-input" name="rr_order2" step="0.1" min="0.1" value="{{ form_data.rr_order2 or '' }}" required>
                 </label>
             </div>
@@ -121,17 +128,29 @@
                                 <strong>{{ preview.sl_price }}</strong>
                             </div>
                             <div class="preview-summary-item">
-                                <span>TP1</span>
-                                <strong>{{ preview.tp1_price }}</strong>
+                                <span>{{ "TP target" if preview.setup_mode == "single_full_volume" else "TP1" }}</span>
+                                <strong>{{ preview.tp2_price if preview.setup_mode == "single_full_volume" else preview.tp1_price }}</strong>
                             </div>
+                            {% if preview.setup_mode != "single_full_volume" %}
                             <div class="preview-summary-item">
                                 <span>TP2</span>
                                 <strong>{{ preview.tp2_price }}</strong>
                             </div>
+                            {% endif %}
                             <div class="preview-summary-item">
                                 <span>Total risk</span>
                                 <strong>{{ preview.total_risk_money }}</strong>
                             </div>
+                            {% if preview.setup_mode == "single_full_volume" %}
+                            <div class="preview-summary-item">
+                                <span>Single order volume</span>
+                                <strong>{{ preview.single_order_volume }}</strong>
+                            </div>
+                            <div class="preview-summary-item">
+                                <span>Setup mode</span>
+                                <strong>Single full-volume order</strong>
+                            </div>
+                            {% else %}
                             <div class="preview-summary-item">
                                 <span>Order 1 volume</span>
                                 <strong>{{ preview.order1_volume }}</strong>
@@ -140,6 +159,11 @@
                                 <span>Order 2 volume</span>
                                 <strong>{{ preview.order2_volume }}</strong>
                             </div>
+                            <div class="preview-summary-item">
+                                <span>Setup mode</span>
+                                <strong>Split 2 orders</strong>
+                            </div>
+                            {% endif %}
                             <div class="preview-summary-item">
                                 <span>Preview timestamp</span>
                                 <strong>{{ setup.updated_at.strftime("%Y-%m-%d %H:%M:%S") if setup.updated_at else "Now" }}</strong>
@@ -159,7 +183,11 @@
                         <summary>Advanced Details</summary>
                         <dl class="compact-details">
                             <div><dt>R value</dt><dd>{{ preview.r_value }}</dd></div>
+                            {% if preview.setup_mode != "single_full_volume" %}
                             <div><dt>Risk / order</dt><dd>{{ preview.risk_per_order }}</dd></div>
+                            {% else %}
+                            <div><dt>Risk / setup</dt><dd>{{ preview.risk_per_order }}</dd></div>
+                            {% endif %}
                             <div><dt>Live bid</dt><dd>{{ preview.bid }}</dd></div>
                             <div><dt>Live ask</dt><dd>{{ preview.ask }}</dd></div>
                             <div><dt>Point / digits</dt><dd>{{ preview.point if preview.point is not none else "N/A" }} / {{ preview.digits if preview.digits is not none else "N/A" }}</dd></div>
@@ -189,6 +217,8 @@
     const previewSymbolHelp = document.getElementById("preview-symbol-help");
     const previewSubmitButton = document.querySelector(".preview-form button[type='submit']");
     const previewSideSelect = document.getElementById("preview-side-select");
+    const previewSetupModeSelect = document.getElementById("preview-setup-mode-select");
+    const previewRrLabel = document.getElementById("preview-rr-label");
     const previewRiskModeSelect = document.getElementById("preview-risk-mode-select");
     const previewRiskValueInput = document.getElementById("preview-risk-value-input");
     const previewRrOrder2Input = document.getElementById("preview-rr-order-2-input");
@@ -309,6 +339,7 @@
             previewModalSubtitle.textContent = "Confirm the current plan before execution.";
         }
         setPreviewModalAlert("");
+        const isSingleMode = preview.setup_mode === "single_full_volume";
         previewModalContent.innerHTML = `
             <div class="preview-modal-review" data-setup-id="${escapeHtml(data.setup_id)}">
                 <section class="modal-section modal-summary-section">
@@ -322,11 +353,11 @@
                     <div class="modal-summary-grid">
                         ${summaryItem("Estimated entry", preview.estimated_entry, true)}
                         ${summaryItem("Stop loss", preview.sl_price)}
-                        ${summaryItem("TP1", preview.tp1_price)}
-                        ${summaryItem("TP2", preview.tp2_price)}
+                        ${summaryItem(isSingleMode ? "TP target" : "TP1", isSingleMode ? preview.tp2_price : preview.tp1_price)}
+                        ${isSingleMode ? "" : summaryItem("TP2", preview.tp2_price)}
                         ${summaryItem("Total risk", preview.total_risk_money)}
-                        ${summaryItem("Order 1 volume", preview.order1_volume)}
-                        ${summaryItem("Order 2 volume", preview.order2_volume)}
+                        ${isSingleMode ? summaryItem("Single order volume", preview.single_order_volume) : `${summaryItem("Order 1 volume", preview.order1_volume)}${summaryItem("Order 2 volume", preview.order2_volume)}`}
+                        ${summaryItem("Setup mode", isSingleMode ? "Single full-volume order" : "Split 2 orders")}
                         ${summaryItem("Preview timestamp", formatModalTime(data.preview_timestamp))}
                     </div>
                 </section>
@@ -337,7 +368,7 @@
                     <summary>Advanced Details</summary>
                     <dl class="compact-details">
                         ${detailItem("R value", advanced.r_value)}
-                        ${detailItem("Risk / order", advanced.risk_per_order)}
+                        ${detailItem(isSingleMode ? "Risk / setup" : "Risk / order", advanced.risk_per_order)}
                         ${detailItem("Live bid", advanced.bid)}
                         ${detailItem("Live ask", advanced.ask)}
                         ${detailItem("Point / digits", `${formatModalValue(advanced.point)} / ${formatModalValue(advanced.digits)}`)}
@@ -388,6 +419,7 @@
 
     function renderDriftWarning(data) {
         const drift = data.drift || {};
+        const isSingleMode = drift.setup_mode === "single_full_volume";
         if (previewModalTitle) {
             previewModalTitle.textContent = "Confirm Price Drift";
         }
@@ -400,8 +432,8 @@
                 <p class="muted">Accepting continues with recalculated current values. Cancelling leaves the setup in draft for review.</p>
                 <div class="drift-comparison-grid">
                     ${driftComparison("Entry", drift.preview_entry, drift.current_entry)}
-                    ${driftComparison("Order 1 volume", drift.preview_order1_volume, drift.current_order1_volume)}
-                    ${driftComparison("Order 2 volume", drift.preview_order2_volume, drift.current_order2_volume)}
+                    ${driftComparison(isSingleMode ? "Single order volume" : "Order 1 volume", drift.preview_order1_volume, drift.current_order1_volume)}
+                    ${isSingleMode ? "" : driftComparison("Order 2 volume", drift.preview_order2_volume, drift.current_order2_volume)}
                     ${driftComparison("Detected drift", `${formatModalValue(drift.detected_drift_percent)}%`, `${formatModalValue(drift.threshold_percent)}% allowed`)}
                 </div>
                 <div class="modal-warning-row">
@@ -440,7 +472,7 @@
         previewModalContent.innerHTML = `
             <div class="modal-state-panel execution-result-panel">
                 <strong>${escapeHtml(data.message || "Execution completed.")}</strong>
-                ${data.order1_ticket ? `<div class="preview-summary-grid modal-summary-grid">${summaryItem("Order 1 ticket", data.order1_ticket)}${summaryItem("Order 2 ticket", data.order2_ticket)}${summaryItem("Status", data.status)}${summaryItem("Executed", formatModalTime(data.executed_at))}</div>` : ""}
+                ${data.order1_ticket ? `<div class="preview-summary-grid modal-summary-grid">${summaryItem(data.order2_ticket ? "Order 1 ticket" : "Single order ticket", data.order1_ticket)}${data.order2_ticket ? summaryItem("Order 2 ticket", data.order2_ticket) : ""}${summaryItem("Status", data.status)}${summaryItem("Executed", formatModalTime(data.executed_at))}</div>` : ""}
             </div>
         `;
         previewModalActions.innerHTML = ok && data.success
@@ -519,6 +551,10 @@
         accountPreviewDefaults = defaults;
         if (previewSideSelect && defaults.side) {
             previewSideSelect.value = defaults.side;
+        }
+        if (previewSetupModeSelect && defaults.setup_mode) {
+            previewSetupModeSelect.value = defaults.setup_mode;
+            syncSetupModeLabels();
         }
         if (previewRiskModeSelect && defaults.risk_mode) {
             previewRiskModeSelect.value = defaults.risk_mode;
@@ -605,6 +641,7 @@
         payload.set("trading_account_id", previewAccountSelect.value);
         payload.set("symbol", previewSymbolSelect.value);
         payload.set("side", previewSideSelect.value);
+        payload.set("setup_mode", previewSetupModeSelect.value);
         payload.set("risk_mode", previewRiskModeSelect.value);
         payload.set("risk_value", previewRiskValueInput.value);
         payload.set("rr_order2", previewRrOrder2Input.value);
@@ -636,6 +673,16 @@
         previewAccountSelect.addEventListener("change", (event) => {
             loadPreviewSymbols(event.currentTarget.value);
         });
+    }
+    function syncSetupModeLabels() {
+        if (!previewSetupModeSelect || !previewRrLabel) {
+            return;
+        }
+        previewRrLabel.textContent = previewSetupModeSelect.value === "single_full_volume" ? "TP RR target" : "RR order 2";
+    }
+    if (previewSetupModeSelect) {
+        previewSetupModeSelect.addEventListener("change", syncSetupModeLabels);
+        syncSetupModeLabels();
     }
     if (savePreviewDefaultsButton) {
         savePreviewDefaultsButton.addEventListener("click", savePreviewDefaults);

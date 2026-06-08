@@ -89,6 +89,7 @@ def list_setups_requiring_monitoring(db: Session, limit: int = 50) -> list[Trade
         db.query(TradeSetup)
         .filter(
             TradeSetup.status == "executed",
+            TradeSetup.setup_mode == "split_two_orders",
             TradeSetup.order_count == 2,
             TradeSetup.order1_ticket.isnot(None),
             TradeSetup.order2_ticket.isnot(None),
@@ -119,7 +120,10 @@ def list_setups_requiring_outcome_reconciliation(db: Session, limit: int = 50) -
                 TradeSetup.setup_outcome.is_(None),
                 TradeSetup.setup_outcome.in_(non_terminal_outcomes),
                 TradeSetup.order1_outcome.is_(None),
-                TradeSetup.order2_outcome.is_(None),
+                or_(
+                    TradeSetup.setup_mode != "split_two_orders",
+                    TradeSetup.order2_outcome.is_(None),
+                ),
             ),
         )
         .order_by(TradeSetup.executed_at.asc().nulls_last(), TradeSetup.id.asc())

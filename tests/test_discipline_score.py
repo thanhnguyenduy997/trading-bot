@@ -70,6 +70,53 @@ def _create_setup(
     return setup
 
 
+def _create_single_setup(
+    db_session,
+    user,
+    account,
+    *,
+    setup_outcome: str | None = "single_tp_hit",
+    when: datetime = datetime(2026, 5, 2, 10, tzinfo=timezone.utc),
+):
+    setup = create_trade_setup(
+        db_session,
+        user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            setup_mode="single_full_volume",
+            order_count=1,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=100.0,
+            order1_volume=1.0,
+            order2_volume=0.0,
+            status="draft",
+        ),
+    )
+    setup.status = "executed"
+    setup.order1_ticket = 9801
+    setup.order2_ticket = None
+    setup.order1_closed_at = when
+    setup.order2_closed_at = None
+    setup.order1_outcome = "tp_hit"
+    setup.setup_outcome = setup_outcome
+    setup.setup_outcome_recorded_at = when if setup_outcome else None
+    setup.executed_at = when - timedelta(minutes=30)
+    db_session.add(setup)
+    db_session.commit()
+    db_session.refresh(setup)
+    return setup
+
+
 def _score(db_session, user, account):
     return DisciplineScoreService(db_session).compute(
         actor=user,
@@ -134,6 +181,16 @@ def test_scratch_manual_reduces_management(db_session, created_user):
 
     assert _category(score, "management").score == 21
     assert any(deduction.code == "scratch_manual_setup" and deduction.points == 4 for deduction in score.deductions)
+
+
+def test_single_full_volume_is_not_penalized_for_missing_tp1_be_structure(db_session, created_user):
+    account = _create_account(db_session, created_user, "DISC-SINGLE")
+    _create_single_setup(db_session, created_user, account)
+
+    score = _score(db_session, created_user, account)
+
+    assert score.total_score == 100
+    assert score.deductions == []
 
 
 def test_review_required_reduces_management(db_session, created_user):

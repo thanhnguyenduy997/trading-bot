@@ -93,14 +93,15 @@ class TradeSetupExecutionService:
             self.db.add(setup)
             self.db.flush()
 
+            is_single_mode = setup.setup_mode == "single_full_volume"
             try:
                 order1 = adapter.place_market_order(
                     symbol=setup.symbol,
                     side=setup.side,
                     volume=float(setup.order1_volume),
                     sl=float(setup.sl_price),
-                    tp=float(setup.tp1_price),
-                    comment=f"setup-{setup.id}-o1",
+                    tp=float(setup.tp2_price if is_single_mode else setup.tp1_price),
+                    comment=f"setup-{setup.id}-single" if is_single_mode else f"setup-{setup.id}-o1",
                 )
             except AdapterError as exc:
                 create_trade_event(
@@ -122,6 +123,27 @@ class TradeSetupExecutionService:
             )
             self.db.add(setup)
             self.db.flush()
+
+            if is_single_mode:
+                setup.order2_ticket = None
+                setup.status = "executed"
+                setup.execution_error = None
+                setup.monitoring_status = "not_applicable"
+                setup.executed_at = datetime.now(timezone.utc)
+                setup.order1_outcome = "open"
+                setup.order2_outcome = None
+                setup.setup_outcome = "open"
+                setup.setup_outcome_recorded_at = setup.executed_at
+                create_trade_event(
+                    self.db,
+                    user_id,
+                    setup.id,
+                    "execute_completed",
+                    f"Single full-volume trade setup executed. Ticket: {setup.order1_ticket}.",
+                )
+                self.db.add(setup)
+                self.db.flush()
+                return self._commit_and_return(setup)
 
             try:
                 order2 = adapter.place_market_order(
@@ -219,6 +241,12 @@ class TradeSetupExecutionService:
         self.db.refresh(setup)
         return setup
 
+    def _commit_and_return(self, setup):
+        self.db.add(setup)
+        self.db.commit()
+        self.db.refresh(setup)
+        return setup
+
     def _rollback_order1(self, adapter, setup, user_id: int) -> None:
         if setup.order1_ticket is None:
             return
@@ -300,8 +328,8 @@ class TradeSetupExecutionService:
 
         saved_stop_distance = float(setup.r_value)
         live_stop_distance = float(live_preview.r_value)
-        saved_total_volume = float(setup.order1_volume) + float(setup.order2_volume)
-        live_total_volume = float(live_preview.order1_volume) + float(live_preview.order2_volume)
+        saved_total_volume = float(setup.order1_volume) + float(setup.order2_volume or 0)
+        live_total_volume = float(live_preview.order1_volume) + float(live_preview.order2_volume or 0)
 
         stop_distance_drift_percent = self._percent_drift(saved_stop_distance, live_stop_distance)
         total_setup_volume_drift_percent = self._percent_drift(saved_total_volume, live_total_volume)
@@ -322,8 +350,9 @@ class TradeSetupExecutionService:
                 "stop_distance": saved_stop_distance,
                 "total_risk_money": float(setup.total_risk_money),
                 "order1_volume": float(setup.order1_volume),
-                "order2_volume": float(setup.order2_volume),
+                "order2_volume": float(setup.order2_volume or 0),
                 "total_setup_volume": saved_total_volume,
+                "setup_mode": setup.setup_mode,
             },
             "live": {
                 "symbol": live_preview.symbol,
@@ -332,8 +361,9 @@ class TradeSetupExecutionService:
                 "stop_distance": live_stop_distance,
                 "total_risk_money": float(live_preview.total_risk_money),
                 "order1_volume": float(live_preview.order1_volume),
-                "order2_volume": float(live_preview.order2_volume),
+                "order2_volume": float(live_preview.order2_volume or 0),
                 "total_setup_volume": live_total_volume,
+                "setup_mode": live_preview.setup_mode,
             },
             "drift_components": {
                 "stop_distance_drift_percent": round(stop_distance_drift_percent, 4),
@@ -395,6 +425,7 @@ class TradeSetupExecutionService:
             risk_mode=setup.risk_mode,
             risk_value=float(setup.risk_value),
             rr_order2=float(setup.rr_order2),
+            setup_mode=setup.setup_mode,
         )
 
     def _percent_drift(self, saved_value: float, live_value: float) -> float:

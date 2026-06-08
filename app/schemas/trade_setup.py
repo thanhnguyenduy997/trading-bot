@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TradeSetupCreate(BaseModel):
     trading_account_id: int = Field(gt=0)
     setup_source: Literal["system", "manual"] = "system"
+    setup_mode: Literal["split_two_orders", "single_full_volume"] = "split_two_orders"
     order_count: int = Field(default=2, ge=1, le=2)
     symbol: str = Field(min_length=3, max_length=20)
     side: Literal["buy", "sell"]
@@ -21,13 +22,25 @@ class TradeSetupCreate(BaseModel):
     total_risk_money: float = Field(gt=0)
     risk_per_order: float = Field(gt=0)
     order1_volume: float = Field(gt=0)
-    order2_volume: float = Field(gt=0)
+    order2_volume: float = Field(ge=0)
     status: Literal["draft", "queued", "executing", "executed", "failed"] = "draft"
 
     @field_validator("symbol")
     @classmethod
     def normalize_symbol(cls, value: str) -> str:
         return value.upper()
+
+    @model_validator(mode="after")
+    def validate_mode_order_shape(self) -> "TradeSetupCreate":
+        if self.order_count == 1 and self.setup_mode == "split_two_orders":
+            self.setup_mode = "single_full_volume"
+        if self.setup_mode == "single_full_volume" and self.order_count != 1:
+            raise ValueError("single_full_volume setups must use order_count=1")
+        if self.setup_mode == "split_two_orders" and self.order_count != 2:
+            raise ValueError("split_two_orders setups must use order_count=2")
+        if self.setup_mode == "single_full_volume" and self.order2_volume != 0:
+            raise ValueError("single_full_volume setups cannot include order2_volume")
+        return self
 
 
 class TradeSetupRead(BaseModel):
@@ -37,6 +50,7 @@ class TradeSetupRead(BaseModel):
     user_id: int
     trading_account_id: int
     setup_source: Literal["system", "manual"]
+    setup_mode: Literal["split_two_orders", "single_full_volume"]
     order_count: int
     symbol: str
     side: Literal["buy", "sell"]
@@ -131,6 +145,7 @@ class TradeSetupReconciliationRead(BaseModel):
 
 class ManualTradeSetupCreate(BaseModel):
     trading_account_id: int = Field(gt=0)
+    setup_mode: Literal["split_two_orders", "single_full_volume"] = "split_two_orders"
     symbol: str = Field(min_length=3, max_length=20)
     side: Literal["buy", "sell"]
     estimated_entry: float = Field(gt=0)
@@ -147,6 +162,16 @@ class ManualTradeSetupCreate(BaseModel):
     @classmethod
     def normalize_manual_symbol(cls, value: str) -> str:
         return value.upper()
+
+    @model_validator(mode="after")
+    def validate_manual_mode_order_shape(self) -> "ManualTradeSetupCreate":
+        if self.order_count == 1 and self.setup_mode == "split_two_orders":
+            self.setup_mode = "single_full_volume"
+        if self.setup_mode == "single_full_volume" and self.order_count != 1:
+            raise ValueError("single_full_volume setups must use order_count=1")
+        if self.setup_mode == "split_two_orders" and self.order_count != 2:
+            raise ValueError("split_two_orders setups must use order_count=2")
+        return self
 
 
 class LiveManualRecoveryCreate(ManualTradeSetupCreate):

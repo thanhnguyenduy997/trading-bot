@@ -53,6 +53,33 @@ def _create_setup(db_session, user, account, status: str = "draft", order1_volum
     return setup
 
 
+def _create_single_setup(db_session, user, account):
+    return create_trade_setup(
+        db_session,
+        user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            setup_mode="single_full_volume",
+            order_count=1,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=100.0,
+            order1_volume=1.0,
+            order2_volume=0.0,
+            status="executed",
+        ),
+    )
+
+
 def _close_order(setup, *, order_index: int, ticket: int, close_time: datetime, realized_pnl: float, close_price: float = 0.0):
     setattr(setup, f"order{order_index}_ticket", ticket)
     setattr(setup, f"order{order_index}_closed_at", close_time)
@@ -607,3 +634,23 @@ def test_same_linked_setup_is_never_counted_twice_for_daily_risk_state(db_sessio
     assert first_state.consecutive_stoploss_count == 1
     assert second_state.consecutive_stoploss_count == 1
     assert second_state.daily_lock_active is False
+
+
+def test_single_scratch_manual_does_not_count_toward_stoploss_streak(db_session, created_user):
+    account = _create_account(db_session, created_user, "RISK-SINGLE-SCRATCH")
+    first = _create_single_setup(db_session, created_user, account)
+    second = _create_single_setup(db_session, created_user, account)
+    base = datetime(2026, 4, 25, 19, 0, tzinfo=timezone.utc)
+    first.executed_at = base
+    second.executed_at = base
+    _close_order(first, order_index=1, ticket=9201, close_time=base.replace(minute=5), realized_pnl=-100.0, close_price=2319.2)
+    _record_setup_outcome(first, "single_sl_hit")
+    _close_order(second, order_index=1, ticket=9202, close_time=base.replace(minute=10), realized_pnl=0.0, close_price=2320.2)
+    _record_setup_outcome(second, "scratch_manual")
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    state = RiskManagementService(db_session).get_daily_state(created_user.id, trading_day=base.date())
+
+    assert state.consecutive_stoploss_count == 1
+    assert state.daily_lock_active is False

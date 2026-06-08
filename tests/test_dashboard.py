@@ -74,6 +74,54 @@ def _create_setup(db_session, user, account, *, order1_ticket: int, order2_ticke
     return setup
 
 
+def _create_single_setup(db_session, user, account, *, setup_outcome: str, ticket: int):
+    setup = create_trade_setup(
+        db_session,
+        user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            setup_mode="single_full_volume",
+            order_count=1,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=100.0,
+            order1_volume=1.0,
+            order2_volume=0.0,
+            status="draft",
+        ),
+    )
+    now = datetime.now(timezone.utc)
+    setup.status = "executed"
+    setup.order1_ticket = ticket
+    setup.order1_outcome = {
+        "single_tp_hit": "tp_hit",
+        "single_sl_hit": "sl_hit",
+        "scratch_manual": "manual_close",
+    }.get(setup_outcome, "manual_close")
+    setup.setup_outcome = setup_outcome
+    setup.setup_outcome_recorded_at = now
+    setup.executed_at = now
+    setup.order1_closed_at = now
+    setup.order1_realized_pnl = {
+        "single_tp_hit": 100.0,
+        "single_sl_hit": -100.0,
+        "scratch_manual": 0.0,
+    }.get(setup_outcome, 0.0)
+    db_session.add(setup)
+    db_session.commit()
+    db_session.refresh(setup)
+    return setup
+
+
 class DashboardHistoryAdapter:
     def __init__(self, account, history_map):
         self.account = account
@@ -440,6 +488,31 @@ def test_setup_winrate_uses_only_full_win_managed_win_and_full_loss(db_session, 
     assert dashboard["setup_summary"]["full_loss_count"] == 1
     assert dashboard["setup_summary"]["review_required_count"] == 1
     assert dashboard["setup_summary"]["setup_win_rate"] == 66.67
+
+
+def test_setup_winrate_counts_single_tp_and_single_sl_but_excludes_single_scratch(db_session, created_user):
+    service = DashboardService(db_session, now_provider=lambda: datetime(2026, 4, 22, 12, tzinfo=timezone.utc))
+    account = _create_account(db_session, created_user, "DASH-SINGLE-WINRATE")
+    for setup in [
+        _create_single_setup(db_session, created_user, account, setup_outcome="single_tp_hit", ticket=9901),
+        _create_single_setup(db_session, created_user, account, setup_outcome="single_sl_hit", ticket=9902),
+        _create_single_setup(db_session, created_user, account, setup_outcome="scratch_manual", ticket=9903),
+    ]:
+        setup.order1_closed_at = datetime(2026, 4, 22, 10, tzinfo=timezone.utc)
+        setup.setup_outcome_recorded_at = datetime(2026, 4, 22, 10, tzinfo=timezone.utc)
+        db_session.add(setup)
+    db_session.commit()
+
+    dashboard = service.build_dashboard(
+        actor=created_user,
+        filters=DashboardFilters(range_key="today", trading_account_id=account.id),
+        selected_account=account,
+    )
+
+    assert dashboard["setup_summary"]["single_tp_hit_count"] == 1
+    assert dashboard["setup_summary"]["single_sl_hit_count"] == 1
+    assert dashboard["setup_summary"]["scratch_manual_count"] == 1
+    assert dashboard["setup_summary"]["setup_win_rate"] == 50.0
 
 
 def test_dashboard_backfills_legacy_setup_outcomes_for_historical_setup_metrics(db_session, created_user):

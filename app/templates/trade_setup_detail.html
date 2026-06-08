@@ -42,6 +42,12 @@
             <span>Stop loss</span>
             <strong>{{ setup.sl_price }}</strong>
         </div>
+        {% if setup.setup_mode == "single_full_volume" %}
+        <div class="metric-card">
+            <span>TP target</span>
+            <strong>{{ setup.tp2_price }}</strong>
+        </div>
+        {% else %}
         <div class="metric-card">
             <span>TP1</span>
             <strong>{{ setup.tp1_price }}</strong>
@@ -50,6 +56,7 @@
             <span>TP2</span>
             <strong>{{ setup.tp2_price }}</strong>
         </div>
+        {% endif %}
         <div class="metric-card">
             <span>Total risk</span>
             <strong>{{ setup.total_risk_money }}</strong>
@@ -63,7 +70,7 @@
             <strong>{{ setup_1r_value }}</strong>
         </div>
         <div class="metric-card">
-            <span>RR order 2</span>
+            <span>{{ "TP RR target" if setup.setup_mode == "single_full_volume" else "RR order 2" }}</span>
             <strong>{{ setup.rr_order2 }}</strong>
         </div>
     </div>
@@ -72,15 +79,17 @@
         <section class="detail-panel">
             <h2>Execution</h2>
             <dl class="compact-details">
-                <div><dt>Order 1</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
-                <div><dt>Order 1 outcome</dt><dd>{{ setup.order1_outcome or "Unknown" }}</dd></div>
-                <div><dt>Order 1 close time</dt><dd>{{ setup.order1_closed_at if setup.order1_closed_at is not none else "Open / unavailable" }}</dd></div>
-                <div><dt>Order 1 realized PnL</dt><dd>{{ setup.order1_realized_pnl if setup.order1_realized_pnl is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>{{ "Single order" if setup.setup_mode == "single_full_volume" else "Order 1" }}</dt><dd>{{ setup.order1_ticket or "Not opened" }}</dd></div>
+                <div><dt>{{ "Single order outcome" if setup.setup_mode == "single_full_volume" else "Order 1 outcome" }}</dt><dd>{{ setup.order1_outcome or "Unknown" }}</dd></div>
+                <div><dt>{{ "Single order close time" if setup.setup_mode == "single_full_volume" else "Order 1 close time" }}</dt><dd>{{ setup.order1_closed_at if setup.order1_closed_at is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>{{ "Single order realized PnL" if setup.setup_mode == "single_full_volume" else "Order 1 realized PnL" }}</dt><dd>{{ setup.order1_realized_pnl if setup.order1_realized_pnl is not none else "Open / unavailable" }}</dd></div>
+                {% if setup.setup_mode != "single_full_volume" %}
                 <div><dt>Order 2</dt><dd>{{ setup.order2_ticket or "Not opened" }}</dd></div>
                 <div><dt>Order 2 outcome</dt><dd>{{ setup.order2_outcome or "Unknown" }}</dd></div>
                 <div><dt>Order 2 close time</dt><dd>{{ setup.order2_closed_at if setup.order2_closed_at is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>Order 2 realized PnL</dt><dd>{{ setup.order2_realized_pnl if setup.order2_realized_pnl is not none else "Open / unavailable" }}</dd></div>
                 <div><dt>BE moved</dt><dd>{{ setup.order2_be_moved_at or "Not moved" }}</dd></div>
+                {% endif %}
             </dl>
         </section>
 
@@ -88,20 +97,23 @@
             <summary>Setup Metadata</summary>
             <dl class="compact-details">
                 <div><dt>Source</dt><dd>{{ setup.setup_source|replace("_", " ")|title }}</dd></div>
+                <div><dt>Setup mode</dt><dd>{{ "Single full-volume order" if setup.setup_mode == "single_full_volume" else "Split 2 orders" }}</dd></div>
                 <div><dt>Order count</dt><dd>{{ setup.order_count }}</dd></div>
                 <div><dt>Manual confirmed</dt><dd>{% if setup.setup_source == "manual" %}{{ setup.manual_confirmed_at or "No" }}{% else %}System setup{% endif %}</dd></div>
                 <div><dt>Counted in risk logic</dt><dd>{{ "Yes" if setup.setup_source != "manual" or setup.manual_confirmed_at else "No" }}</dd></div>
                 <div><dt>Risk mode</dt><dd>{{ setup.risk_mode }}</dd></div>
                 <div><dt>Risk value</dt><dd>{{ setup.risk_value }}</dd></div>
                 <div><dt>R value</dt><dd>{{ setup.r_value }}</dd></div>
-                <div><dt>Risk / order</dt><dd>{{ setup.risk_per_order }}</dd></div>
-                <div><dt>Volumes</dt><dd>{{ setup.order1_volume }} / {{ setup.order2_volume }}</dd></div>
-                <div><dt>Order 1 close price</dt><dd>{{ setup.order1_close_price if setup.order1_close_price is not none else "Open / unavailable" }}</dd></div>
+                <div><dt>{{ "Risk / setup" if setup.setup_mode == "single_full_volume" else "Risk / order" }}</dt><dd>{{ setup.risk_per_order }}</dd></div>
+                <div><dt>{{ "Single order volume" if setup.setup_mode == "single_full_volume" else "Volumes" }}</dt><dd>{% if setup.setup_mode == "single_full_volume" %}{{ setup.order1_volume }}{% else %}{{ setup.order1_volume }} / {{ setup.order2_volume }}{% endif %}</dd></div>
+                <div><dt>{{ "Single order close price" if setup.setup_mode == "single_full_volume" else "Order 1 close price" }}</dt><dd>{{ setup.order1_close_price if setup.order1_close_price is not none else "Open / unavailable" }}</dd></div>
+                {% if setup.setup_mode != "single_full_volume" %}
                 <div><dt>Order 2 close price</dt><dd>{{ setup.order2_close_price if setup.order2_close_price is not none else "Open / unavailable" }}</dd></div>
+                {% endif %}
                 <div><dt>Monitoring</dt><dd>{{ setup.monitoring_status or "Not started" }}</dd></div>
                 <div><dt>Setup result</dt><dd>{{ setup.result_status or "Pending" }}</dd></div>
                 {% if setup.setup_outcome == "scratch_manual" %}
-                <div><dt>Scratch threshold</dt><dd>{{ scratch_manual_threshold_r }}R (exclusive &lt;)</dd></div>
+                <div><dt>Scratch threshold</dt><dd>{{ scratch_manual_threshold_r }}R (inclusive &lt;=)</dd></div>
                 {% endif %}
                 <div><dt>Classification reason</dt><dd>{{ classification_reason }}</dd></div>
                 <div><dt>Outcome recorded</dt><dd>{{ setup.setup_outcome_recorded_at if setup.setup_outcome_recorded_at is not none else "Not recorded" }}</dd></div>

@@ -33,6 +33,8 @@ SETUP_MILESTONE_EVENT_TYPES = {
     "full_loss": "setup_full_loss_recorded",
     "managed_win": "setup_managed_win_recorded",
     "full_win": "setup_full_win_recorded",
+    "single_tp_hit": "setup_single_tp_hit_recorded",
+    "single_sl_hit": "setup_single_sl_hit_recorded",
     "scratch_manual": "setup_scratch_manual_recorded",
     "review_required": "setup_review_required_recorded",
 }
@@ -41,6 +43,8 @@ TERMINAL_SETUP_OUTCOMES = {
     "full_win",
     "managed_win",
     "full_loss",
+    "single_tp_hit",
+    "single_sl_hit",
     "scratch_manual",
     "review_required",
 }
@@ -49,6 +53,8 @@ FINAL_SETUP_OUTCOMES = (
     "full_win",
     "managed_win",
     "full_loss",
+    "single_tp_hit",
+    "single_sl_hit",
     "scratch_manual",
     "review_required",
 )
@@ -57,6 +63,8 @@ SETUP_OUTCOME_LABELS = {
     "full_win": "TP1 + TP2",
     "managed_win": "TP1 + BE2",
     "full_loss": "SL1 + SL2",
+    "single_tp_hit": "Single TP Hit",
+    "single_sl_hit": "Single SL Hit",
     "scratch_manual": "Scratch Manual",
     "review_required": "Review Required",
     "open": "Open",
@@ -195,7 +203,7 @@ class TradeSetupOutcomeService:
 
         point = self._history_point(history) or 0.0
         reference_sl = float(setup.sl_price)
-        reference_tp = float(setup.tp1_price if order_index == 1 else setup.tp2_price)
+        reference_tp = float(setup.tp2_price if setup.setup_mode == "single_full_volume" else (setup.tp1_price if order_index == 1 else setup.tp2_price))
         reference_be = self._history_open_price(history) or float(setup.estimated_entry)
         close_price = self._coerce_float(close_deal.get("price"))
         realized_pnl = self._coerce_float(close_deal.get("profit"))
@@ -341,9 +349,9 @@ class TradeSetupOutcomeService:
 
     def _record_result_status_if_needed(self, setup) -> None:
         target_result_status = None
-        if setup.setup_outcome == "full_loss":
+        if setup.setup_outcome in {"full_loss", "single_sl_hit"}:
             target_result_status = "stoploss"
-        elif setup.setup_outcome in TERMINAL_SETUP_OUTCOMES:
+        elif setup.setup_outcome in TERMINAL_SETUP_OUTCOMES and setup.setup_outcome != "scratch_manual":
             target_result_status = "non_stoploss"
 
         if target_result_status is None:
@@ -636,6 +644,8 @@ class TradeSetupOutcomeService:
             "full_loss": "Trade setup recorded as SL1 + SL2.",
             "managed_win": "Trade setup recorded as TP1 + BE2.",
             "full_win": "Trade setup recorded as TP1 + TP2.",
+            "single_tp_hit": "Single full-volume setup recorded as TP hit.",
+            "single_sl_hit": "Single full-volume setup recorded as stop loss.",
             "scratch_manual": "Trade setup recorded as Scratch Manual.",
             "review_required": "Trade setup recorded as Review Required.",
         }[outcome]
@@ -665,6 +675,14 @@ class TradeSetupOutcomeService:
         }
 
     def _classify_terminal_setup_outcome(self, setup, order1_outcome: str, order2_outcome: str) -> str:
+        if setup.setup_mode == "single_full_volume":
+            if order1_outcome == "tp_hit":
+                return "single_tp_hit"
+            if order1_outcome == "sl_hit":
+                return "single_sl_hit"
+            if self._is_scratch_manual_candidate(setup, order1_outcome, "not_used"):
+                return "scratch_manual"
+            return "review_required"
         if order1_outcome == "tp_hit" and order2_outcome == "tp_hit":
             return "full_win"
         if order1_outcome == "tp_hit" and order2_outcome == "closed_at_be":
@@ -689,7 +707,7 @@ class TradeSetupOutcomeService:
             return False
         threshold_r = get_global_scratch_manual_threshold_r(self.db)
         scratch_limit = Decimal(str(setup_1r_value)) * Decimal(str(threshold_r))
-        return Decimal(str(abs(setup_realized_pnl))) < scratch_limit
+        return Decimal(str(abs(setup_realized_pnl))) <= scratch_limit
 
     def reconcile_historical_setups(
         self,
@@ -848,7 +866,7 @@ class TradeSetupOutcomeService:
         if setup.setup_outcome in LEGACY_SETUP_OUTCOME_MAP:
             return LEGACY_SETUP_OUTCOME_MAP[setup.setup_outcome]
         if setup.result_status == "stoploss":
-            return "full_loss"
+            return "single_sl_hit" if setup.setup_mode == "single_full_volume" else "full_loss"
         if setup.result_status == "non_stoploss":
             return "review_required"
         return None
@@ -874,7 +892,7 @@ class TradeSetupOutcomeService:
         if closed_at is None:
             return "open"
 
-        reference_tp = float(setup.tp1_price if order_index == 1 else setup.tp2_price)
+        reference_tp = float(setup.tp2_price if setup.setup_mode == "single_full_volume" else (setup.tp1_price if order_index == 1 else setup.tp2_price))
         reference_sl = float(setup.sl_price)
         reference_be = float(setup.estimated_entry)
         point = self._stored_price_point(setup)
@@ -1184,6 +1202,10 @@ def describe_setup_classification(setup, *, scratch_threshold_r: float | None = 
         return "Order 1 hit TP1 and Order 2 closed at breakeven."
     if setup.setup_outcome == "full_loss":
         return "Order 1 and Order 2 both hit stop loss."
+    if setup.setup_outcome == "single_tp_hit":
+        return "Single full-volume order hit the configured TP target."
+    if setup.setup_outcome == "single_sl_hit":
+        return "Single full-volume order hit stop loss."
     if setup.setup_outcome == "scratch_manual":
         return (
             f"Non-standard/manual close with |setup realized pnl| below scratch threshold. "

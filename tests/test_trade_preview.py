@@ -1,4 +1,5 @@
 from app.execution.base import AdapterError
+from app.models.trade_setup import TradeSetup
 from app.schemas.trade_preview import TradePreviewRequest
 from app.schemas.trading_account import TradingAccountCreate
 from app.services.preview_service import PreviewService
@@ -593,6 +594,85 @@ def test_preview_modal_endpoint_returns_compact_review_payload(
     assert data["preview"]["order2_volume"] == 0.5
     assert data["preview_timestamp"]
     assert data["advanced"]["risk_per_order"] == 50.0
+
+
+def test_single_full_volume_preview_uses_one_full_risk_order(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
+
+    response = client.post(
+        "/api/trade-setups/preview",
+        headers=auth_headers,
+        json={
+            "trading_account_id": account.id,
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "setup_mode": "single_full_volume",
+            "sl_price": 2319.2,
+            "risk_mode": "fixed_money",
+            "risk_value": 100,
+            "rr_order2": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["setup_mode"] == "single_full_volume"
+    assert data["tp2_price"] == 2322.2
+    assert data["risk_per_order"] == 100.0
+    assert data["order1_volume"] == 1.0
+    assert data["order2_volume"] == 0.0
+    assert data["single_order_volume"] == 1.0
+
+
+def test_single_full_volume_modal_payload_persists_mode_and_hides_split_shape(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response = client.post(
+        "/trade-setups/preview/modal",
+        data={
+            "trading_account_id": str(account.id),
+            "symbol": "XAUUSD",
+            "side": "buy",
+            "setup_mode": "single_full_volume",
+            "sl_price": "2319.2",
+            "risk_mode": "fixed_money",
+            "risk_value": "100",
+            "rr_order2": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["preview"]["setup_mode"] == "single_full_volume"
+    assert data["preview"]["single_order_volume"] == 1.0
+    assert data["preview"]["order2_volume"] == 0.0
+    setup = db_session.get(TradeSetup, data["setup_id"])
+    assert setup.setup_mode == "single_full_volume"
+    assert setup.order_count == 1
 
 
 def test_preview_uses_only_synced_symbols_for_selected_account(

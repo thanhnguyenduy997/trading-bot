@@ -777,15 +777,19 @@ class DashboardService:
         full_win_count = sum(1 for item in items if item["setup_outcome"] == "full_win")
         managed_win_count = sum(1 for item in items if item["setup_outcome"] == "managed_win")
         full_loss_count = sum(1 for item in items if item["setup_outcome"] == "full_loss")
+        single_tp_hit_count = sum(1 for item in items if item["setup_outcome"] == "single_tp_hit")
+        single_sl_hit_count = sum(1 for item in items if item["setup_outcome"] == "single_sl_hit")
         scratch_manual_count = sum(1 for item in items if item["setup_outcome"] == "scratch_manual")
         review_required_count = sum(1 for item in items if item["setup_outcome"] == "review_required")
-        denominator = full_win_count + managed_win_count + full_loss_count
+        denominator = full_win_count + managed_win_count + full_loss_count + single_tp_hit_count + single_sl_hit_count
         return {
             "closed_setup_count": len(items),
-            "setup_win_rate": round(((full_win_count + managed_win_count) / denominator) * 100, 2) if denominator else 0.0,
+            "setup_win_rate": round(((full_win_count + managed_win_count + single_tp_hit_count) / denominator) * 100, 2) if denominator else 0.0,
             "full_win_count": full_win_count,
             "managed_win_count": managed_win_count,
             "full_loss_count": full_loss_count,
+            "single_tp_hit_count": single_tp_hit_count,
+            "single_sl_hit_count": single_sl_hit_count,
             "scratch_manual_count": scratch_manual_count,
             "review_required_count": review_required_count,
             "full_win_rate": round((full_win_count / denominator) * 100, 2) if denominator else 0.0,
@@ -1055,7 +1059,7 @@ class DashboardService:
             key = self._normalize_datetime(close_time).astimezone(tz).date().isoformat()
             outcome = str(item.get("setup_outcome") or "")
             counts[key]["setup_count"] += 1
-            if outcome in {"managed_win", "full_win", "full_loss", "scratch_manual", "review_required"}:
+            if outcome in {"managed_win", "full_win", "full_loss", "single_tp_hit", "single_sl_hit", "scratch_manual", "review_required"}:
                 counts[key][f"{outcome}_count"] += 1
         return {day: dict(day_counts) for day, day_counts in counts.items()}
 

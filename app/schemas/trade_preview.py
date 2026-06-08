@@ -7,6 +7,7 @@ class TradePreviewRequest(BaseModel):
     trading_account_id: int = Field(gt=0)
     symbol: str = Field(min_length=3, max_length=20)
     side: Literal["buy", "sell"]
+    setup_mode: Literal["split_two_orders", "single_full_volume"] = "split_two_orders"
     sl_price: float = Field(gt=0)
     risk_mode: Literal["fixed_money", "balance_percent"]
     risk_value: float = Field(gt=0)
@@ -21,6 +22,7 @@ class TradePreviewRequest(BaseModel):
 class TradePreviewResponse(BaseModel):
     symbol: str
     side: Literal["buy", "sell"]
+    setup_mode: Literal["split_two_orders", "single_full_volume"]
     bid: float
     ask: float
     estimated_entry: float
@@ -32,6 +34,7 @@ class TradePreviewResponse(BaseModel):
     risk_per_order: float
     order1_volume: float
     order2_volume: float
+    single_order_volume: float | None = None
     point: float | None = None
     digits: int | None = None
     trade_contract_size: float | None = None

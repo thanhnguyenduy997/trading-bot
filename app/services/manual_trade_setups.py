@@ -178,6 +178,7 @@ class ManualTradeSetupService:
             user_id=user_id,
             trading_account_id=account.id,
             setup_source="manual",
+            setup_mode=payload.setup_mode,
             order_count=payload.order_count,
             symbol=payload.symbol,
             side=payload.side,
@@ -462,6 +463,7 @@ class ManualTradeSetupService:
             user_id=user_id,
             trading_account_id=account.id,
             setup_source="manual",
+            setup_mode=payload.setup_mode,
             order_count=payload.order_count,
             symbol=payload.symbol,
             side=payload.side,
@@ -517,6 +519,7 @@ class ManualTradeSetupService:
 
         setup.trading_account_id = account.id
         setup.setup_source = "manual"
+        setup.setup_mode = payload.setup_mode
         setup.order_count = payload.order_count
         setup.symbol = payload.symbol
         setup.side = payload.side

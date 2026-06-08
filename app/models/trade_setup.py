@@ -17,6 +17,7 @@ class TradeSetup(Base):
         index=True,
     )
     setup_source: Mapped[str] = mapped_column(String(20), nullable=False, default="system", server_default="system")
+    setup_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="split_two_orders", server_default="split_two_orders")
     order_count: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)

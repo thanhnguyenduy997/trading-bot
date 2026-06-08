@@ -172,6 +172,63 @@ def test_executing_own_setup(client, db_session, created_user, auth_headers, mon
     assert stored.order2_ticket == 1002
 
 
+def test_single_full_volume_execution_places_exactly_one_full_volume_order(
+    client,
+    db_session,
+    created_user,
+    auth_headers,
+    monkeypatch,
+    sync_account_symbols,
+):
+    adapters = []
+
+    def factory(account):
+        adapter = SuccessfulExecutionAdapter(account)
+        adapters.append(adapter)
+        return adapter
+
+    monkeypatch.setattr("app.services.trade_setup_execution.default_adapter_factory", factory)
+    account = _create_account(db_session, created_user)
+    sync_account_symbols(account, "XAUUSD")
+    setup = create_trade_setup(
+        db_session,
+        created_user.id,
+        TradeSetupCreate(
+            trading_account_id=account.id,
+            setup_mode="single_full_volume",
+            order_count=1,
+            symbol="XAUUSD",
+            side="buy",
+            sl_price=2319.2,
+            risk_mode="fixed_money",
+            risk_value=100,
+            rr_order2=2,
+            estimated_entry=2320.2,
+            r_value=1.0,
+            tp1_price=2321.2,
+            tp2_price=2322.2,
+            total_risk_money=100.0,
+            risk_per_order=100.0,
+            order1_volume=1.0,
+            order2_volume=0.0,
+            status="draft",
+        ),
+    )
+
+    response = client.post(f"/api/trade-setups/{setup.id}/execute", headers=auth_headers)
+
+    assert response.status_code == 200
+    placed_orders = [order for adapter in adapters for order in adapter.placed_orders]
+    assert len(placed_orders) == 1
+    order = placed_orders[0]
+    assert order["volume"] == 1.0
+    assert order["tp"] == 2322.2
+    stored = db_session.get(TradeSetup, setup.id)
+    assert stored.order1_ticket == 1001
+    assert stored.order2_ticket is None
+    assert stored.monitoring_status == "not_applicable"
+
+
 def test_rejecting_another_users_setup(client, db_session, created_user, auth_headers, monkeypatch, sync_account_symbols):
     monkeypatch.setattr(
         "app.services.trade_setup_execution.default_adapter_factory",

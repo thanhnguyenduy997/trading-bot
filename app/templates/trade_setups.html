@@ -28,6 +28,7 @@
                 <th>Symbol</th>
                 <th>Side</th>
                 <th>Source</th>
+                <th>Mode</th>
                 <th>Status</th>
                 <th>Risk</th>
                 <th>Created</th>
@@ -41,6 +42,7 @@
                 <td data-label="Symbol">{{ setup.symbol }}</td>
                 <td data-label="Side">{{ setup.side|upper }}</td>
                 <td data-label="Source">{{ setup.setup_source|replace("_", " ")|title }}</td>
+                <td data-label="Mode">{{ "Single full-volume" if setup.setup_mode == "single_full_volume" else "Split 2 orders" }}</td>
                 <td data-label="Status">{{ setup.status }}</td>
                 <td data-label="Risk">{{ setup.total_risk_money }}</td>
                 <td data-label="Created">{{ setup.created_at }}</td>

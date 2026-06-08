@@ -102,6 +102,7 @@ def _render_trade_preview_page(
             or {
                 "symbol": default_symbol,
                 "side": "buy",
+                "setup_mode": "split_two_orders",
                 "risk_mode": "fixed_money",
                 "risk_value": 100,
                 "rr_order2": 2.0,
@@ -340,6 +341,7 @@ def _resolve_account_preview_defaults(
         "trading_account_id": getattr(account, "id", None),
         "symbol": selected_symbol,
         "side": getattr(account, "default_side", None) or "buy",
+        "setup_mode": "split_two_orders",
         "risk_mode": getattr(account, "default_risk_mode", None) or "fixed_money",
         "risk_value": float(getattr(account, "default_risk_value", 100) or 100),
         "rr_order2": float(getattr(account, "default_rr_order_2", 2.0) or 2.0),
@@ -371,13 +373,15 @@ def _preview_modal_payload(preview, setup) -> dict[str, object]:
         "preview": {
             "symbol": preview.symbol,
             "side": preview.side,
+            "setup_mode": preview.setup_mode,
             "estimated_entry": float(preview.estimated_entry),
             "sl_price": float(preview.sl_price),
             "tp1_price": float(preview.tp1_price),
             "tp2_price": float(preview.tp2_price),
             "total_risk_money": float(preview.total_risk_money),
             "order1_volume": float(preview.order1_volume),
-            "order2_volume": float(preview.order2_volume),
+            "order2_volume": float(preview.order2_volume or 0),
+            "single_order_volume": float(preview.single_order_volume) if preview.single_order_volume is not None else None,
             "validation_status": preview.validation_status,
             "warnings": warnings,
         },
@@ -412,6 +416,7 @@ def _drift_warning_payload(setup_id: int, error: PreviewDriftExceededError) -> d
             "current_order1_volume": live["order1_volume"],
             "preview_order2_volume": preview["order2_volume"],
             "current_order2_volume": live["order2_volume"],
+            "setup_mode": preview.get("setup_mode"),
             "detected_drift_percent": round(float(drift["detected_drift_percent"]), 4),
             "threshold_percent": round(float(drift["threshold_percent"]), 4),
             "stop_distance_drift_percent": round(float(drift["stop_distance_drift_percent"]), 4),
@@ -710,6 +715,7 @@ def trade_preview_page_submit(
     risk_mode: str = Form(...),
     risk_value: float = Form(...),
     rr_order2: float = Form(...),
+    setup_mode: str = Form("split_two_orders"),
     draft_setup_id: int | None = Form(None),
 ) -> HTMLResponse:
     accounts = list_trading_accounts(db, current_user.id)
@@ -721,6 +727,7 @@ def trade_preview_page_submit(
         "risk_mode": risk_mode,
         "risk_value": risk_value,
         "rr_order2": rr_order2,
+        "setup_mode": setup_mode,
         "draft_setup_id": draft_setup_id,
     }
 
@@ -756,6 +763,8 @@ def trade_preview_page_submit(
 
     setup_payload = TradeSetupCreate(
         trading_account_id=trading_account_id,
+        setup_mode=preview.setup_mode,
+        order_count=1 if preview.setup_mode == "single_full_volume" else 2,
         symbol=preview.symbol,
         side=preview.side,
         sl_price=preview.sl_price,
@@ -816,6 +825,7 @@ def trade_preview_modal_submit(
     risk_mode: str = Form(...),
     risk_value: float = Form(...),
     rr_order2: float = Form(...),
+    setup_mode: str = Form("split_two_orders"),
     draft_setup_id: int | None = Form(None),
 ) -> JSONResponse:
     form_data = {
@@ -826,6 +836,7 @@ def trade_preview_modal_submit(
         "risk_mode": risk_mode,
         "risk_value": risk_value,
         "rr_order2": rr_order2,
+        "setup_mode": setup_mode,
     }
     if draft_setup_id:
         form_data["draft_setup_id"] = draft_setup_id
@@ -846,6 +857,8 @@ def trade_preview_modal_submit(
 
     setup_payload = TradeSetupCreate(
         trading_account_id=trading_account_id,
+        setup_mode=preview.setup_mode,
+        order_count=1 if preview.setup_mode == "single_full_volume" else 2,
         symbol=preview.symbol,
         side=preview.side,
         sl_price=preview.sl_price,
@@ -887,6 +900,7 @@ def save_trade_setup_from_preview(
     risk_mode: str = Form(...),
     risk_value: float = Form(...),
     rr_order2: float = Form(...),
+    setup_mode: str = Form("split_two_orders"),
     estimated_entry: float = Form(...),
     r_value: float = Form(...),
     tp1_price: float = Form(...),
@@ -894,10 +908,12 @@ def save_trade_setup_from_preview(
     total_risk_money: float = Form(...),
     risk_per_order: float = Form(...),
     order1_volume: float = Form(...),
-    order2_volume: float = Form(...),
+    order2_volume: float = Form(0),
 ) -> RedirectResponse:
     payload = TradeSetupCreate(
         trading_account_id=trading_account_id,
+        setup_mode=setup_mode,
+        order_count=1 if setup_mode == "single_full_volume" else 2,
         symbol=symbol,
         side=side,
         sl_price=sl_price,

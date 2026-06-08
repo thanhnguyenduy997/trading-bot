@@ -86,7 +86,13 @@ class PreviewService:
             payload.risk_mode,
             Decimal(str(payload.risk_value)),
         )
-        risk_per_order = total_risk_money / Decimal("2")
+        setup_mode = getattr(payload, "setup_mode", "split_two_orders")
+        if setup_mode == "single_full_volume":
+            risk_per_order = total_risk_money
+            order_count = 1
+        else:
+            risk_per_order = total_risk_money / Decimal("2")
+            order_count = 2
         trade_contract_size = self._required_decimal(symbol_info.trade_contract_size, "trade_contract_size")
         volume_min = self._required_decimal(symbol_info.volume_min, "volume_min")
         volume_max = self._required_decimal(symbol_info.volume_max, "volume_max")
@@ -101,15 +107,19 @@ class PreviewService:
             volume_max=volume_max,
             volume_step=volume_step,
         )
-        order2_volume, order2_warnings = self.risk_service.calculate_volume(
-            entry,
-            sl_price,
-            risk_per_order,
-            trade_contract_size=trade_contract_size,
-            volume_min=volume_min,
-            volume_max=volume_max,
-            volume_step=volume_step,
-        )
+        if order_count == 2:
+            order2_volume, order2_warnings = self.risk_service.calculate_volume(
+                entry,
+                sl_price,
+                risk_per_order,
+                trade_contract_size=trade_contract_size,
+                volume_min=volume_min,
+                volume_max=volume_max,
+                volume_step=volume_step,
+            )
+        else:
+            order2_volume = Decimal("0")
+            order2_warnings = []
 
         warnings = list(dict.fromkeys(order1_warnings + order2_warnings))
         total_setup_volume = order1_volume + order2_volume
@@ -122,6 +132,7 @@ class PreviewService:
         return TradePreviewResponse(
             symbol=payload.symbol,
             side=payload.side,
+            setup_mode=setup_mode,
             bid=float(bid),
             ask=float(ask),
             estimated_entry=float(estimated_entry),
@@ -133,6 +144,7 @@ class PreviewService:
             risk_per_order=float(risk_per_order),
             order1_volume=float(order1_volume),
             order2_volume=float(order2_volume),
+            single_order_volume=float(order1_volume) if order_count == 1 else None,
             point=symbol_info.point,
             digits=symbol_info.digits,
             trade_contract_size=symbol_info.trade_contract_size,

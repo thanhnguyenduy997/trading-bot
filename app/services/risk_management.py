@@ -25,7 +25,7 @@ class RiskManagementService:
         self._assert_volume_cap(user_id=user_id, account=account, total_setup_volume=total_setup_volume, setup=None, for_execute=False)
 
     def assert_execute_allowed(self, *, setup: TradeSetup, account: TradingAccount) -> None:
-        total_setup_volume = Decimal(str(setup.order1_volume)) + Decimal(str(setup.order2_volume))
+        total_setup_volume = Decimal(str(setup.order1_volume)) + Decimal(str(setup.order2_volume or 0))
         self._assert_daily_lock(user_id=setup.user_id, setup=setup, for_execute=True)
         self._assert_volume_cap(user_id=setup.user_id, account=account, total_setup_volume=total_setup_volume, setup=setup, for_execute=True)
 
@@ -239,9 +239,9 @@ class RiskManagementService:
         return events
 
     def _risk_result_for_setup_outcome(self, setup_outcome: str | None) -> str | None:
-        if setup_outcome == "full_loss":
+        if setup_outcome in {"full_loss", "single_sl_hit"}:
             return "stoploss"
-        if setup_outcome in {"managed_win", "full_win", "scratch_manual"}:
+        if setup_outcome in {"managed_win", "full_win", "single_tp_hit"}:
             return "non_stoploss"
         return None
 
