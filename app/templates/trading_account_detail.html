@@ -43,6 +43,7 @@
             <tr><th>Max total setup volume</th><td>{{ account.max_total_setup_volume or "Not set" }}</td></tr>
             <tr><th>Default preview symbol</th><td>{{ account.default_symbol or "Auto first synced symbol" }}</td></tr>
             <tr><th>Default preview side</th><td>{{ account.default_side or "buy" }}</td></tr>
+            <tr><th>Default execution mode</th><td>{{ "Single full-volume order" if account.default_setup_mode == "single_full_volume" else "Split 2 orders" }}</td></tr>
             <tr><th>Default preview risk mode</th><td>{{ account.default_risk_mode or "fixed_money" }}</td></tr>
             <tr><th>Default preview risk value</th><td>{{ account.default_risk_value or 100 }}</td></tr>
             <tr><th>Default preview RR order 2</th><td>{{ account.default_rr_order_2 or 2 }}</td></tr>

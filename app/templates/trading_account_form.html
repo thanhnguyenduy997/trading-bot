@@ -60,6 +60,12 @@
                 <option value="buy" {% if selected_default_side == "buy" %}selected{% endif %}>BUY</option>
                 <option value="sell" {% if selected_default_side == "sell" %}selected{% endif %}>SELL</option>
             </select>
+            <label>Default execution mode</label>
+            <select name="default_setup_mode">
+                {% set selected_default_setup_mode = form_data.get('default_setup_mode', 'split_two_orders') %}
+                <option value="split_two_orders" {% if selected_default_setup_mode == "split_two_orders" %}selected{% endif %}>Split 2 orders</option>
+                <option value="single_full_volume" {% if selected_default_setup_mode == "single_full_volume" %}selected{% endif %}>Single full-volume order</option>
+            </select>
             <label>Default Risk Mode</label>
             <select name="default_risk_mode">
                 {% set selected_default_risk_mode = form_data.get('default_risk_mode', 'fixed_money') %}

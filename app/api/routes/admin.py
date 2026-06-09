@@ -575,6 +575,7 @@ def admin_create_trading_account(
     telegram_chat_id: str = Form(""),
     telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
+    default_setup_mode: str = Form("split_two_orders"),
     max_preview_drift_percent_override: str = Form(""),
 ) -> Response:
     target = get_user(db, user_id)
@@ -589,6 +590,7 @@ def admin_create_trading_account(
         "telegram_enabled": telegram_enabled,
         "telegram_chat_id": telegram_chat_id,
         "max_total_setup_volume": max_total_setup_volume,
+        "default_setup_mode": default_setup_mode,
         "max_preview_drift_percent_override": max_preview_drift_percent_override,
     }
     try:
@@ -605,6 +607,7 @@ def admin_create_trading_account(
                 telegram_chat_id=telegram_chat_id or None,
                 telegram_bot_token=telegram_bot_token or None,
                 max_total_setup_volume=float(max_total_setup_volume) if max_total_setup_volume else None,
+                default_setup_mode=default_setup_mode,
                 max_preview_drift_percent_override=float(max_preview_drift_percent_override) if max_preview_drift_percent_override else None,
                 password=password,
             ),
@@ -650,6 +653,7 @@ def admin_update_trading_account(
     telegram_chat_id: str = Form(""),
     telegram_bot_token: str = Form(""),
     max_total_setup_volume: str = Form(""),
+    default_setup_mode: str = Form("split_two_orders"),
     max_preview_drift_percent_override: str = Form(""),
 ) -> Response:
     target = get_user(db, user_id)
@@ -668,6 +672,7 @@ def admin_update_trading_account(
         "telegram_enabled": telegram_enabled,
         "telegram_chat_id": telegram_chat_id,
         "max_total_setup_volume": max_total_setup_volume,
+        "default_setup_mode": default_setup_mode,
         "max_preview_drift_percent_override": max_preview_drift_percent_override,
     }
     try:
@@ -680,6 +685,7 @@ def admin_update_trading_account(
             "telegram_enabled": telegram_enabled,
             "telegram_chat_id": telegram_chat_id or None,
             "max_total_setup_volume": float(max_total_setup_volume) if max_total_setup_volume else None,
+            "default_setup_mode": default_setup_mode,
             "max_preview_drift_percent_override": float(max_preview_drift_percent_override) if max_preview_drift_percent_override else None,
         }
         if password:

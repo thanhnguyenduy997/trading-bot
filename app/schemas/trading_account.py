@@ -16,6 +16,7 @@ class TradingAccountBase(BaseModel):
     max_total_setup_volume: float | None = Field(default=None, gt=0)
     default_symbol: str | None = Field(default=None, min_length=3, max_length=20)
     default_side: Literal["buy", "sell"] | None = None
+    default_setup_mode: Literal["split_two_orders", "single_full_volume"] = "split_two_orders"
     default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
     default_risk_value: float | None = Field(default=None, gt=0)
     default_rr_order_2: float | None = Field(default=None, gt=0)
@@ -43,6 +44,7 @@ class TradingAccountUpdate(BaseModel):
     max_total_setup_volume: float | None = Field(default=None, gt=0)
     default_symbol: str | None = Field(default=None, min_length=3, max_length=20)
     default_side: Literal["buy", "sell"] | None = None
+    default_setup_mode: Literal["split_two_orders", "single_full_volume"] | None = None
     default_risk_mode: Literal["fixed_money", "balance_percent"] | None = None
     default_risk_value: float | None = Field(default=None, gt=0)
     default_rr_order_2: float | None = Field(default=None, gt=0)

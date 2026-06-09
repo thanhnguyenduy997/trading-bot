@@ -32,6 +32,12 @@ class TradingAccount(Base):
     max_total_setup_volume: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     default_symbol: Mapped[str | None] = mapped_column(String(20), nullable=True)
     default_side: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    default_setup_mode: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="split_two_orders",
+        server_default="split_two_orders",
+    )
     default_risk_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
     default_risk_value: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     default_rr_order_2: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)

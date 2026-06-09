@@ -101,6 +101,7 @@ def test_admin_can_create_trading_account_for_user(client, db_session):
             "account_number": "900001",
             "server_name": "demo-server",
             "terminal_path": "",
+            "default_setup_mode": "single_full_volume",
             "password": "secret-pass",
         },
         follow_redirects=False,
@@ -110,6 +111,44 @@ def test_admin_can_create_trading_account_for_user(client, db_session):
     account = db_session.query(TradingAccount).filter(TradingAccount.user_id == user.id).first()
     assert account is not None
     assert account.account_number == "900001"
+    assert account.default_setup_mode == "single_full_volume"
+
+
+def test_admin_can_update_trading_account_default_setup_mode(client, db_session):
+    admin = _create_admin(db_session)
+    user = create_user(
+        db_session,
+        UserCreate(email="mode-owner@example.com", password="password123", full_name="Mode Owner"),
+    )
+    account = create_trading_account(
+        db_session,
+        user.id,
+        TradingAccountCreate(
+            broker_name="Demo Broker",
+            account_number="900002",
+            server_name="demo-server",
+            password="secret-pass",
+        ),
+    )
+    _login(client, admin.email)
+
+    response = client.post(
+        f"/admin/users/{user.id}/trading-accounts/{account.id}/edit",
+        data={
+            "broker_name": account.broker_name,
+            "account_number": account.account_number,
+            "server_name": account.server_name,
+            "platform": account.platform,
+            "terminal_path": "",
+            "default_setup_mode": "single_full_volume",
+            "password": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(account)
+    assert account.default_setup_mode == "single_full_volume"
 
 
 def test_impersonation_start_stop_preserves_admin_identity(client, db_session):

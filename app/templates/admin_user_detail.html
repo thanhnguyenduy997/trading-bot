@@ -102,6 +102,12 @@
                         <input type="text" name="telegram_chat_id" value="{{ account_form.get('telegram_chat_id', account.telegram_chat_id or '') }}" placeholder="Telegram chat ID">
                         <input type="password" name="telegram_bot_token" placeholder="New Telegram bot token optional">
                         <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ account_form.get('max_total_setup_volume', account.max_total_setup_volume or '') }}" placeholder="Max total setup volume">
+                        <label>Default execution mode</label>
+                        <select name="default_setup_mode">
+                            {% set selected_default_setup_mode = account_form.get('default_setup_mode', account.default_setup_mode or 'split_two_orders') %}
+                            <option value="split_two_orders" {% if selected_default_setup_mode == "split_two_orders" %}selected{% endif %}>Split 2 orders</option>
+                            <option value="single_full_volume" {% if selected_default_setup_mode == "single_full_volume" %}selected{% endif %}>Single full-volume order</option>
+                        </select>
                         <input type="number" step="0.01" min="0" name="max_preview_drift_percent_override" value="{{ account_form.get('max_preview_drift_percent_override', account.max_preview_drift_percent_override or '') }}" placeholder="Preview drift % override">
                         <input type="password" name="password" placeholder="New password optional">
                         <button type="submit" class="secondary-button">Update Account</button>
@@ -147,6 +153,12 @@
         <input type="password" name="telegram_bot_token">
         <label>Max Total Setup Volume</label>
         <input type="number" step="0.01" min="0.01" name="max_total_setup_volume" value="{{ create_form.get('max_total_setup_volume', '') }}">
+        <label>Default execution mode</label>
+        <select name="default_setup_mode">
+            {% set selected_create_default_setup_mode = create_form.get('default_setup_mode', 'split_two_orders') %}
+            <option value="split_two_orders" {% if selected_create_default_setup_mode == "split_two_orders" %}selected{% endif %}>Split 2 orders</option>
+            <option value="single_full_volume" {% if selected_create_default_setup_mode == "single_full_volume" %}selected{% endif %}>Single full-volume order</option>
+        </select>
         <label>Preview Drift % Override</label>
         <input type="number" step="0.01" min="0" name="max_preview_drift_percent_override" value="{{ create_form.get('max_preview_drift_percent_override', '') }}">
         <label>Password</label>

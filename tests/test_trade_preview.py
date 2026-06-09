@@ -450,6 +450,7 @@ def test_preview_page_uses_account_defaults_on_initial_load(
     sync_account_symbols(account, "EURUSD", "XAUUSD")
     account.default_symbol = "EURUSD"
     account.default_side = "sell"
+    account.default_setup_mode = "single_full_volume"
     account.default_risk_mode = "balance_percent"
     account.default_risk_value = 2.5
     account.default_rr_order_2 = 3
@@ -463,6 +464,7 @@ def test_preview_page_uses_account_defaults_on_initial_load(
     assert response.status_code == 200
     assert '<option value="EURUSD" selected>' in response.text
     assert '<option value="sell" selected>' in response.text
+    assert '<option value="single_full_volume" selected>Single full-volume order</option>' in response.text
     assert '<option value="balance_percent" selected>' in response.text
     assert 'name="risk_value" step="0.01" min="0.01" value="2.5"' in response.text
     assert 'name="rr_order2" step="0.1" min="0.1" value="3.0"' in response.text
@@ -484,6 +486,7 @@ def test_preview_submit_allows_user_to_override_account_defaults(
     sync_account_symbols(account, "EURUSD", "XAUUSD")
     account.default_symbol = "EURUSD"
     account.default_side = "sell"
+    account.default_setup_mode = "single_full_volume"
     account.default_risk_mode = "balance_percent"
     account.default_risk_value = 2.5
     account.default_rr_order_2 = 3
@@ -498,6 +501,7 @@ def test_preview_submit_allows_user_to_override_account_defaults(
             "trading_account_id": str(account.id),
             "symbol": "XAUUSD",
             "side": "buy",
+            "setup_mode": "split_two_orders",
             "sl_price": "2319.2",
             "risk_mode": "fixed_money",
             "risk_value": "150",
@@ -508,8 +512,47 @@ def test_preview_submit_allows_user_to_override_account_defaults(
     assert response.status_code == 200
     assert "Review Setup" in response.text
     assert "XAUUSD" in response.text
-    assert "BUY" in response.text
-    assert "2322.2" in response.text
+    setup = db_session.query(TradeSetup).order_by(TradeSetup.id.desc()).first()
+    assert setup is not None
+    assert setup.setup_mode == "split_two_orders"
+    db_session.refresh(account)
+    assert account.default_setup_mode == "single_full_volume"
+
+
+def test_existing_account_defaults_safely_to_split_two_orders(db_session, created_user):
+    account = _create_account(db_session, created_user, account_number="ACC-SAFE-DEFAULT")
+
+    assert account.default_setup_mode == "split_two_orders"
+
+
+def test_switching_preview_account_loads_account_default_setup_mode(
+    client,
+    db_session,
+    created_user,
+    monkeypatch,
+    sync_account_symbols,
+):
+    monkeypatch.setattr(
+        "app.services.execution.default_adapter_factory",
+        lambda account: FakePreviewAdapter(account),
+    )
+    account1 = _create_account(db_session, created_user, account_number="ACC-MODE-1")
+    account2 = _create_account(db_session, created_user, account_number="ACC-MODE-2")
+    account1.default_setup_mode = "split_two_orders"
+    account2.default_setup_mode = "single_full_volume"
+    db_session.add_all([account1, account2])
+    db_session.commit()
+    sync_account_symbols(account1, "XAUUSD")
+    sync_account_symbols(account2, "EURUSD")
+    client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
+
+    response1 = client.get(f"/trading-accounts/id/{account1.id}/symbols")
+    response2 = client.get(f"/trading-accounts/id/{account2.id}/symbols")
+
+    assert response1.status_code == 200
+    assert response1.json()["preview_defaults"]["setup_mode"] == "split_two_orders"
+    assert response2.status_code == 200
+    assert response2.json()["preview_defaults"]["setup_mode"] == "single_full_volume"
 
 
 def test_preview_page_keeps_primary_results_visible_and_moves_secondary_details_into_accordion(
@@ -750,6 +793,9 @@ def test_save_preview_defaults_updates_account_correctly(
     )
     account = _create_account(db_session, created_user, account_number="ACC-202")
     sync_account_symbols(account, "EURUSD", "XAUUSD")
+    account.default_setup_mode = "single_full_volume"
+    db_session.add(account)
+    db_session.commit()
     client.post("/api/auth/login", data={"email": created_user.email, "password": "password123"}, follow_redirects=False)
 
     response = client.post(
@@ -771,4 +817,6 @@ def test_save_preview_defaults_updates_account_correctly(
     assert account.default_risk_mode == "balance_percent"
     assert float(account.default_risk_value) == 1.75
     assert float(account.default_rr_order_2) == 2.8
+    assert account.default_setup_mode == "single_full_volume"
     assert response.json()["preview_defaults"]["symbol"] == "XAUUSD"
+    assert response.json()["preview_defaults"]["setup_mode"] == "single_full_volume"

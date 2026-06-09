@@ -53,6 +53,7 @@ def create_trading_account(db: Session, user_id: int, payload: TradingAccountCre
         max_total_setup_volume=payload.max_total_setup_volume,
         default_symbol=payload.default_symbol,
         default_side=payload.default_side,
+        default_setup_mode=payload.default_setup_mode,
         default_risk_mode=payload.default_risk_mode,
         default_risk_value=payload.default_risk_value,
         default_rr_order_2=payload.default_rr_order_2,
