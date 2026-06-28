@@ -179,6 +179,28 @@
                         <span class="status-pill status-pill-success">No active warnings</span>
                         {% endif %}
                     </section>
+                    {% if preview.news_guard %}
+                    <section class="news-guard-panel news-guard-{{ preview.news_guard.state }}">
+                        <div class="modal-warning-row">
+                            {% if preview.news_guard.state == "danger" %}
+                            <span class="status-pill status-pill-danger">Strict news window</span>
+                            {% elif preview.news_guard.state == "warning" %}
+                            <span class="status-pill status-pill-warning">Near-news warning</span>
+                            {% else %}
+                            <span class="status-pill status-pill-success">News Guard safe</span>
+                            {% endif %}
+                        </div>
+                        <p>{{ preview.news_guard.message }}</p>
+                        <dl class="compact-details">
+                            <div><dt>Relevant symbol</dt><dd>{{ preview.news_guard.symbol }}</dd></div>
+                            <div><dt>Relevant currency / impact</dt><dd>{{ preview.news_guard.event_currency or (preview.news_guard.relevant_currencies|join(", ")) }} / {{ preview.news_guard.event_impact or "N/A" }}</dd></div>
+                            <div><dt>News event</dt><dd>{{ preview.news_guard.event_name or "No active event" }}</dd></div>
+                            <div><dt>Event time</dt><dd>{{ preview.news_guard.event_time or "N/A" }}</dd></div>
+                            <div><dt>High-risk window</dt><dd>{% if preview.news_guard.window_start and preview.news_guard.window_end %}{{ preview.news_guard.window_start }} - {{ preview.news_guard.window_end }}{% else %}No strict window active{% endif %}</dd></div>
+                            <div><dt>Current server time</dt><dd>{{ preview.news_guard.server_time or "Unavailable" }}</dd></div>
+                        </dl>
+                    </section>
+                    {% endif %}
                     <details class="preview-advanced-panel modal-advanced-panel">
                         <summary>Advanced Details</summary>
                         <dl class="compact-details">
@@ -233,6 +255,7 @@
     const previewModalAlert = document.getElementById("preview-modal-alert");
     const previewModalClose = document.getElementById("preview-modal-close");
     let currentPreviewSetupId = document.querySelector(".preview-modal-review")?.dataset.setupId || null;
+    let acceptedPreviewDriftForCurrentSetup = false;
     let accountPreviewDefaults = {{ preview_defaults|tojson }};
     if (previewModal?.open) {
         document.body.classList.add("modal-open");
@@ -330,7 +353,9 @@
         const preview = data.preview || {};
         const advanced = data.advanced || {};
         const warnings = preview.warnings || [];
+        const newsGuard = preview.news_guard || {};
         currentPreviewSetupId = data.setup_id;
+        acceptedPreviewDriftForCurrentSetup = false;
         setDraftSetupId(data.setup_id);
         if (previewModalTitle) {
             previewModalTitle.textContent = `Review Setup #${data.setup_id}`;
@@ -364,6 +389,7 @@
                 <section class="modal-warning-block">
                     ${warnings.length ? warnings.map((warning) => `<span class="status-pill status-pill-warning">${escapeHtml(warning)}</span>`).join("") : `<span class="status-pill status-pill-success">No active warnings</span>`}
                 </section>
+                ${renderNewsGuardPreview(newsGuard)}
                 <details class="preview-advanced-panel modal-advanced-panel">
                     <summary>Advanced Details</summary>
                     <dl class="compact-details">
@@ -385,6 +411,41 @@
             <button id="preview-modal-execute" type="button">Execute Now</button>
         `;
         showPreviewModal();
+    }
+
+    function renderNewsGuardPreview(newsGuard) {
+        if (!newsGuard || !newsGuard.state) {
+            return "";
+        }
+        const stateLabel = newsGuard.state === "danger" ? "Strict news window" : (newsGuard.state === "warning" ? "Near-news warning" : "News Guard safe");
+        const pillClass = newsGuard.state === "danger" ? "status-pill-danger" : (newsGuard.state === "warning" ? "status-pill-warning" : "status-pill-success");
+        const countdown = newsGuard.seconds_until_window !== null && newsGuard.seconds_until_window !== undefined && newsGuard.seconds_until_window > 0
+            ? `<span class="status-pill status-pill-warning">Strict window starts in ${formatCountdown(newsGuard.seconds_until_window)}</span>`
+            : "";
+        return `
+            <section class="news-guard-panel news-guard-${escapeHtml(newsGuard.state)}">
+                <div class="modal-warning-row">
+                    <span class="status-pill ${pillClass}">${escapeHtml(stateLabel)}</span>
+                    ${countdown}
+                </div>
+                <p>${escapeHtml(newsGuard.message || "")}</p>
+                <dl class="compact-details">
+                    ${detailItem("Relevant symbol", newsGuard.symbol)}
+                    ${detailItem("Relevant currency / impact", `${formatModalValue(newsGuard.event_currency || (newsGuard.relevant_currencies || []).join(", "))} / ${formatModalValue(newsGuard.event_impact || "N/A")}`)}
+                    ${detailItem("News event", newsGuard.event_name || "No active event")}
+                    ${detailItem("Event time", formatModalTime(newsGuard.event_time))}
+                    ${detailItem("High-risk window", newsGuard.window_start && newsGuard.window_end ? `${formatModalTime(newsGuard.window_start)} - ${formatModalTime(newsGuard.window_end)}` : "No strict window active")}
+                    ${detailItem("Current server time", formatModalTime(newsGuard.server_time))}
+                </dl>
+            </section>
+        `;
+    }
+
+    function formatCountdown(totalSeconds) {
+        const seconds = Math.max(0, Number(totalSeconds) || 0);
+        const minutes = Math.floor(seconds / 60);
+        const remainder = seconds % 60;
+        return `${minutes}m ${remainder}s`;
     }
 
     function summaryItem(label, value, isPrimary = false) {
@@ -447,6 +508,37 @@
             <button id="preview-modal-refresh" type="button" class="secondary-button">Refresh Preview</button>
             <a class="button-link secondary-button" href="/trade-setups/recover-live">I entered manually on MT5</a>
             <button id="preview-modal-accept-drift" type="button" class="danger-button">Accept new volume and execute now</button>
+        `;
+        showPreviewModal();
+    }
+
+    function renderNewsGuardWarning(data) {
+        const guard = data.news_guard || {};
+        if (previewModalTitle) {
+            previewModalTitle.textContent = "News Guard Override Required";
+        }
+        if (previewModalSubtitle) {
+            previewModalSubtitle.textContent = "This order is inside a prohibited or unreliable high-risk news state.";
+        }
+        setPreviewModalAlert("High-impact news risk: explicit confirmation is required before any new order is submitted.");
+        previewModalContent.innerHTML = `
+            <div class="modal-state-panel news-guard-confirm-panel">
+                <p><strong>${escapeHtml(data.message || guard.message || "News Guard confirmation is required.")}</strong></p>
+                <p class="muted">Executing during this window may violate account or program rules, including High Stakes-style rules. Profits may be disqualified and soft breach or discipline review risk may apply.</p>
+                <dl class="compact-details">
+                    ${detailItem("Relevant symbol", guard.symbol)}
+                    ${detailItem("Relevant currency / impact", `${formatModalValue(guard.event_currency || (guard.relevant_currencies || []).join(", "))} / ${formatModalValue(guard.event_impact || "N/A")}`)}
+                    ${detailItem("News event", guard.event_name || "Unavailable")}
+                    ${detailItem("Event time", formatModalTime(guard.event_time))}
+                    ${detailItem("Blocked / high-risk window", guard.window_start && guard.window_end ? `${formatModalTime(guard.window_start)} - ${formatModalTime(guard.window_end)}` : "News data unavailable or stale")}
+                    ${detailItem("Current server time", formatModalTime(guard.server_time))}
+                    ${detailItem("News data status", guard.data_status)}
+                </dl>
+            </div>
+        `;
+        previewModalActions.innerHTML = `
+            <button id="preview-modal-cancel" type="button" class="secondary-button">Cancel order</button>
+            <button id="preview-modal-override-news" type="button" class="danger-button">I understand the risk, execute anyway</button>
         `;
         showPreviewModal();
     }
@@ -518,14 +610,15 @@
         renderPreviewReview(data);
     }
 
-    async function executePreviewModal(acceptPreviewDrift = false) {
+    async function executePreviewModal(acceptPreviewDrift = false, acceptNewsOverride = false) {
         if (!currentPreviewSetupId) {
             setPreviewModalAlert("Build a preview before executing.");
             return;
         }
-        renderExecutionProgress(acceptPreviewDrift ? "Executing with explicitly accepted recalculated values..." : "Rechecking quote and volume drift...");
+        renderExecutionProgress(acceptNewsOverride ? "Rechecking news window and executing with explicit News Guard override..." : (acceptPreviewDrift ? "Executing with explicitly accepted recalculated values..." : "Rechecking quote, volume drift, and News Guard..."));
         const payload = new FormData();
         payload.set("accept_preview_drift", acceptPreviewDrift ? "true" : "false");
+        payload.set("accept_news_override", acceptNewsOverride ? "true" : "false");
         const response = await fetch(`/trade-setups/${currentPreviewSetupId}/execute/modal`, {
             method: "POST",
             credentials: "same-origin",
@@ -538,6 +631,10 @@
         const data = await response.json();
         if (response.status === 409 && data.state === "drift_warning") {
             renderDriftWarning(data);
+            return;
+        }
+        if (response.status === 409 && data.state === "news_guard_warning") {
+            renderNewsGuardWarning(data);
             return;
         }
         renderExecutionResult(data, response.ok);
@@ -725,10 +822,14 @@
                 submitPreviewModal();
             }
             if (target.id === "preview-modal-execute") {
-                executePreviewModal(false);
+                executePreviewModal(false, false);
             }
             if (target.id === "preview-modal-accept-drift") {
-                executePreviewModal(true);
+                acceptedPreviewDriftForCurrentSetup = true;
+                executePreviewModal(true, false);
+            }
+            if (target.id === "preview-modal-override-news") {
+                executePreviewModal(acceptedPreviewDriftForCurrentSetup, true);
             }
         });
     }

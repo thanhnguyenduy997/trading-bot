@@ -105,6 +105,16 @@ class MT5ExecutionAdapter(ExecutionAdapter):
             "time": getattr(tick, "time", None),
         }
 
+    def get_server_time(self, symbol: str | None = None) -> datetime | None:
+        self._ensure_connected()
+        normalized_symbol = (symbol or getattr(self.account, "default_symbol", "") or "").upper()
+        if normalized_symbol:
+            tick = self._mt5.symbol_info_tick(normalized_symbol)
+            tick_time = getattr(tick, "time", None) if tick is not None else None
+            if tick_time:
+                return datetime.fromtimestamp(int(tick_time), tz=timezone.utc)
+        return None
+
     def get_symbol_info(self, symbol: str) -> dict[str, object]:
         self._ensure_connected()
         normalized_symbol = symbol.upper()

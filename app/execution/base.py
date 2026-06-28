@@ -40,6 +40,9 @@ class ExecutionAdapter(ABC):
     def list_open_positions(self) -> list[dict[str, object]]:
         raise NotImplementedError
 
+    def get_server_time(self, symbol: str | None = None) -> datetime | None:
+        return None
+
     @abstractmethod
     def execute_setup(self, setup: object) -> dict[str, str | int | float | None]:
         raise NotImplementedError

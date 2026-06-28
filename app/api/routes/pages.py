@@ -32,7 +32,7 @@ from app.services.mt5_history_pine_export import Mt5HistoryExportOptions, build_
 from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.risk_management import RiskManagementService
 from app.services.trade_events import list_trade_events
-from app.services.trade_setup_execution import PreviewDriftExceededError, TradeSetupExecutionService
+from app.services.trade_setup_execution import NewsGuardConfirmationRequiredError, PreviewDriftExceededError, TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setup_outcomes import (
     TradeSetupOutcomeService,
@@ -384,6 +384,7 @@ def _preview_modal_payload(preview, setup) -> dict[str, object]:
             "single_order_volume": float(preview.single_order_volume) if preview.single_order_volume is not None else None,
             "validation_status": preview.validation_status,
             "warnings": warnings,
+            "news_guard": preview.news_guard,
         },
         "advanced": {
             "r_value": float(preview.r_value),
@@ -397,6 +398,15 @@ def _preview_modal_payload(preview, setup) -> dict[str, object]:
             "volume_max": float(preview.volume_max) if preview.volume_max is not None else None,
             "volume_step": float(preview.volume_step) if preview.volume_step is not None else None,
         },
+    }
+
+
+def _news_guard_warning_payload(setup_id: int, error: NewsGuardConfirmationRequiredError) -> dict[str, object]:
+    return {
+        "state": "news_guard_warning",
+        "setup_id": setup_id,
+        "message": str(error),
+        "news_guard": error.news_guard,
     }
 
 
@@ -1474,6 +1484,7 @@ def execute_trade_setup_modal(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_from_cookie),
     accept_preview_drift: bool = Form(False),
+    accept_news_override: bool = Form(False),
 ) -> JSONResponse:
     service = TradeSetupExecutionService(db)
     try:
@@ -1481,10 +1492,16 @@ def execute_trade_setup_modal(
             setup_id,
             current_user.id,
             accept_preview_drift=accept_preview_drift,
+            accept_news_override=accept_news_override,
         )
     except PreviewDriftExceededError as exc:
         return JSONResponse(
             _drift_warning_payload(setup_id, exc),
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    except NewsGuardConfirmationRequiredError as exc:
+        return JSONResponse(
+            _news_guard_warning_payload(setup_id, exc),
             status_code=status.HTTP_409_CONFLICT,
         )
     except LookupError as exc:

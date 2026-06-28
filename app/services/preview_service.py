@@ -7,6 +7,7 @@ from app.execution.base import AdapterError
 from app.schemas.trade_preview import TradePreviewRequest, TradePreviewResponse
 from app.services.account_symbols import TradingAccountSymbolService
 from app.services.execution import TradingAccountExecutionService
+from app.services.news_guard import NewsGuardService
 from app.services.risk_management import RiskManagementService
 from app.services.risk_service import RiskService
 from app.services.trading_accounts import get_trading_account
@@ -20,12 +21,14 @@ class PreviewService:
         db: Session,
         execution_service: TradingAccountExecutionService | None = None,
         risk_service: RiskService | None = None,
+        news_guard: NewsGuardService | None = None,
     ) -> None:
         self.db = db
         self.execution_service = execution_service or TradingAccountExecutionService(db)
         self.risk_service = risk_service or RiskService()
         self.risk_management = RiskManagementService(db)
         self.account_symbols = TradingAccountSymbolService(db)
+        self.news_guard = news_guard or NewsGuardService()
 
     def build_preview(self, user_id: int, payload: TradePreviewRequest) -> TradePreviewResponse:
         account = get_trading_account(self.db, payload.trading_account_id, user_id)
@@ -122,6 +125,11 @@ class PreviewService:
             order2_warnings = []
 
         warnings = list(dict.fromkeys(order1_warnings + order2_warnings))
+        news_guard = self.news_guard.evaluate(symbol=payload.symbol, server_time=market_data.server_time)
+        if news_guard.state == "warning":
+            warnings.append(news_guard.message)
+        elif news_guard.state == "danger":
+            warnings.append("Strict News Guard window active. Execution requires explicit confirmation.")
         total_setup_volume = order1_volume + order2_volume
         self.risk_management.assert_preview_allowed(
             user_id=user_id,
@@ -135,6 +143,7 @@ class PreviewService:
             setup_mode=setup_mode,
             bid=float(bid),
             ask=float(ask),
+            server_time=market_data.server_time,
             estimated_entry=float(estimated_entry),
             sl_price=float(sl_price),
             r_value=float(r_value),
@@ -153,6 +162,7 @@ class PreviewService:
             volume_step=symbol_info.volume_step,
             validation_status="valid",
             warnings=warnings,
+            news_guard=news_guard.to_dict(),
         )
 
     def _required_decimal(self, value: float | None, field_name: str) -> Decimal:

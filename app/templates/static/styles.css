@@ -563,6 +563,35 @@ button:hover {
     font-size: 0.88rem;
 }
 
+.news-guard-panel {
+    margin-top: 0.8rem;
+    padding: 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.news-guard-panel p {
+    margin: 0.55rem 0 0.7rem;
+}
+
+.news-guard-warning {
+    border-color: #f6c35f;
+    background: #fff8e5;
+}
+
+.news-guard-danger,
+.news-guard-confirm-panel {
+    border-color: #d92d20;
+    background: #fff1f0;
+}
+
+.status-pill-danger {
+    background: #fee4e2;
+    color: #b42318;
+    border-color: #fecdca;
+}
+
 .modal-body {
     min-height: 0;
     padding: 0.85rem 1rem 1rem;

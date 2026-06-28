@@ -1,5 +1,7 @@
 from typing import Literal
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -25,6 +27,7 @@ class TradePreviewResponse(BaseModel):
     setup_mode: Literal["split_two_orders", "single_full_volume"]
     bid: float
     ask: float
+    server_time: datetime | None = None
     estimated_entry: float
     sl_price: float
     r_value: float
@@ -43,3 +46,4 @@ class TradePreviewResponse(BaseModel):
     volume_step: float | None = None
     validation_status: Literal["valid"]
     warnings: list[str] = Field(default_factory=list)
+    news_guard: dict[str, object] = Field(default_factory=dict)

@@ -105,6 +105,7 @@ class TradingAccountQuoteRead(BaseModel):
     symbol: str
     bid: float
     ask: float
+    server_time: datetime | None = None
     connection_status: str
     mt5_session_status: str
     current_mt5_login: str | None = None

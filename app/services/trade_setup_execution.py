@@ -22,6 +22,12 @@ class PreviewDriftExceededError(ValueError):
         self.drift = drift
 
 
+class NewsGuardConfirmationRequiredError(ValueError):
+    def __init__(self, message: str, news_guard: dict[str, object]) -> None:
+        super().__init__(message)
+        self.news_guard = news_guard
+
+
 class TradeSetupExecutionService:
     preview_ttl = timedelta(minutes=5)
     PREVIEW_DRIFT_REJECT_MESSAGE = (
@@ -35,7 +41,14 @@ class TradeSetupExecutionService:
         self.risk_management = RiskManagementService(db)
         self.account_symbols = TradingAccountSymbolService(db)
 
-    def execute_setup(self, setup_id: int, user_id: int, *, accept_preview_drift: bool = False):
+    def execute_setup(
+        self,
+        setup_id: int,
+        user_id: int,
+        *,
+        accept_preview_drift: bool = False,
+        accept_news_override: bool = False,
+    ):
         setup = get_trade_setup(self.db, setup_id, user_id)
         if not setup:
             raise LookupError("Trade setup not found")
@@ -63,6 +76,12 @@ class TradeSetupExecutionService:
             if drift["exceeds_threshold"] and accept_preview_drift:
                 self._apply_live_preview_to_setup(setup, drift["live_preview"])
                 self._record_preview_drift_accept(setup=setup, user_id=user_id, drift=drift)
+            news_guard = drift["live_preview"].news_guard or {}
+            if news_guard.get("confirmation_required") and not accept_news_override:
+                self._record_news_guard_reject(setup=setup, user_id=user_id, news_guard=news_guard)
+                raise NewsGuardConfirmationRequiredError(str(news_guard.get("message") or "News Guard confirmation is required."), news_guard)
+            if news_guard.get("confirmation_required") and accept_news_override:
+                self._record_news_guard_override(setup=setup, user_id=user_id, news_guard=news_guard)
             account_info = adapter.get_account_info()
             persist_session_matched(self.db, account, account_info=account_info)
             create_trade_event(self.db, user_id, setup.id, "execute_requested", "Execution requested for trade setup.")
@@ -401,6 +420,57 @@ class TradeSetupExecutionService:
             "User accepted recalculated preview values and execution continued.",
             details=json.dumps(details, indent=2, sort_keys=True),
         )
+
+    def _record_news_guard_reject(self, *, setup, user_id: int, news_guard: dict[str, object]) -> None:
+        details = self._news_guard_audit_details(setup=setup, user_id=user_id, news_guard=news_guard, news_override=False)
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "news_guard_confirmation_required",
+            "News Guard required explicit confirmation before execution. No order was submitted.",
+            details=json.dumps(details, indent=2, sort_keys=True, default=str),
+        )
+
+    def _record_news_guard_override(self, *, setup, user_id: int, news_guard: dict[str, object]) -> None:
+        details = self._news_guard_audit_details(setup=setup, user_id=user_id, news_guard=news_guard, news_override=True)
+        create_trade_event(
+            self.db,
+            user_id,
+            setup.id,
+            "news_guard_override_execute",
+            "news_override=true: user explicitly confirmed News Guard risk and execution continued.",
+            details=json.dumps(details, indent=2, sort_keys=True, default=str),
+        )
+
+    def _news_guard_audit_details(
+        self,
+        *,
+        setup,
+        user_id: int,
+        news_guard: dict[str, object],
+        news_override: bool,
+    ) -> dict[str, object]:
+        preview_timestamp = setup.updated_at
+        if preview_timestamp is not None and preview_timestamp.tzinfo is None:
+            preview_timestamp = preview_timestamp.replace(tzinfo=timezone.utc)
+        return {
+            "news_override": news_override,
+            "user_id": user_id,
+            "trading_account_id": setup.trading_account_id,
+            "symbol": setup.symbol,
+            "setup_id": setup.id,
+            "event_time": news_guard.get("event_time"),
+            "server_time_at_execution": news_guard.get("server_time"),
+            "related_news_currency": news_guard.get("event_currency"),
+            "related_news_event": news_guard.get("event_name"),
+            "related_news_impact": news_guard.get("event_impact"),
+            "news_guard_state": news_guard.get("state"),
+            "news_guard_data_status": news_guard.get("data_status"),
+            "news_guard_window_start": news_guard.get("window_start"),
+            "news_guard_window_end": news_guard.get("window_end"),
+            "preview_timestamp": preview_timestamp.isoformat() if preview_timestamp else None,
+        }
 
     def _apply_live_preview_to_setup(self, setup, live_preview) -> None:
         setup.estimated_entry = live_preview.estimated_entry

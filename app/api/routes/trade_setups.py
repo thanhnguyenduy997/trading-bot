@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,7 +20,7 @@ from app.schemas.trade_setup import (
 from app.services.manual_trade_setups import ManualTradeSetupService
 from app.services.preview_service import PreviewService
 from app.services.trade_events import list_trade_events
-from app.services.trade_setup_execution import TradeSetupExecutionService
+from app.services.trade_setup_execution import NewsGuardConfirmationRequiredError, TradeSetupExecutionService
 from app.services.trade_setup_monitoring import TradeSetupMonitoringService
 from app.services.trade_setup_outcomes import TradeSetupOutcomeService
 from app.services.trade_setups import create_trade_setup, get_trade_setup, list_trade_setups
@@ -102,14 +102,24 @@ def read_trade_setup(
 @router.post("/{setup_id}/execute", response_model=TradeSetupExecutionRead)
 def execute_trade_setup(
     setup_id: int,
+    accept_news_override: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TradeSetupExecutionRead:
     service = TradeSetupExecutionService(db)
     try:
-        setup = service.execute_setup(setup_id, current_user.id)
+        setup = service.execute_setup(setup_id, current_user.id, accept_news_override=accept_news_override)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except NewsGuardConfirmationRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "state": "news_guard_warning",
+                "message": str(exc),
+                "news_guard": exc.news_guard,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except AdapterError as exc:

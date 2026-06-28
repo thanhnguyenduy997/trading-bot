@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
 from app.execution.base import AdapterError, ExecutionAdapter
 from app.execution.mt5 import MT5ExecutionAdapter
@@ -64,11 +65,13 @@ class TradingAccountExecutionService:
             quote = adapter.get_quote(normalized_symbol)
             symbol_info = adapter.get_symbol_info(normalized_symbol)
             account_info = adapter.get_account_info()
+            server_time = self._resolve_server_time(adapter, normalized_symbol, quote)
             persist_session_matched(self.db, account, account_info=account_info)
             return TradingAccountQuoteRead(
                 symbol=str(quote["symbol"]),
                 bid=float(quote["bid"]),
                 ask=float(quote["ask"]),
+                server_time=server_time,
                 connection_status=account.connection_status,
                 mt5_session_status=account.mt5_session_status,
                 current_mt5_login=account.current_mt5_login,
@@ -106,3 +109,18 @@ class TradingAccountExecutionService:
         if not account:
             raise LookupError("Trading account not found")
         return account
+
+    def _resolve_server_time(self, adapter: ExecutionAdapter, symbol: str, quote: dict[str, object]) -> datetime | None:
+        get_server_time = getattr(adapter, "get_server_time", None)
+        server_time = get_server_time(symbol) if callable(get_server_time) else None
+        if server_time is not None:
+            return server_time if server_time.tzinfo else server_time.replace(tzinfo=timezone.utc)
+        quote_time = quote.get("time")
+        if quote_time is None:
+            return None
+        if isinstance(quote_time, datetime):
+            return quote_time if quote_time.tzinfo else quote_time.replace(tzinfo=timezone.utc)
+        try:
+            return datetime.fromtimestamp(int(quote_time), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return None
